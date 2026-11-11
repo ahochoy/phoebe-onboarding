@@ -3,6 +3,7 @@ import tempfile
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,6 +34,13 @@ def _migrated_db() -> Iterator[PsycopgDatabase]:
     url = os.environ.get("PHOEBE_TEST_DATABASE_URL")
     if not url:
         pytest.skip("PHOEBE_TEST_DATABASE_URL not set")
+    dbname = urlsplit(url).path.lstrip("/")
+    if not dbname.endswith("_test"):
+        pytest.exit(
+            "Refusing to run: PHOEBE_TEST_DATABASE_URL must point at a database "
+            f"whose name ends in '_test' (got {dbname!r}); the suite drops the schema.",
+            returncode=2,
+        )
     database = PsycopgDatabase(url)
     database.execute("drop schema public cascade")
     database.execute("create schema public")

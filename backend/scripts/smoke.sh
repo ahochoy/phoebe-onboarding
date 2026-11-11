@@ -21,9 +21,10 @@ req() {
   local args=(-sS -o "$BODY" -w '%{http_code}' -X "$method" -b "$JAR" -c "$JAR"
     -H 'X-Phoebe-Csrf: 1' --max-time 30)
   if [ -n "$data" ]; then
-    args+=(-H 'Content-Type: application/json' --data "$data")
+    args+=(-H 'Content-Type: application/json' --data-binary @-)
   fi
-  status="$(curl "${args[@]}" "$BASE$path")" || fail "$method $path: could not reach $BASE (is the stack up?)"
+  # Body goes on stdin so secrets never appear in curl's argv.
+  status="$(printf '%s' "$data" | curl "${args[@]}" "$BASE$path")" || fail "$method $path: could not reach $BASE (is the stack up?)"
   [ "$status" = "$expect" ] || fail "$method $path: expected HTTP $expect, got $status"
 }
 
@@ -31,8 +32,8 @@ req GET /api/health 200
 [ "$(jq -r .status "$BODY")" = ok ] || fail "health: status is not ok"
 echo "health ok"
 
-# Build the login body with jq so the password never appears in argv of curl logs or output.
-req POST /api/login 204 "$(jq -cn --arg p "$PASSWORD" '{password: $p}')"
+# Build the login body with jq, taking the password from the environment (not argv).
+req POST /api/login 204 "$(PW="$PASSWORD" jq -cn 'env.PW | {password: .}')"
 echo "login ok"
 
 req GET /api/me 200
@@ -45,8 +46,8 @@ n="$(jq 'length' "$BODY")"
 echo "tasks ok (14)"
 
 req POST /api/search 200 '{"query":"PTO days"}'
-jq -e '[.. | strings | select(contains("20 days"))] | length > 0' "$BODY" >/dev/null \
-  || fail "search: no passage containing \"20 days\" for query \"PTO days\""
+jq -e 'type == "array" and any(.[]; (.text | type == "string") and (.text | contains("20 days")))' "$BODY" >/dev/null \
+  || fail "search: response is not an array with a passage whose text contains \"20 days\""
 echo "search ok"
 
 req POST /api/reset 204

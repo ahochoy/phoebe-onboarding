@@ -2,7 +2,7 @@ services:
   db:
     image: pgvector/pgvector:pg16
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_PASSWORD: phoebe
       POSTGRES_DB: phoebe
@@ -21,7 +21,7 @@ services:
         condition: service_healthy
     # Host port is configurable in case 8080 is taken; the container always uses 8080.
     ports:
-      - "${PHOEBE_PORT:-8080}:8080"
+      - "127.0.0.1:${PHOEBE_PORT:-8080}:8080"
     environment:
       PHOEBE_DATABASE_URL: postgresql://postgres:phoebe@db:5432/phoebe
       # Written to .env by `make stack`; empty default keeps `docker compose up db` working.

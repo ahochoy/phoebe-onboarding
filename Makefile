@@ -4,6 +4,7 @@ SHELL := /bin/bash
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
 export PHOEBE_PORT
+export PHOEBE_DEV_PASSWORD
 # DB tests run against their own database so they never wipe the stack's seed.
 PHOEBE_TEST_DATABASE_URL ?= postgresql://postgres:phoebe@localhost:5433/phoebe_test
 export PHOEBE_TEST_DATABASE_URL
@@ -18,7 +19,7 @@ test-db: up
 stack:
 	@if [ ! -f .env ]; then \
 		echo "writing .env (password from PHOEBE_DEV_PASSWORD)"; \
-		hash="$$(uv run python -m phoebe.auth "$(PHOEBE_DEV_PASSWORD)")" || exit 1; \
+		hash="$$(uv run python -m phoebe.auth "$$PHOEBE_DEV_PASSWORD")" || exit 1; \
 		printf "PHOEBE_PASSWORD_HASH='%s'\n" "$$hash" > .env; \
 	fi
 	docker compose up -d --build --wait db api || { docker compose logs --tail 50 api; exit 1; }
@@ -27,11 +28,11 @@ stack:
 		curl -fsS -o /dev/null http://localhost:$(PHOEBE_PORT)/api/health && exit 0; \
 		sleep 1; \
 	done; echo "api did not become healthy in 60s" >&2; docker compose logs --tail 50 api; exit 1
-	docker compose exec api python -m phoebe migrate
-	docker compose exec api python -m phoebe seed
+	docker compose exec -T api python -m phoebe migrate
+	docker compose exec -T api python -m phoebe seed
 
 smoke:
-	PHOEBE_URL=$${PHOEBE_URL:-http://localhost:$(PHOEBE_PORT)} PHOEBE_DEV_PASSWORD=$(PHOEBE_DEV_PASSWORD) backend/scripts/smoke.sh
+	@PHOEBE_URL=$${PHOEBE_URL:-http://localhost:$(PHOEBE_PORT)} backend/scripts/smoke.sh
 
 down:
 	docker compose down
