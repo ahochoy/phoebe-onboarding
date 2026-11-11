@@ -46,7 +46,7 @@ def test_no_chunk_is_entirely_overlap():
         p = parse_markdown(f"# S\n{_words(n)}\n".encode())
         cs = chunk_document(p, "D")
         assert cs[-1].text.split()[-1] == f"w{n - 1}"
-        for _, b in itertools.pairwise(cs):
+        for a, b in itertools.pairwise(cs):
             new = len(b.text.split()) - 40
             assert new > 0, n
             assert len(a.text.split()) <= 380
@@ -79,7 +79,9 @@ def test_ordinal_counts_across_document():
 
 
 def test_offsets_exact_with_irregular_whitespace():
-    p = parse_markdown(b"# A\n  alpha   beta\n\n  gamma\tdelta  \n# B\n\xc3\xa9t\xc3\xa9 caf\xc3\xa9\n")
+    p = parse_markdown(
+        b"# A\n  alpha   beta\n\n  gamma\tdelta  \n# B\n\xc3\xa9t\xc3\xa9 caf\xc3\xa9\n"
+    )
     cs = chunk_document(p, "D")
     assert all(p.full_text[c.start : c.end] == c.text for c in cs)
     assert cs[0].text == "alpha   beta\n\n  gamma\tdelta"
