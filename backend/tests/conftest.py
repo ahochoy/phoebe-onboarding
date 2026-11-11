@@ -5,16 +5,27 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
+from phoebe.api.app import Deps, create_app
+from phoebe.auth import hash_password
+from phoebe.config import Settings
 from phoebe.db import Database, PsycopgDatabase
 from phoebe.embed import HashEmbedder
 from phoebe.ingest.pipeline import index_document
+from phoebe.jobs import InlineJobQueue
 from phoebe.migrate import apply_migrations
+from phoebe.seed import load_seed
+from phoebe.sessions import InMemorySessionStore
 from phoebe.storage import LocalBlobStore
 
 ALEX = ["acme", "eng", "platform"]
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
+SEED_DIR = Path(__file__).resolve().parents[1] / "seed"
+
+PW = "correct horse battery staple"
+CSRF = {"X-Phoebe-Csrf": "1"}
 
 
 @pytest.fixture(scope="session")
@@ -138,3 +149,49 @@ def index_seed_text(
     doc_id = rows[0]["id"]
     index_document(db, _BLOBS, HashEmbedder(), doc_id, seed_root=_SEED_ROOT)
     return doc_id
+
+
+@pytest.fixture
+def client(db: PsycopgDatabase, tmp_path: Path) -> Iterator[TestClient]:
+    blobs = LocalBlobStore(tmp_path / "blobs")
+    embedder = HashEmbedder()
+    settings = Settings(
+        database_url="postgresql://unused",
+        password_hash=hash_password(PW),
+        cookie_secure=False,
+        blob_dir=tmp_path / "blobs",
+        seed_dir=SEED_DIR,
+    )
+    jobs = InlineJobQueue(
+        lambda doc_id: index_document(
+            db, blobs, embedder, doc_id, seed_root=settings.seed_dir
+        )
+    )
+    deps = Deps(db, InMemorySessionStore(), blobs, embedder, jobs, settings)
+    with TestClient(create_app(deps)) as c:
+        yield c
+
+
+def _login(c: TestClient) -> TestClient:
+    r = c.post("/api/login", json={"password": PW}, headers=CSRF)
+    assert r.status_code == 204
+    return c
+
+
+@pytest.fixture
+def logged_in(client: TestClient) -> TestClient:
+    return _login(client)
+
+
+@pytest.fixture
+def seeded_client(db: PsycopgDatabase, client: TestClient) -> TestClient:
+    deps: Deps = client.app.state.deps  # type: ignore[attr-defined]
+    load_seed(db, deps.embedder, deps.settings.seed_dir)
+    return _login(client)
+
+
+@pytest.fixture
+def second_client(logged_in: TestClient) -> Iterator[TestClient]:
+    """Another logged-in visitor on the same app, with a different cookie."""
+    with TestClient(logged_in.app) as c:
+        yield _login(c)
