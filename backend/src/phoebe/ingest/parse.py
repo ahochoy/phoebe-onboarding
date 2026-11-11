@@ -119,12 +119,20 @@ def _sections_from_items(items: list[_Item]) -> ParsedDocument:
 
 
 _HEADING_RE = re.compile(r"^ {0,3}(#{1,3})[ \t]+(.*)$")
-_CLOSING_HASHES_RE = re.compile(r"[ \t]+#+$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
 def parse_markdown(data: bytes) -> ParsedDocument:
     return _parse_markdown_text(_decode(data))
+
+
+def _heading_title(raw: str) -> str:
+    """Strip optional closing hashes (linear; a bare `#` or `B#` is kept)."""
+    t = raw.rstrip()
+    u = t.rstrip("#")
+    if u != t and u and u[-1] in " \t":
+        t = u.rstrip()
+    return t.strip()
 
 
 def _parse_markdown_text(text: str) -> ParsedDocument:
@@ -144,7 +152,7 @@ def _parse_markdown_text(text: str) -> ParsedDocument:
             items.append(line)
             continue
         h = None if fence else _HEADING_RE.match(line)
-        title = _CLOSING_HASHES_RE.sub("", h.group(2).rstrip()).strip() if h else ""
+        title = _heading_title(h.group(2)) if h else ""
         if h and title:
             items.append((len(h.group(1)), title))
         else:

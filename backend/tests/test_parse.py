@@ -351,3 +351,22 @@ def test_markdown_heading_regex_not_quadratic():
 def test_markdown_closing_hashes():
     p = parse_markdown(b"# A ##\nx\n## B#\ny\n")
     assert [s.heading_path for s in p.sections] == [("A",), ("A", "B#")]
+
+
+def test_heading_interior_whitespace_linear():
+    import time
+
+    line = ("# a" + " " * 100_000 + "x").encode()
+    t = time.perf_counter()
+    p = parse_markdown(line + b"\nbody")
+    assert time.perf_counter() - t < 1
+    assert p.sections[0].heading_path[0].endswith("x")
+
+
+def test_heading_closing_hashes_variants():
+    def title(md: bytes) -> str:
+        return parse_markdown(md + b"\nbody").sections[0].heading_path[0]
+
+    assert title(b"# Title ##") == "Title"
+    assert title(b"# B#") == "B#"
+    assert title(b"# #") == "#"
