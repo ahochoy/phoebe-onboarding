@@ -17,7 +17,7 @@
 9. Output guardrail.
 10. Persist the turn.
 
-Results go out as Server-Sent Events. Each AWS dependency (Titan embedder, AgentCore Harness, Converse rewriter, ApplyGuardrail, DynamoDB counters and kill switch) sits behind a small protocol with an offline implementation. That keeps local dev and CI free of Bedrock, as in Plan 1. A small Terraform root (`infra/ai`) creates only the Guardrail and the two Harnesses, so the real chain can be exercised locally before Plan 4 builds the rest of the cloud.
+The query rewrite exists for retrieval quality on follow-up questions, not for safety. Safety comes from the guardrails, passage fencing, the citation verifier and the SQL visibility filter. Results go out as Server-Sent Events. Each AWS dependency (Titan embedder, AgentCore Harness, Converse rewriter, ApplyGuardrail, DynamoDB counters and kill switch) sits behind a small protocol with an offline implementation. That keeps local dev and CI free of Bedrock, as in Plan 1. A small Terraform root (`infra/ai`) creates only the Guardrail and the two Harnesses, so the real chain can be exercised locally before Plan 4 builds the rest of the cloud.
 
 **Tech Stack:**
 - Python 3.14, FastAPI (`StreamingResponse`, SSE), Pydantic v2, psycopg 3.
