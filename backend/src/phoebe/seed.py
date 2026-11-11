@@ -6,6 +6,7 @@ from the environment, so it does not need `PHOEBE_PASSWORD_HASH` the way the
 full app `Settings` does. It applies migrations first, then loads the seed.
 """
 
+import logging
 import tempfile
 from dataclasses import dataclass
 from datetime import date
@@ -16,10 +17,13 @@ import yaml
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from phoebe.db import Database, PsycopgDatabase
+from phoebe.documents import mark_failed
 from phoebe.embed import Embedder, HashEmbedder
 from phoebe.ingest.pipeline import index_document
 from phoebe.migrate import apply_migrations
 from phoebe.storage import LocalBlobStore
+
+log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
@@ -158,10 +162,21 @@ def load_seed(db: Database, embedder: Embedder, seed_dir: Path) -> SeedReport:
     with tempfile.TemporaryDirectory(prefix="phoebe-seed-") as blob_dir:
         blobs = LocalBlobStore(Path(blob_dir))  # seeds never read blobs
         for doc_id in doc_ids:
-            index_document(db, blobs, embedder, doc_id, seed_root=seed_dir)
+            try:
+                index_document(db, blobs, embedder, doc_id, seed_root=seed_dir)
+            except Exception as exc:  # noqa: BLE001 - keep indexing the rest
+                log.error(
+                    "seed indexing raised document=%s error=%s",
+                    doc_id,
+                    type(exc).__name__,
+                )
+                try:
+                    mark_failed(db, doc_id, "Indexing error")
+                except Exception:  # noqa: BLE001
+                    log.error("seed mark_failed raised document=%s", doc_id)
     failed = db.fetch(
-        "select title, failure_reason from documents "
-        "where session_id is null and status <> 'indexed'"
+        "select id::text as id, title, failure_reason from documents "
+        "where session_id is null and status <> 'indexed' order by title"
     )
     if failed:
         raise RuntimeError(

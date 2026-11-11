@@ -2,8 +2,6 @@
 
 This schedule is a guide, not a rulebook. Your manager, Jordan Lee, and your buddy, Mei Tanaka, will adapt it to you. Every meeting below is on your calendar already. All times are Pacific.
 
-Most people start on a Monday. If your first day falls midweek, the order of the days stays the same and the calendar invites move to match. Weekday names below are for a Monday start.
-
 ## Before you start
 
 You should already have a welcome email with your laptop shipping details and a link to the benefits portal. If your laptop has not arrived two days before your start date, message people@larkspur-labs.example and we will sort it out.

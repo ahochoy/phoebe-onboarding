@@ -1,4 +1,8 @@
+from collections.abc import Sequence
 from pathlib import Path
+from urllib.parse import urlparse
+
+import pytest
 
 from phoebe.db import Database
 from phoebe.documents import list_documents
@@ -83,3 +87,23 @@ def test_payments_runbook_not_visible_to_alex(db: Database) -> None:
         db, HashEmbedder(), "s1", alex_groups(db), "payments runbook settlement"
     )
     assert all("Payments Runbook" != p.document_title for p in hits)
+
+
+def test_seed_public_urls_use_example_tld(db: Database) -> None:
+    load_seed(db, HashEmbedder(), SEED_DIR)
+    urls = [d.public_url for d in list_documents(db, "s1") if d.public_url]
+    assert urls
+    assert all((urlparse(u).hostname or "").endswith(".example") for u in urls)
+
+
+class _BoomEmbedder:
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        raise ValueError("boom")
+
+
+def test_load_seed_continues_after_index_exception_then_raises(db: Database) -> None:
+    with pytest.raises(RuntimeError) as exc:
+        load_seed(db, _BoomEmbedder(), SEED_DIR)
+    assert "Employee Handbook" in str(exc.value) and "Sales Playbook" in str(exc.value)
+    statuses = {r["status"] for r in db.fetch("select status from documents")}
+    assert statuses == {"failed"}

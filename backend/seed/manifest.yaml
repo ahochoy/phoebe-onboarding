@@ -16,7 +16,7 @@ people:
   - id: alex-rivera
     name: Alex Rivera
     team: platform
-    start_date: 2026-11-03
+    start_date: 2026-11-02
     manager: Jordan Lee
     buddy: Mei Tanaka
     completed: [hr-paperwork, setup-2fa, sign-conduct, laptop-setup, repo-access, meet-buddy]
@@ -113,7 +113,7 @@ documents:
      purpose: "Who is on Platform, what we own and how we work."}
   - {key: project-manifest, title: Project Manifest, group: platform, doc_type: google_doc,
      last_updated: 2026-11-09, source: "seed://content/project-manifest.txt",
-     public_url: "https://docs.google.com/document/d/larkspur-platform-project-manifest/edit",
+     public_url: "https://docs.larkspur-labs.example/document/project-manifest",
      purpose: "Active Platform projects this quarter and their leads."}
   - {key: first-week, title: First-Week Schedule, group: platform, doc_type: markdown,
      last_updated: 2026-10-28, source: "seed://content/first-week.md",
