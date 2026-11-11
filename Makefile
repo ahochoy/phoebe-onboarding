@@ -1,4 +1,4 @@
-.PHONY: up test lint
+.PHONY: up test lint seed
 
 up:
 	docker compose up -d db
@@ -8,3 +8,6 @@ test:
 
 lint:
 	uv run ruff check . && uv run pyright
+
+seed:
+	uv run python -m phoebe.seed
