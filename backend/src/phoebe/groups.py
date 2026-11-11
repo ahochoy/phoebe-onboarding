@@ -119,6 +119,7 @@ _IN_USE_SQL = f"""
 with eff_groups as ({EFFECTIVE_GROUPS_SQL})
 select
   exists (select 1 from eff_groups where parent_id = :gid)
+  or exists (select 1 from people where team_id = :gid)
   or exists (
     select 1 from tasks t
     left join overrides o on o.session_id = :sid and o.entity_kind = 'task'

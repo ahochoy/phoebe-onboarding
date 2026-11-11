@@ -153,3 +153,9 @@ def test_get_persona(db):
     assert (persona.department_id, persona.department_name) == ("eng", "Engineering")
     assert persona.manager == "Priya Nair"
     assert persona.buddy == "Sam Okafor"
+
+
+def test_delete_group_with_people_refused(db):
+    seed_org(db)
+    with pytest.raises(GroupInUse):
+        delete_group(db, "s1", "platform")
