@@ -125,7 +125,7 @@ def test_every_state_changing_route_is_guarded(client: TestClient) -> None:
         unsafe = (c.methods or set()) - {"GET", "HEAD", "OPTIONS"}
         if not unsafe:
             continue
-        assert c.path.startswith("/api/"), c.path
+        assert (c.path or "").startswith("/api/"), c.path
         calls = [d.call for d in c.route.dependant.dependencies]  # type: ignore[attr-defined]
         assert require_csrf in calls, c.path
         if c.path != "/api/login":
