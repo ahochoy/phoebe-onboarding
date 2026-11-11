@@ -49,11 +49,16 @@ def _read_seed(uri: str, seed_root: Path | None) -> bytes:
     if seed_root is None or not rel:
         raise _Fail("Invalid source")
     root = seed_root.resolve()
-    path = (root / rel).resolve()
+    try:
+        path = (root / rel).resolve()
+    except ValueError as exc:
+        raise _Fail("Invalid source") from exc
     if not path.is_relative_to(root):
         raise _Fail("Invalid source")
     try:
         return path.read_bytes()
+    except ValueError as exc:
+        raise _Fail("Invalid source") from exc
     except OSError as exc:
         raise _Fail("Source file missing") from exc
 
@@ -66,6 +71,8 @@ def _read_blob(blobs: BlobStore, session_id: str | None, uri: str) -> bytes:
         return blobs.get(key)
     except KeyError as exc:
         raise _Fail("Source file missing") from exc
+    except ValueError as exc:
+        raise _Fail("Invalid source") from exc
 
 
 def _text(data: bytes) -> str:
@@ -207,9 +214,19 @@ def index_document(
     except (ParseError, UnsafeUrlError, FetchError) as exc:
         mark_failed(db, document_id, exc.reason)
         return
-    except Exception:
-        mark_failed(db, document_id, "Indexing error")
-        log.exception("indexing failed document=%s", document_id)
+    except Exception as exc:
+        # Metadata only: exception messages/tracebacks may carry document text.
+        log.error(
+            "indexing failed document=%s error=%s", document_id, type(exc).__name__
+        )
+        try:
+            mark_failed(db, document_id, "Indexing error")
+        except Exception as mark_exc:  # noqa: BLE001 - must not mask original
+            log.error(
+                "mark_failed failed document=%s error=%s",
+                document_id,
+                type(mark_exc).__name__,
+            )
         raise
     log.info(
         "indexed document=%s stored=%s chunks=%d ms=%d",

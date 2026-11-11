@@ -338,3 +338,71 @@ def test_seed_missing_file(db, blobs, tmp_path):
         0
     ]
     assert row["failure_reason"] == "Source file missing"
+
+
+def test_failure_log_has_no_exception_message(db, blobs, caplog):
+    seed_org(db)
+    d = create_document(db, "s1", new_doc(source_uri="blob://uploads/s1/x"))
+    blobs.put("uploads/s1/x", b"# A\ntext\n")
+
+    class Broken(HashEmbedder):
+        def embed(self, texts):
+            raise RuntimeError("secret internal detail")
+
+    with caplog.at_level("DEBUG"), pytest.raises(RuntimeError):
+        index_document(db, blobs, Broken(), d)
+    assert caplog.records
+    for rec in caplog.records:
+        assert "secret internal detail" not in rec.getMessage()
+        assert "secret internal detail" not in (rec.exc_text or "")
+        assert rec.exc_info is None
+
+
+def test_seed_valueerror_is_invalid_source(db, blobs, tmp_path, monkeypatch):
+    seed_org(db)
+    root = tmp_path / "seed"
+    root.mkdir()
+    (root / "a.md").write_text("# A\ntext\n")
+    d = make_seed(db, "markdown", "seed://a.md")
+
+    def nul(self):
+        raise ValueError("embedded null byte")
+
+    monkeypatch.setattr(Path, "read_bytes", nul)
+    index_document(db, blobs, HashEmbedder(), d, seed_root=root)
+    row = db.fetch("select failure_reason from documents where id::text=:d", {"d": d})[
+        0
+    ]
+    assert row["failure_reason"] == "Invalid source"
+
+
+def test_blob_store_valueerror_is_invalid_source(db, blobs):
+    seed_org(db)
+    d = create_document(db, "s1", new_doc(source_uri="blob://uploads/s1/x"))
+
+    class BadStore:
+        def put(self, key, data): ...
+        def delete(self, key): ...
+        def get(self, key):
+            raise ValueError("bad key")
+
+    index_document(db, BadStore(), HashEmbedder(), d)
+    doc = get_document(db, "s1", d)
+    assert doc and doc.failure_reason == "Invalid source"
+
+
+def test_mark_failed_error_does_not_mask_original(db, blobs, monkeypatch):
+    seed_org(db)
+    d = create_document(db, "s1", new_doc(source_uri="blob://uploads/s1/x"))
+    blobs.put("uploads/s1/x", b"# A\ntext\n")
+
+    class Broken(HashEmbedder):
+        def embed(self, texts):
+            raise RuntimeError("original")
+
+    def boom(*a, **k):
+        raise OSError("db down")
+
+    monkeypatch.setattr("phoebe.ingest.pipeline.mark_failed", boom)
+    with pytest.raises(RuntimeError, match="original"):
+        index_document(db, blobs, Broken(), d)
