@@ -16,10 +16,14 @@ def vector_literal(vec: Sequence[float]) -> str:
 
 
 class Embedder(Protocol):
+    id: str
+
     def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
 
 
 class HashEmbedder:
+    id = "hash-v1-1024"
+
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         return [self._one(t) for t in texts]
 

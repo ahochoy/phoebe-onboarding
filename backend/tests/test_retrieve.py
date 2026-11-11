@@ -76,3 +76,21 @@ def test_logs_do_not_contain_query(db, caplog):
     with caplog.at_level("DEBUG"):
         search(db, HashEmbedder(), "s1", ALEX, "secretquerytext")
     assert "secretquerytext" not in caplog.text
+
+
+def test_search_returns_similarity(db):
+    from phoebe.embed import vector_literal
+
+    seed_org(db)
+    index_seed_text(db, "acme", b"# Leave\nPTO is 20 days per year.\n")
+    index_seed_text(db, "acme", b"# Parking\nGarage badges are issued by facilities.\n")
+    q = "how many PTO days"
+    r = search(db, HashEmbedder(), "s1", ALEX, q)
+    assert 0 < r[0].similarity <= 1
+    qv = vector_literal(HashEmbedder().embed([q])[0])
+    for p in r:
+        want = db.fetch(
+            "select 1 - (embedding <=> :qv::vector) as s from chunks where id = :id::uuid",
+            {"qv": qv, "id": p.chunk_id},
+        )[0]["s"]
+        assert abs(p.similarity - want) < 1e-6

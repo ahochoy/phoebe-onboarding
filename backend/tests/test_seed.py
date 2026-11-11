@@ -8,6 +8,7 @@ from phoebe.db import Database
 from phoebe.documents import list_documents
 from phoebe.embed import HashEmbedder
 from phoebe.groups import visible_group_ids
+from phoebe.meta import EmbedderMismatch
 from phoebe.retrieve import search
 from phoebe.seed import load_seed
 from phoebe.tasks import PersonProgress, progress
@@ -97,6 +98,8 @@ def test_seed_public_urls_use_example_tld(db: Database) -> None:
 
 
 class _BoomEmbedder:
+    id = "boom"
+
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         raise ValueError("boom")
 
@@ -107,3 +110,17 @@ def test_load_seed_continues_after_index_exception_then_raises(db: Database) -> 
     assert "Employee Handbook" in str(exc.value) and "Sales Playbook" in str(exc.value)
     statuses = {r["status"] for r in db.fetch("select status from documents")}
     assert statuses == {"failed"}
+
+
+def test_load_seed_records_embedder_and_refuses_mismatch(db: Database) -> None:
+    class Titan:
+        id = "titan-v2-1024"
+
+        def embed(self, texts):
+            return HashEmbedder().embed(texts)
+
+    load_seed(db, HashEmbedder(), SEED_DIR)
+    rows = db.fetch("select value from app_meta where key = 'embedder'")
+    assert [r["value"] for r in rows] == ["hash-v1-1024"]
+    with pytest.raises(EmbedderMismatch):
+        load_seed(db, Titan(), SEED_DIR)

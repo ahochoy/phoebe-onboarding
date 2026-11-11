@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from phoebe.db import Database
 from phoebe.embed import Embedder, vector_literal
 from phoebe.overlay_sql import EFFECTIVE_DOCUMENTS_SQL, EFFECTIVE_GROUPS_SQL
-from phoebe.sessions import session_hash
+from phoebe.sessions import log_id
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ fused as (
 )
 select c.id::text chunk_id, c.document_id::text document_id, d.title document_title,
        c.heading_path, c.text, c.start_offset start, c.end_offset "end",
+       (1 - (c.embedding <=> :qvec::vector))::float8 similarity,
        f.score::float8 score, f.vr::int vector_rank, f.tr::int text_rank
 from fused f
 join chunks c on c.id = f.id
@@ -64,6 +65,7 @@ class Passage(BaseModel):
     text: str
     start: int
     end: int
+    similarity: float
     score: float
     vector_rank: int | None
     text_rank: int | None
@@ -104,7 +106,7 @@ def search(
     passages = [Passage(**r) for r in rows]
     log.info(
         "search session=%s count=%d chunks=%s ms=%d",
-        session_hash(session_id),
+        log_id(session_id),
         len(passages),
         [p.chunk_id for p in passages],
         int((time.monotonic() - started) * 1000),

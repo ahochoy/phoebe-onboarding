@@ -32,6 +32,11 @@ def session_hash(session_id: str) -> str:
     return _sha256_hex(session_id)[:12]
 
 
+def log_id(sandbox_id: str) -> str:
+    """Log label for a sandbox id; equals `session_hash` of the raw token."""
+    return sandbox_id[:12]
+
+
 def sandbox_id(session_id: str) -> str:
     """Non-secret sandbox key derived from the session token. The raw token is a
     bearer secret and must never reach the DB, blob keys or API responses.

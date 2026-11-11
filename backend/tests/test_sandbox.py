@@ -105,3 +105,14 @@ def test_reset_never_returns_foreign_blob_key(db):
     mine = _raw_owned(db, "s1", "blob://uploads/s1/mine")
     assert reset_session(db, "s1") == ["uploads/s1/mine"]
     assert mine
+
+
+def test_reset_session_deletes_chat_turns(db):
+    for sid, role in (("A", "user"), ("A", "assistant"), ("B", "user")):
+        db.execute(
+            "insert into chat_turns (session_id, role, text) values (:s, :r, 'x')",
+            {"s": sid, "r": role},
+        )
+    reset_session(db, "A")
+    rows = db.fetch("select session_id from chat_turns")
+    assert [r["session_id"] for r in rows] == ["B"]
