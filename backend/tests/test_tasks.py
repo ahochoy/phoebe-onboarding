@@ -200,3 +200,25 @@ def test_hide_override_hides_seed_task(db):
     t = make_task(db, group_id="acme")
     hide(db, "s1", EntityKind.TASK, t)
     assert t not in ids(list_tasks(db, "s1"))
+
+
+def test_set_completion_on_foreign_task_returns_false(db):
+    seed_org(db)
+    mine = create_task(db, "s1", NewTask(title="Mine", group_id="acme"))
+    assert set_completion(db, "s2", "alex-rivera", mine, True) is False
+    assert db.fetch("select 1 from task_completions") == []
+    assert set_completion(db, "s1", "alex-rivera", mine, True) is True
+    seed = make_task(db, group_id="acme")
+    delete_task(db, "s1", seed)
+    assert set_completion(db, "s1", "alex-rivera", seed, True) is False
+    assert set_completion(db, "s2", "alex-rivera", seed, True) is True
+
+
+def test_set_completion_unknown_task_or_person_returns_false(db):
+    seed_org(db)
+    t = make_task(db, group_id="acme")
+    missing = "00000000-0000-0000-0000-000000000000"
+    assert set_completion(db, "s1", "alex-rivera", missing, True) is False
+    assert set_completion(db, "s1", "alex-rivera", "not-a-uuid", True) is False
+    assert set_completion(db, "s1", "nobody", t, True) is False
+    assert db.fetch("select 1 from task_completions") == []

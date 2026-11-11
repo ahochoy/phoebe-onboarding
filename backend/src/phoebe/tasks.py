@@ -204,7 +204,15 @@ def delete_task(db: Database, session_id: str, task_id: str) -> bool:
 
 def set_completion(
     db: Database, session_id: str, person_id: str, task_id: str, done: bool
-) -> None:
+) -> bool:
+    """Upsert this session's completion row. False (nothing written) when the
+    task is not effective for this session or the person does not exist."""
+    if not (
+        _owns(db, session_id, task_id) or _visible_seed_task(db, session_id, task_id)
+    ):
+        return False
+    if not db.fetch("select 1 from people where id = :pid", {"pid": person_id}):
+        return False
     db.execute(
         """
         insert into task_completions (person_id, task_id, session_id, done)
@@ -214,6 +222,7 @@ def set_completion(
         """,
         {"pid": person_id, "tid": task_id, "sid": session_id, "done": done},
     )
+    return True
 
 
 def progress(db: Database, session_id: str) -> list[PersonProgress]:
