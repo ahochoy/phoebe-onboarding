@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed
+.PHONY: up test-db stack smoke down test lint seed pause kill open status
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -45,3 +45,15 @@ lint:
 
 seed:
 	uv run python -m phoebe.seed
+
+pause:
+	uv run python -m phoebe control chat_paused
+
+kill:
+	uv run python -m phoebe control closed
+
+open:
+	uv run python -m phoebe control open
+
+status:
+	uv run python -m phoebe control status
