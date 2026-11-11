@@ -10,7 +10,7 @@ from phoebe.documents import (
     delete_document,
     get_document,
 )
-from phoebe.embed import HashEmbedder
+from phoebe.embed import EmbeddingUnavailable, HashEmbedder
 from phoebe.ingest.fetch import FetchedPage, FetchError, UnsafeUrlError
 from phoebe.ingest.pipeline import index_document
 from phoebe.storage import LocalBlobStore
@@ -406,3 +406,42 @@ def test_mark_failed_error_does_not_mask_original(db, blobs, monkeypatch):
     monkeypatch.setattr("phoebe.ingest.pipeline.mark_failed", boom)
     with pytest.raises(RuntimeError, match="original"):
         index_document(db, blobs, Broken(), d)
+
+
+def test_pipeline_fails_document_over_chunk_cap(db, blobs):
+    seed_org(db)
+    d = create_document(
+        db, "s1", new_doc(doc_type="markdown", source_uri="blob://uploads/s1/cap")
+    )
+    blobs.put("uploads/s1/cap", b"# A\none\n\n# B\ntwo\n\n# C\nthree\n")
+
+    class Boom:
+        id = "boom"
+
+        def embed(self, texts):
+            raise AssertionError("embedded an oversize document")
+
+    index_document(db, blobs, Boom(), d, max_chunks=2)
+    doc = get_document(db, "s1", d)
+    assert doc is not None and doc.status == "failed"
+    assert doc.failure_reason == "Document is too long to index"
+    assert chunk_count(db, d) == 0
+
+
+def test_pipeline_embedding_unavailable_marks_failed(db, blobs):
+    seed_org(db)
+    d = create_document(
+        db, "s1", new_doc(doc_type="markdown", source_uri="blob://uploads/s1/eu")
+    )
+    blobs.put("uploads/s1/eu", b"# Leave\nPTO is 20 days.\n")
+
+    class Down:
+        id = "down"
+
+        def embed(self, texts):
+            raise EmbeddingUnavailable("down")
+
+    index_document(db, blobs, Down(), d)
+    doc = get_document(db, "s1", d)
+    assert doc is not None and doc.status == "failed"
+    assert doc.failure_reason == "Embedding service unavailable"

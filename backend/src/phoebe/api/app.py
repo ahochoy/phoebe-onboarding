@@ -17,7 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from phoebe.config import Settings
 from phoebe.db import Database, PsycopgDatabase
-from phoebe.embed import Embedder, HashEmbedder
+from phoebe.embed import Embedder, make_embedder
 from phoebe.ingest.pipeline import index_document
 from phoebe.jobs import InlineJobQueue, JobQueue
 from phoebe.sessions import (
@@ -156,10 +156,15 @@ def create_configured_app() -> FastAPI:
     else:
         sessions = InMemorySessionStore()
     blobs = LocalBlobStore(Path(settings.blob_dir))
-    embedder = HashEmbedder()
+    embedder = make_embedder(settings)
     jobs = InlineJobQueue(
         lambda doc_id: index_document(
-            db, blobs, embedder, doc_id, seed_root=settings.seed_dir
+            db,
+            blobs,
+            embedder,
+            doc_id,
+            seed_root=settings.seed_dir,
+            max_chunks=settings.max_chunks_per_document,
         )
     )
 

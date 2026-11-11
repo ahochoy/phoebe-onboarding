@@ -14,3 +14,6 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     blob_dir: Path = Path("data/blobs")
     seed_dir: Path = Path("backend/seed")
+    embedder: Literal["hash", "titan"] = "hash"
+    aws_region: str = "us-east-2"
+    max_chunks_per_document: int = 400

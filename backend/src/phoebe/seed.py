@@ -18,7 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from phoebe.db import Database, PsycopgDatabase
 from phoebe.documents import mark_failed
-from phoebe.embed import Embedder, HashEmbedder
+from phoebe.embed import Embedder, make_embedder
 from phoebe.ingest.pipeline import index_document
 from phoebe.meta import check_embedder, record_embedder
 from phoebe.migrate import apply_migrations
@@ -204,6 +204,8 @@ class _SeedSettings(BaseSettings):
 
     database_url: str
     seed_dir: Path = Path("backend/seed")
+    embedder: str = "hash"
+    aws_region: str = "us-east-2"
 
 
 def main() -> None:
@@ -213,7 +215,7 @@ def main() -> None:
         applied = apply_migrations(db, MIGRATIONS_DIR)
         if applied:
             print(f"applied migrations: {', '.join(applied)}")
-        report = load_seed(db, HashEmbedder(), settings.seed_dir)
+        report = load_seed(db, make_embedder(settings), settings.seed_dir)
     finally:
         db.close()
     print(
