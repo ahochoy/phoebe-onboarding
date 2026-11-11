@@ -149,7 +149,11 @@ def _owned_count(db: Database, session_id: str) -> int:
     return int(rows[0]["n"])
 
 
-def create_document(db: Database, session_id: str, doc: NewDocument) -> str:
+def create_document(
+    db: Database, session_id: str, doc: NewDocument, *, doc_id: str | None = None
+) -> str:
+    """Insert an owned document. `doc_id` (a UUID string) lets the caller pick the
+    id up front, e.g. so an upload's blob key can match it."""
     if doc.group_id not in _effective_group_ids(db, session_id):
         raise ValueError(f"unknown group {doc.group_id}")
     if doc.source_uri.startswith(_BLOB_PREFIX) and (
@@ -161,12 +165,14 @@ def create_document(db: Database, session_id: str, doc: NewDocument) -> str:
     rows = db.fetch(
         """
         insert into documents
-          (session_id, title, purpose, last_updated, doc_type, group_id, source_uri)
+          (id, session_id, title, purpose, last_updated, doc_type, group_id,
+           source_uri)
         values
-          (:sid, :title, :purpose, :last_updated, :doc_type, :group_id, :source_uri)
+          (coalesce(:doc_id::uuid, gen_random_uuid()), :sid, :title, :purpose,
+           :last_updated, :doc_type, :group_id, :source_uri)
         returning id::text as id
         """,
-        {"sid": session_id, **doc.model_dump()},
+        {"sid": session_id, "doc_id": doc_id, **doc.model_dump()},
     )
     return rows[0]["id"]
 

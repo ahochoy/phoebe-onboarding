@@ -120,6 +120,8 @@ def create_app(
 ) -> FastAPI:
     """Build the app. The default lifespan does not close `deps.db` (callers own it)."""
     from phoebe.api.routes_auth import routers as auth_routers
+    from phoebe.api.routes_documents import routers as document_routers
+    from phoebe.api.routes_portal import routers as portal_routers
 
     @asynccontextmanager
     async def _noop(_: FastAPI):
@@ -138,7 +140,7 @@ def create_app(
     app.state.deps = deps
     _install_error_handlers(app)
     _install_middleware(app)
-    for r in auth_routers:
+    for r in (*auth_routers, *portal_routers, *document_routers):
         app.include_router(r)
     return app
 

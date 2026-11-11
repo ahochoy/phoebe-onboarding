@@ -276,3 +276,20 @@ def test_blob_key_traversal_rejected(db):
     assert blob_key_for("s1", "blob://uploads/s1/x") == "uploads/s1/x"
     d = _raw_owned(db, "s1", "blob://uploads/s1/../s2/x")
     assert delete_document(db, "s1", d).blob_key is None
+
+
+def test_create_document_with_explicit_id(db):
+    seed_org(db)
+    chosen = "11111111-2222-3333-4444-555555555555"
+    got = create_document(
+        db,
+        "s1",
+        NewDocument(
+            title="t",
+            doc_type="markdown",
+            group_id="platform",
+            source_uri="blob://uploads/s1/" + chosen,
+        ),
+        doc_id=chosen,
+    )
+    assert got == chosen

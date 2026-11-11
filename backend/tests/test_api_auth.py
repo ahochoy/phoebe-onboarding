@@ -1,7 +1,7 @@
 import logging
 from datetime import date
 
-from fastapi.routing import iter_route_contexts
+from fastapi.routing import APIRoute, iter_route_contexts
 from fastapi.testclient import TestClient
 
 from conftest import CSRF, PW, make_task, seed_org
@@ -122,11 +122,17 @@ def test_every_state_changing_route_is_guarded(client: TestClient) -> None:
     contexts = list(iter_route_contexts(client.app.routes))  # type: ignore[attr-defined]
     assert contexts
     for c in contexts:
+        if not isinstance(c.route, APIRoute):
+            # Mounts, WebSockets and plain Starlette routes bypass the dependency
+            # check, so they are only allowed when they are GET/HEAD-only.
+            methods = c.methods
+            assert methods is not None and methods <= {"GET", "HEAD"}, c.path
+            continue
         unsafe = (c.methods or set()) - {"GET", "HEAD", "OPTIONS"}
         if not unsafe:
             continue
         assert (c.path or "").startswith("/api/"), c.path
-        calls = [d.call for d in c.route.dependant.dependencies]  # type: ignore[attr-defined]
+        calls = [d.call for d in c.route.dependant.dependencies]
         assert require_csrf in calls, c.path
         if c.path != "/api/login":
             assert require_session in calls, c.path
