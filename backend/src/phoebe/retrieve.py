@@ -12,9 +12,8 @@ from collections.abc import Sequence
 from pydantic import BaseModel
 
 from phoebe.db import Database
-from phoebe.documents import EFFECTIVE_DOCUMENTS_SQL
-from phoebe.embed import Embedder
-from phoebe.groups import EFFECTIVE_GROUPS_SQL
+from phoebe.embed import Embedder, vector_literal
+from phoebe.overlay_sql import EFFECTIVE_DOCUMENTS_SQL, EFFECTIVE_GROUPS_SQL
 from phoebe.sessions import session_hash
 
 log = logging.getLogger(__name__)
@@ -70,10 +69,6 @@ class Passage(BaseModel):
     text_rank: int | None
 
 
-def _literal(vec: Sequence[float]) -> str:
-    return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
-
-
 def search(
     db: Database,
     embedder: Embedder,
@@ -100,7 +95,7 @@ def search(
         {
             "sid": session_id,
             "groups": list(group_ids),
-            "qvec": _literal(qvec),
+            "qvec": vector_literal(qvec),
             "q": query,
             "n": candidates,
             "k": k,

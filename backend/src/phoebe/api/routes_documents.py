@@ -23,6 +23,7 @@ from phoebe.api.background import run_guarded
 from phoebe.api.routes_portal import DocUuid, alex_groups
 from phoebe.api.security import Sandbox, require_csrf
 from phoebe.documents import (
+    DocStatus,
     DocType,
     DocumentDetail,
     DocumentPatch,
@@ -38,6 +39,7 @@ from phoebe.documents import (
 from phoebe.ingest.fetch import google_doc_export_url
 from phoebe.ingest.parse import ParseError, sniff_upload
 from phoebe.retrieve import Passage, search
+from phoebe.sandbox import BLOB_PREFIX
 
 _log = logging.getLogger("phoebe.api")
 
@@ -86,7 +88,7 @@ class DocumentOut(BaseModel):
     group_id: str
     group_name: str
     group_kind: str
-    status: str
+    status: DocStatus
     failure_reason: str | None
     public_url: str | None
     owned: bool
@@ -200,7 +202,7 @@ def upload_document(
                 last_updated=meta.last_updated,
                 doc_type=doc_type,
                 group_id=meta.group_id,
-                source_uri=f"blob://{key}",
+                source_uri=f"{BLOB_PREFIX}{key}",
             ),
             doc_id=doc_id,
         )

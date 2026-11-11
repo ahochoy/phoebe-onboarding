@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from phoebe.db import Database
-from phoebe.documents import blob_key_for, mark_failed, mark_indexed
-from phoebe.embed import Embedder
+from phoebe.documents import mark_failed, mark_indexed
+from phoebe.embed import Embedder, vector_literal
 from phoebe.ingest.chunk import Chunk, chunk_document, embedding_text
 from phoebe.ingest.fetch import (
     FetchedPage,
@@ -29,13 +29,13 @@ from phoebe.ingest.parse import (
     parse_pdf,
     parse_plain,
 )
+from phoebe.sandbox import BLOB_PREFIX, blob_key_for
 from phoebe.storage import BlobStore
 
 log = logging.getLogger(__name__)
 
 _BATCH = 32
 _SEED = "seed://"
-_BLOB = "blob://"
 
 
 class _Fail(Exception):
@@ -94,7 +94,7 @@ def _parse(
         if session_id is not None:  # only seed rows may read seed files
             raise _Fail("Invalid source")
         data = _read_seed(uri, seed_root)
-    elif uri.startswith(_BLOB):
+    elif uri.startswith(BLOB_PREFIX):
         if textual:
             raise _Fail("Invalid source")
         data = _read_blob(blobs, session_id, uri)
@@ -132,10 +132,6 @@ def _embed_all(embedder: Embedder, chunks: list[Chunk]) -> list[list[float]]:
     return out
 
 
-def _literal(vec: list[float]) -> str:
-    return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
-
-
 def _store(
     db: Database,
     document_id: str,
@@ -167,7 +163,7 @@ def _store(
                     "text": chunk.text,
                     "s": chunk.start,
                     "e": chunk.end,
-                    "emb": _literal(vec),
+                    "emb": vector_literal(vec),
                 },
             )
         sections = [

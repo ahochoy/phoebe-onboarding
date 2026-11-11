@@ -1,3 +1,11 @@
+"""Session stores and the ids derived from a session token.
+
+The sandbox id intentionally equals the session-store key: both are
+sha256(token) hex. That is the link a Plan 4 sweeper uses to join a `sandboxes`
+row (and its owned rows and blobs) to a stored session. Do not add domain
+separation between the two.
+"""
+
 import hashlib
 import secrets
 import threading
@@ -15,20 +23,25 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _sha256_hex(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
 def session_hash(session_id: str) -> str:
     """Short, non-reversible session label for logs."""
-    return hashlib.sha256(session_id.encode()).hexdigest()[:12]
+    return _sha256_hex(session_id)[:12]
 
 
 def sandbox_id(session_id: str) -> str:
     """Non-secret sandbox key derived from the session token. The raw token is a
-    bearer secret and must never reach the DB, blob keys or API responses."""
-    return hashlib.sha256(session_id.encode()).hexdigest()
+    bearer secret and must never reach the DB, blob keys or API responses.
+    Equal to the store key on purpose (see the module docstring)."""
+    return _sha256_hex(session_id)
 
 
 def _store_key(session_id: str) -> str:
     """Sessions are stored under sha256(token) so a leaked dump can't be replayed."""
-    return hashlib.sha256(session_id.encode()).hexdigest()
+    return _sha256_hex(session_id)
 
 
 @dataclass(frozen=True)

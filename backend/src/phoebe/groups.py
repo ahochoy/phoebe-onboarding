@@ -4,23 +4,12 @@ from typing import Any
 from pydantic import BaseModel
 
 from phoebe.db import Database
+from phoebe.overlay_sql import (
+    EFFECTIVE_DOCUMENTS_SQL,
+    EFFECTIVE_GROUPS_SQL,
+    EFFECTIVE_TASKS_SQL,
+)
 from phoebe.sandbox import EntityKind, hide, patch
-
-# CTE body, parameterized by :sid. Columns: id, name, kind, parent_id, owned.
-# Embed as `with eff_groups as (<EFFECTIVE_GROUPS_SQL>) ...`.
-# A visitor's override can rename or hide a seed group, never re-parent it.
-EFFECTIVE_GROUPS_SQL = """
-select g.id, coalesce(o.patch->>'name', g.name) as name, g.kind, g.parent_id,
-       false as owned
-from groups g
-left join overrides o
-  on o.session_id = :sid and o.entity_kind = 'group' and o.entity_id = g.id
-where g.session_id is null and not coalesce(o.hidden, false)
-union all
-select g.id, g.name, g.kind, g.parent_id, true as owned
-from groups g
-where g.session_id = :sid
-"""
 
 
 class GroupInUse(Exception):
@@ -42,6 +31,11 @@ def _effective(db: Database, session_id: str) -> list[dict[str, Any]]:
         "select id, name, kind, parent_id, owned from eff_groups order by name, id",
         {"sid": session_id},
     )
+
+
+def effective_group_ids(db: Database, session_id: str) -> set[str]:
+    """Ids of every group effective for this session."""
+    return {r["id"] for r in _effective(db, session_id)}
 
 
 def visible_group_ids(db: Database, session_id: str, team_id: str) -> list[str]:
@@ -115,25 +109,17 @@ def rename_group(db: Database, session_id: str, group_id: str, name: str) -> boo
     return True
 
 
+# Built on the canonical overlay CTEs, so a seed doc or task patched into the
+# group blocks the delete and one patched out of it does not.
 _IN_USE_SQL = f"""
-with eff_groups as ({EFFECTIVE_GROUPS_SQL})
+with eff_groups as ({EFFECTIVE_GROUPS_SQL}),
+eff_docs as ({EFFECTIVE_DOCUMENTS_SQL}),
+eff_tasks as ({EFFECTIVE_TASKS_SQL})
 select
   exists (select 1 from eff_groups where parent_id = :gid)
   or exists (select 1 from people where team_id = :gid)
-  or exists (
-    select 1 from tasks t
-    left join overrides o on o.session_id = :sid and o.entity_kind = 'task'
-                         and o.entity_id = t.id::text
-    where t.group_id = :gid
-      and (t.session_id = :sid or (t.session_id is null and not coalesce(o.hidden, false)))
-  )
-  or exists (
-    select 1 from documents d
-    left join overrides o on o.session_id = :sid and o.entity_kind = 'document'
-                         and o.entity_id = d.id::text
-    where d.group_id = :gid
-      and (d.session_id = :sid or (d.session_id is null and not coalesce(o.hidden, false)))
-  ) as in_use
+  or exists (select 1 from eff_docs where group_id = :gid)
+  or exists (select 1 from eff_tasks where group_id = :gid) as in_use
 """
 
 

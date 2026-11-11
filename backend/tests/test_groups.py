@@ -1,6 +1,7 @@
 import pytest
 
 from conftest import make_seed_doc, make_task, seed_org
+from phoebe.documents import DocumentPatch, list_documents, update_document
 from phoebe.groups import (
     GroupInUse,
     GroupNode,
@@ -12,6 +13,7 @@ from phoebe.groups import (
 )
 from phoebe.persona import PERSONA_ID, get_persona
 from phoebe.sandbox import EntityKind, hide, patch
+from phoebe.tasks import TaskPatch, list_tasks, update_task
 
 
 def flatten(nodes: list[GroupNode]) -> list[GroupNode]:
@@ -159,3 +161,35 @@ def test_delete_group_with_people_refused(db):
     seed_org(db)
     with pytest.raises(GroupInUse):
         delete_group(db, "s1", "platform")
+
+
+def test_delete_group_blocked_by_moved_in_seed_doc(db):
+    seed_org(db)
+    gid = create_group(db, "s1", "Data", "team", "eng")
+    d = make_seed_doc(db, group_id="platform")
+    assert update_document(db, "s1", d, DocumentPatch(group_id=gid)) is True
+    with pytest.raises(GroupInUse):
+        delete_group(db, "s1", gid)
+    assert d in [x.id for x in list_documents(db, "s1")]
+
+
+def test_delete_group_blocked_by_moved_in_seed_task(db):
+    seed_org(db)
+    gid = create_group(db, "s1", "Data", "team", "eng")
+    t = make_task(db, group_id="platform")
+    assert update_task(db, "s1", t, TaskPatch(group_id=gid)) is True
+    with pytest.raises(GroupInUse):
+        delete_group(db, "s1", gid)
+    assert t in [x.id for x in list_tasks(db, "s1")]
+
+
+def test_delete_group_allowed_after_only_doc_moved_out(db):
+    seed_org(db)
+    d = make_seed_doc(db, group_id="payments")
+    with pytest.raises(GroupInUse):
+        delete_group(db, "s1", "payments")
+    assert update_document(db, "s1", d, DocumentPatch(group_id="platform")) is True
+    assert delete_group(db, "s1", "payments") is True
+    # Another session still has the doc in payments, so it is refused there.
+    with pytest.raises(GroupInUse):
+        delete_group(db, "s2", "payments")

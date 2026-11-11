@@ -222,3 +222,13 @@ def test_set_completion_unknown_task_or_person_returns_false(db):
     assert set_completion(db, "s1", "alex-rivera", "not-a-uuid", True) is False
     assert set_completion(db, "s1", "nobody", t, True) is False
     assert db.fetch("select 1 from task_completions") == []
+
+
+def test_link_max_length():
+    long = "https://example.com/" + "a" * 1981
+    assert len(long) == 2001
+    with pytest.raises(ValidationError):
+        NewTask(title="x", group_id="acme", link=long)
+    with pytest.raises(ValidationError):
+        TaskPatch(link=long)
+    assert NewTask(title="x", group_id="acme", link=long[:2000]).link == long[:2000]

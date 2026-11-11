@@ -348,3 +348,62 @@ def test_run_guarded_swallows_and_logs_type_only(caplog) -> None:
     assert "secret doc text" not in caplog.text
     for rec in caplog.records:
         assert rec.exc_info is None and "secret doc text" not in rec.getMessage()
+
+
+def _sandbox_rows(db: Database, sid: str) -> list[dict]:
+    return db.fetch(
+        "select created_at, last_seen from sandboxes where id = :id", {"id": sid}
+    )
+
+
+def test_sandbox_row_created_on_first_authenticated_request(
+    db: Database, logged_in: TestClient
+) -> None:
+    sid = sandbox_id(logged_in.cookies["phoebe_session"])
+    assert _sandbox_rows(db, sid) == []
+    assert logged_in.get("/api/groups").status_code == 200
+    assert len(_sandbox_rows(db, sid)) == 1
+
+
+def test_sandbox_row_not_rewritten_within_a_minute(
+    db: Database, logged_in: TestClient
+) -> None:
+    sid = sandbox_id(logged_in.cookies["phoebe_session"])
+    logged_in.get("/api/groups")
+    first = _sandbox_rows(db, sid)[0]["last_seen"]
+    logged_in.get("/api/groups")
+    assert _sandbox_rows(db, sid)[0]["last_seen"] == first
+    db.execute(
+        "update sandboxes set last_seen = now() - interval '2 minutes' where id = :id",
+        {"id": sid},
+    )
+    stale = _sandbox_rows(db, sid)[0]["last_seen"]
+    logged_in.get("/api/groups")
+    assert _sandbox_rows(db, sid)[0]["last_seen"] > stale
+
+
+def test_reset_keeps_and_logout_removes_sandbox_row(
+    db: Database, logged_in: TestClient
+) -> None:
+    sid = sandbox_id(logged_in.cookies["phoebe_session"])
+    logged_in.get("/api/groups")
+    assert logged_in.post("/api/reset", headers=CSRF).status_code == 204
+    assert len(_sandbox_rows(db, sid)) == 1
+    assert logged_in.post("/api/logout", headers=CSRF).status_code == 204
+    assert _sandbox_rows(db, sid) == []
+
+
+def test_wipe_sandbox_logs_blob_delete_errors_by_type(
+    db: Database, logged_in: TestClient, caplog
+) -> None:
+    _, key = _own_stuff(db, logged_in)
+
+    class Broken:
+        def delete(self, k):
+            raise OSError(f"disk on fire at {k}")
+
+    deps_of(logged_in).blobs = Broken()  # type: ignore[assignment]
+    with caplog.at_level(logging.ERROR, logger="phoebe.api"):
+        assert logged_in.post("/api/reset", headers=CSRF).status_code == 204
+    assert "blob delete failed OSError" in caplog.text
+    assert key not in caplog.text and "disk on fire" not in caplog.text

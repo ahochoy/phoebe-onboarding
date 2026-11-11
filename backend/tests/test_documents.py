@@ -7,12 +7,10 @@ from pydantic import ValidationError
 
 from conftest import make_seed_doc, seed_org
 from phoebe.documents import (
-    EFFECTIVE_DOCUMENTS_SQL,
     DocumentPatch,
     DocumentSummary,
     NewDocument,
     SandboxFull,
-    blob_key_for,
     create_document,
     delete_document,
     get_document,
@@ -21,7 +19,9 @@ from phoebe.documents import (
     mark_indexed,
     update_document,
 )
-from phoebe.groups import EFFECTIVE_GROUPS_SQL, create_group, delete_group
+from phoebe.groups import create_group, delete_group
+from phoebe.overlay_sql import EFFECTIVE_DOCUMENTS_SQL, EFFECTIVE_GROUPS_SQL
+from phoebe.sandbox import blob_key_for
 
 
 def new_doc(**overrides: Any) -> NewDocument:
@@ -217,7 +217,7 @@ def test_effective_sql_embeddable_and_columns(db):
     assert set(rows[0]) == {
         "id", "session_id", "title", "purpose", "last_updated", "doc_type",
         "group_id", "status", "failure_reason", "source_uri", "public_url",
-        "full_text", "sections", "owned",
+        "owned",
     }  # fmt: skip
 
 
@@ -293,3 +293,69 @@ def test_create_document_with_explicit_id(db):
         doc_id=chosen,
     )
     assert got == chosen
+
+
+class _RecordingDb:
+    def __init__(self, inner):
+        self.inner = inner
+        self.sql: list[str] = []
+
+    def fetch(self, sql, params=None):
+        self.sql.append(sql)
+        return self.inner.fetch(sql, params)
+
+    def execute(self, sql, params=None):
+        self.sql.append(sql)
+        return self.inner.execute(sql, params)
+
+    def transaction(self):
+        return self.inner.transaction()
+
+
+def test_list_documents_never_reads_full_text(db):
+    seed_org(db)
+    d = make_seed_doc(db)
+    mark_indexed(db, d, "secret body text", [{"heading_path": [], "start": 0}])
+    rec = _RecordingDb(db)
+    docs = list_documents(rec, "s1")  # type: ignore[arg-type]
+    assert ids(docs) == [d]
+    assert rec.sql and all(
+        "full_text" not in q and "sections" not in q for q in rec.sql
+    )
+    assert "full_text" not in DocumentSummary.model_fields
+    detail = get_document(db, "s1", d)
+    assert detail is not None and detail.full_text == "secret body text"
+
+
+def test_seed_doc_patched_then_hidden_absent(db):
+    seed_org(db)
+    d = make_seed_doc(db, group_id="platform")
+    update_document(db, "s1", d, DocumentPatch(title="Renamed", group_id="eng"))
+    assert delete_document(db, "s1", d).deleted is True
+    assert d not in ids(list_documents(db, "s1"))
+    assert get_document(db, "s1", d) is None
+    other = get_document(db, "s2", d)
+    assert other is not None and (other.title, other.group_id) == ("Doc", "platform")
+
+
+def test_seed_doc_patched_into_owned_group_visible_only_to_owner(db):
+    seed_org(db)
+    gid = create_group(db, "s1", "Data", "team", "eng")
+    d = make_seed_doc(db, group_id="platform")
+    assert update_document(db, "s1", d, DocumentPatch(group_id=gid)) is True
+    assert d in ids(list_documents(db, "s1", group_ids=[gid]))
+    mine = get_document(db, "s1", d)
+    assert mine is not None and (mine.group_id, mine.group_name) == (gid, "Data")
+    assert list_documents(db, "s2", group_ids=[gid]) == []
+    theirs = get_document(db, "s2", d)
+    assert theirs is not None and theirs.group_id == "platform"
+
+
+def test_mark_indexed_on_hidden_seed_doc_is_global(db):
+    seed_org(db)
+    d = make_seed_doc(db)
+    delete_document(db, "s1", d)
+    assert mark_indexed(db, d, "fresh text", []) is True
+    assert get_document(db, "s1", d) is None
+    seen = get_document(db, "s2", d)
+    assert seen is not None and seen.full_text == "fresh text"

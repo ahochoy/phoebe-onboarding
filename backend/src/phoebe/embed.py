@@ -10,6 +10,11 @@ EMBED_DIM = 1024
 _TOKEN = re.compile(r"\w+")
 
 
+def vector_literal(vec: Sequence[float]) -> str:
+    """pgvector text literal for `vec` (cast with `::vector` in SQL)."""
+    return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
+
+
 class Embedder(Protocol):
     def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
 

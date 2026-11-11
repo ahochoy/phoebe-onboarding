@@ -4,7 +4,8 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from phoebe.db import Database
-from phoebe.groups import EFFECTIVE_GROUPS_SQL, visible_group_ids
+from phoebe.groups import effective_group_ids, visible_group_ids
+from phoebe.overlay_sql import EFFECTIVE_GROUPS_SQL, EFFECTIVE_TASKS_SQL
 from phoebe.sandbox import EntityKind, hide, patch
 
 
@@ -19,7 +20,7 @@ def _check_https(value: str | None) -> str | None:
 class NewTask(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000)
-    link: str | None = None
+    link: str | None = Field(default=None, max_length=2000)
     group_id: str
     position: int = 0
 
@@ -29,7 +30,7 @@ class NewTask(BaseModel):
 class TaskPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
-    link: str | None = None
+    link: str | None = Field(default=None, max_length=2000)
     group_id: str | None = None
     position: int | None = None
 
@@ -63,35 +64,6 @@ class PersonProgress(BaseModel):
     total: int
 
 
-# CTE body (needs :sid) listing this session's effective tasks:
-# seed tasks not hidden by the session with patch fields applied, plus owned tasks.
-_EFFECTIVE_TASKS_SQL = """
-select t.id,
-       coalesce(o.patch->>'title', t.title) as title,
-       coalesce(o.patch->>'description', t.description) as description,
-       coalesce(o.patch->>'link', t.link) as link,
-       coalesce(o.patch->>'group_id', t.group_id) as group_id,
-       coalesce((o.patch->>'position')::int, t.position) as position,
-       false as owned
-from tasks t
-left join overrides o
-  on o.session_id = :sid and o.entity_kind = 'task' and o.entity_id = t.id::text
-where t.session_id is null and not coalesce(o.hidden, false)
-union all
-select t.id, t.title, t.description, t.link, t.group_id, t.position, true
-from tasks t
-where t.session_id = :sid
-"""
-
-
-def _effective_group_ids(db: Database, session_id: str) -> set[str]:
-    rows = db.fetch(
-        f"with eff_groups as ({EFFECTIVE_GROUPS_SQL}) select id from eff_groups",
-        {"sid": session_id},
-    )
-    return {r["id"] for r in rows}
-
-
 def list_tasks(
     db: Database,
     session_id: str,
@@ -107,7 +79,7 @@ def list_tasks(
     rows = db.fetch(
         f"""
         with eff_groups as ({EFFECTIVE_GROUPS_SQL}),
-        eff_tasks as ({_EFFECTIVE_TASKS_SQL})
+        eff_tasks as ({EFFECTIVE_TASKS_SQL})
         select et.id::text as id, et.title, et.description, et.link, et.group_id,
                g.name as group_name, g.kind as group_kind, et.position, et.owned,
                coalesce(
@@ -128,7 +100,7 @@ def list_tasks(
 
 
 def create_task(db: Database, session_id: str, task: NewTask) -> str:
-    if task.group_id not in _effective_group_ids(db, session_id):
+    if task.group_id not in effective_group_ids(db, session_id):
         raise ValueError(f"unknown group {task.group_id}")
     rows = db.fetch(
         """
@@ -172,7 +144,7 @@ def update_task(
     owned = _owns(db, session_id, task_id)
     if not owned and not _visible_seed_task(db, session_id, task_id):
         return False
-    if "group_id" in fields and fields["group_id"] not in _effective_group_ids(
+    if "group_id" in fields and fields["group_id"] not in effective_group_ids(
         db, session_id
     ):
         raise ValueError(f"unknown group {fields['group_id']}")

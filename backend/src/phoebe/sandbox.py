@@ -49,7 +49,7 @@ def patch(
     )
 
 
-_BLOB_PREFIX = "blob://"
+BLOB_PREFIX = "blob://"
 _log = logging.getLogger(__name__)
 
 
@@ -60,9 +60,9 @@ def blob_key_for(session_id: str, source_uri: str) -> str | None:
     `uploads/{session_id}/<something>` (leading slash, backslash and `..`
     segments are rejected). A rejected blob URI is logged by session hash only.
     """
-    if not source_uri.startswith(_BLOB_PREFIX):
+    if not source_uri.startswith(BLOB_PREFIX):
         return None
-    key = source_uri.removeprefix(_BLOB_PREFIX)
+    key = source_uri.removeprefix(BLOB_PREFIX)
     prefix = f"uploads/{session_id}/"
     ok = (
         key.startswith(prefix)
@@ -79,12 +79,31 @@ def blob_key_for(session_id: str, source_uri: str) -> str | None:
     return key
 
 
+def touch_sandbox(db: Database, sandbox_id: str) -> None:
+    """Register the sandbox, or bump `last_seen`. To limit writes, an existing
+    row is only rewritten when it was last seen over a minute ago."""
+    db.execute(
+        """
+        insert into sandboxes (id) values (:sid)
+        on conflict (id) do update set last_seen = now()
+        where sandboxes.last_seen < now() - interval '1 minute'
+        """,
+        {"sid": sandbox_id},
+    )
+
+
+def forget_sandbox(db: Database, sandbox_id: str) -> None:
+    """Drop the sandbox's registry row (on logout)."""
+    db.execute("delete from sandboxes where id = :sid", {"sid": sandbox_id})
+
+
 def reset_session(db: Database, session_id: str) -> list[str]:
     """Delete everything this session owns or changed; return its uploaded blob keys.
 
     Runs in one transaction, in FK-safe order. Chunks cascade with documents.
     Groups go in a single statement: Postgres checks the parent_id FK at the
     end of the statement, so nested owned groups can be deleted together.
+    The `sandboxes` registry row is kept: the session is still live.
     """
     params = {"sid": session_id}
     with db.transaction() as tx:

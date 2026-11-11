@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
 
+from phoebe.sandbox import touch_sandbox
 from phoebe.sessions import Session, sandbox_id
 
 COOKIE_NAME = "phoebe_session"
@@ -22,9 +23,14 @@ def require_csrf(request: Request) -> None:
         raise HTTPException(403, "csrf_required")
 
 
-def require_sandbox(session: Annotated[Session, Depends(require_session)]) -> str:
-    """The non-secret sandbox id for this session (never the raw token)."""
-    return sandbox_id(session.id)
+def require_sandbox(
+    request: Request, session: Annotated[Session, Depends(require_session)]
+) -> str:
+    """The non-secret sandbox id for this session (never the raw token).
+    Registers the sandbox (or bumps its last_seen) for the future sweeper."""
+    sid = sandbox_id(session.id)
+    touch_sandbox(request.app.state.deps.db, sid)
+    return sid
 
 
 Sandbox = Annotated[str, Depends(require_sandbox)]
