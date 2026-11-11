@@ -45,3 +45,30 @@ def patch(
             "fields": json.dumps(fields),
         },
     )
+
+
+_BLOB_PREFIX = "blob://"
+
+
+def reset_session(db: Database, session_id: str) -> list[str]:
+    """Delete everything this session owns or changed; return its uploaded blob keys.
+
+    Runs in one transaction, in FK-safe order. Chunks cascade with documents.
+    Groups go in a single statement: Postgres checks the parent_id FK at the
+    end of the statement, so nested owned groups can be deleted together.
+    """
+    params = {"sid": session_id}
+    with db.transaction() as tx:
+        uris = tx.fetch(
+            "select source_uri from documents where session_id = :sid", params
+        )
+        tx.execute("delete from task_completions where session_id = :sid", params)
+        tx.execute("delete from overrides where session_id = :sid", params)
+        tx.execute("delete from tasks where session_id = :sid", params)
+        tx.execute("delete from documents where session_id = :sid", params)
+        tx.execute("delete from groups where session_id = :sid", params)
+    return [
+        r["source_uri"].removeprefix(_BLOB_PREFIX)
+        for r in uris
+        if r["source_uri"].startswith(_BLOB_PREFIX)
+    ]

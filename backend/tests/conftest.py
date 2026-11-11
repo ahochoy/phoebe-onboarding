@@ -85,3 +85,14 @@ def make_seed_doc(
         {"title": title, "group_id": group_id},
     )
     return rows[0]["id"]
+
+
+def seed_completion(db: Database, person_id: str, task_id: str, done: bool) -> None:
+    """Insert a seed-level completion row (session_id = '')."""
+    db.execute(
+        """
+        insert into task_completions (person_id, task_id, session_id, done)
+        values (:person_id, :task_id, '', :done)
+        """,
+        {"person_id": person_id, "task_id": task_id, "done": done},
+    )
