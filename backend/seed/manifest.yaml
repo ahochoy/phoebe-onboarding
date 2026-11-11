@@ -1,0 +1,129 @@
+# Larkspur Labs: a fictional company. All content here is synthetic.
+company:
+  id: larkspur
+  name: Larkspur Labs
+
+departments:
+  - {id: engineering, name: Engineering}
+  - {id: sales, name: Sales}
+
+teams:
+  - {id: platform, name: Platform, parent: engineering}
+  - {id: payments, name: Payments, parent: engineering}
+  - {id: sales-east, name: Sales East, parent: sales}
+
+people:
+  - id: alex-rivera
+    name: Alex Rivera
+    team: platform
+    start_date: 2026-11-02
+    manager: Jordan Lee
+    buddy: Mei Tanaka
+    completed: [hr-paperwork, setup-2fa, sign-conduct, laptop-setup, repo-access, meet-buddy]
+  - id: sam-chen
+    name: Sam Chen
+    team: payments
+    start_date: 2026-10-27
+    manager: Elena Petrova
+    buddy: Marcus Webb
+    completed:
+      [hr-paperwork, enroll-benefits, setup-2fa, read-handbook, security-training,
+       sign-conduct, laptop-setup, repo-access, dev-environment, read-eng-practices,
+       pay-sandbox, pay-runbook]
+  - id: priya-n
+    name: Priya N.
+    team: sales-east
+    start_date: 2026-11-10
+    manager: Rafael Ortiz
+    buddy: Keisha Brooks
+    completed: []
+
+tasks:
+  # Company (6)
+  - {key: hr-paperwork, group: larkspur, position: 1, title: Complete your HR paperwork,
+     description: "Fill in your I-9, tax withholding and direct deposit details in the People portal."}
+  - {key: setup-2fa, group: larkspur, position: 2, title: Set up single sign-on and two-factor authentication,
+     description: "Required before you can reach any internal service. A hardware key or authenticator app works."}
+  - {key: sign-conduct, group: larkspur, position: 3, title: Review and accept the code of conduct,
+     description: "Part of the Employee Handbook. It takes about five minutes to read."}
+  - {key: enroll-benefits, group: larkspur, position: 4, title: Enroll in benefits within 30 days,
+     description: "Choose medical, dental and vision plans and set your 401(k) contribution.",
+     link: "https://larkspur-labs.example/benefits"}
+  - {key: read-handbook, group: larkspur, position: 5, title: Read the Employee Handbook,
+     description: "Skim it, then flag anything that surprises you to your buddy."}
+  - {key: security-training, group: larkspur, position: 6, title: Complete security awareness training,
+     description: "A 45 minute course, due within your first two weeks."}
+  # Engineering (4)
+  - {key: laptop-setup, group: engineering, position: 1, title: Set up your laptop,
+     description: "Install the device management profile, password manager and developer tools."}
+  - {key: repo-access, group: engineering, position: 2, title: Get access to GitHub and the main repositories,
+     description: "Ask in the engineering channel if an invitation has not arrived by the end of day one."}
+  - {key: dev-environment, group: engineering, position: 3, title: Run the local development environment,
+     description: "Follow the local development guide and run a test suite end to end."}
+  - {key: read-eng-practices, group: engineering, position: 4, title: Read the Engineering Practices and On-call Guide,
+     description: "You will shadow on-call in your second month."}
+  # Platform (4)
+  - {key: meet-buddy, group: platform, position: 1, title: Meet your onboarding buddy,
+     description: "Mei Tanaka will have lunch with you on your first day."}
+  - {key: platform-tour, group: platform, position: 2, title: Take the Platform systems tour,
+     description: "Beacon, Trellis, Lantern, Atlas and Kit at a high level."}
+  - {key: first-pr, group: platform, position: 3, title: Ship your first pull request,
+     description: "Pick a starter ticket with your buddy and get it merged and deployed."}
+  - {key: lantern-walkthrough, group: platform, position: 4, title: Walk through the Lantern dashboards,
+     description: "A short session with Anika Rao on how we watch our systems."}
+  # Payments (3)
+  - {key: pay-sandbox, group: payments, position: 1, title: Get access to the payments sandbox,
+     description: "Sandbox credentials are issued by the Payments lead."}
+  - {key: pay-runbook, group: payments, position: 2, title: Read the Payments Runbook,
+     description: "Covers the charge pipeline, settlement and common alerts."}
+  - {key: pay-shadow-settlement, group: payments, position: 3, title: Shadow a nightly settlement review,
+     description: "Sit in on a settlement check with a teammate."}
+  # Sales (4)
+  - {key: sales-crm, group: sales, position: 1, title: Get your CRM login,
+     description: "Sales Operations will invite you on your first day."}
+  - {key: sales-playbook-read, group: sales, position: 2, title: Read the Sales Playbook,
+     description: "Process stages, pricing and discount limits."}
+  - {key: sales-shadow-calls, group: sales, position: 3, title: Shadow three discovery calls,
+     description: "Listen in and write down the questions that worked."}
+  - {key: sales-demo, group: sales, position: 4, title: Deliver a practice demo,
+     description: "A 30 minute run-through with your team lead."}
+
+documents:
+  - {key: handbook, title: Employee Handbook, group: larkspur, doc_type: pdf,
+     last_updated: 2026-09-15, source: "seed://content/handbook.pdf",
+     purpose: "Company policies on leave, benefits, conduct and expenses."}
+  - {key: benefits, title: Benefits Guide, group: larkspur, doc_type: web,
+     last_updated: 2026-10-01, source: "seed://content/benefits.html",
+     public_url: "https://larkspur-labs.example/benefits",
+     purpose: "Medical, dental, vision, 401(k) and enrollment details."}
+  - {key: holidays, title: Holiday Calendar 2026-27, group: larkspur, doc_type: csv,
+     last_updated: 2026-08-20, source: "seed://content/holidays.csv",
+     purpose: "Company holidays and winter break dates."}
+  - {key: it-security, title: IT and Security Policy, group: larkspur, doc_type: markdown,
+     last_updated: 2026-10-12, source: "seed://content/it-security.md",
+     purpose: "Accounts, devices, phishing, data handling and incident response."}
+  - {key: eng-practices, title: Engineering Practices, group: engineering, doc_type: markdown,
+     last_updated: 2026-09-30, source: "seed://content/eng-practices.md",
+     purpose: "Code review, testing, deployment and working agreements."}
+  - {key: oncall, title: On-call Guide, group: engineering, doc_type: markdown,
+     last_updated: 2026-10-20, source: "seed://content/oncall.md",
+     purpose: "How rotations, severities and incident response work."}
+  - {key: platform-team, title: Team Breakdown, group: platform, doc_type: markdown,
+     last_updated: 2026-11-02, source: "seed://content/platform-team.md",
+     purpose: "Who is on Platform, what we own and how we work."}
+  - {key: project-manifest, title: Project Manifest, group: platform, doc_type: google_doc,
+     last_updated: 2026-11-09, source: "seed://content/project-manifest.txt",
+     public_url: "https://docs.larkspur-labs.example/document/project-manifest",
+     purpose: "Active Platform projects this quarter and their leads."}
+  - {key: first-week, title: First-Week Schedule, group: platform, doc_type: markdown,
+     last_updated: 2026-10-28, source: "seed://content/first-week.md",
+     purpose: "Your first five days on Platform, day by day."}
+  - {key: payments-runbook, title: Payments Runbook, group: payments, doc_type: markdown,
+     last_updated: 2026-10-05, source: "seed://content/payments-runbook.md",
+     purpose: "Payment pipeline operations, alerts and procedures."}
+  - {key: sales-playbook, title: Sales Playbook, group: sales, doc_type: markdown,
+     last_updated: 2026-09-22, source: "seed://content/sales-playbook.md",
+     purpose: "Sales process, pricing and objection handling."}
+  - {key: east-territory, title: East Territory Notes, group: sales-east, doc_type: markdown,
+     last_updated: 2026-10-30, source: "seed://content/east-territory.md",
+     purpose: "Segments, accounts and regional notes for Sales East."}

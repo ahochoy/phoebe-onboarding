@@ -1,0 +1,47 @@
+Platform Project Manifest
+Last reviewed: October 2026
+Owner: Dmitri Volkov
+
+This document lists the active projects on the Platform team this quarter, who leads them, and what done looks like. It is a living document that we update at each Monday planning session. If you want to join a project, talk to Jordan Lee or the project lead.
+
+# Q4 2026 Projects
+
+## Project Beacon 2.0
+Lead: Dmitri Volkov
+Status: In progress, 65 percent complete
+Goal: Reduce the time from merge to production from 22 minutes to under 10 minutes by caching builds, running tests in parallel, and replacing the old canary step with progressive delivery.
+Milestones: Build cache live in staging by November 20. Parallel test runner for all Go services by December 4. Progressive delivery pilot with the Reminders team in January.
+Open question: how to handle database migrations in progressive rollouts. Design doc is in review.
+
+## Trellis cluster upgrade to Kubernetes 1.34
+Lead: Tomas Silva
+Status: Planning
+Goal: Upgrade all production clusters with no customer-visible downtime.
+Milestones: Staging cluster upgraded by November 30. Production clusters upgraded one at a time through December 11, with a pause for the winter break.
+Risks: Two deprecated APIs are still used by the Reminders service. Platform will help the owning team to migrate.
+
+## Lantern alert cleanup
+Lead: Anika Rao
+Status: In progress
+Goal: Cut non-actionable pages by half. We currently average 7 pages per on-call week outside working hours, and the target is under 3.
+Milestones: Alert audit complete by November 13. Top ten noisy alerts fixed or deleted by November 27.
+Good first task: This project has many small, well-defined tickets, and it is a great way to learn our systems. Mei Tanaka can point you to the starter tickets.
+
+## Atlas ownership data
+Lead: Mei Tanaka
+Status: In progress
+Goal: Every service in Atlas has a named owning team, an on-call rotation, and a link to its runbook. Today, 82 percent of services meet this bar, and we are aiming for 100 percent by the end of the quarter.
+
+## Kit v3
+Lead: To be assigned
+Status: Proposed
+Goal: Simplify the shared service libraries by merging the Go and Python configuration packages and dropping the legacy logging wrapper.
+Notes: Waiting on capacity after Beacon 2.0. A new teammate could take part in the design discussion in December.
+
+# How to propose a new project
+
+Write a one-page proposal with the problem, who is affected, the proposed approach, and a rough size. Post it in the platform channel and bring it to Monday planning. Dmitri and Jordan review proposals together, and we try to answer within a week.
+
+# Contacts
+
+Questions about this document go to Dmitri Volkov. Questions about priorities go to Jordan Lee.
