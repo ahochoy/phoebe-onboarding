@@ -362,3 +362,111 @@ def test_google_doc_export_url():
 )
 def test_google_doc_export_url_none(url):
     assert google_doc_export_url(url) is None
+
+
+def test_resolver_receives_punycode_host():
+    seen: list[str] = []
+
+    def resolver(host: str) -> list[str]:
+        seen.append(host)
+        return [PUBLIC_IP]
+
+    fetch_url("https://faß.de/", resolver=resolver, transport=ok_transport())
+    assert seen == ["xn--fa-hia.de"]
+
+
+def test_overall_deadline_across_slow_body():
+    now = [0.0]
+
+    def slow_body():
+        for _ in range(5):
+            now[0] += 6.0
+            yield b"x"
+
+    t = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers={"content-type": "text/plain"}, content=slow_body()
+        )
+    )
+    with pytest.raises(FetchError, match="too long"):
+        fetch_url(
+            "https://slow.test/", resolver=public, transport=t, clock=lambda: now[0]
+        )
+
+
+def test_overall_deadline_across_redirects():
+    now = [0.0]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        now[0] += 6.0
+        return httpx.Response(302, headers={"location": "/again"})
+
+    with pytest.raises(FetchError, match="too long"):
+        fetch_url(
+            "https://slow.test/",
+            resolver=public,
+            transport=httpx.MockTransport(handler),
+            clock=lambda: now[0],
+        )
+
+
+def test_gzip_response_rejected():
+    import gzip
+
+    t = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "text/plain", "content-encoding": "gzip"},
+            content=gzip.compress(b"hello"),
+        )
+    )
+    with pytest.raises(FetchError, match="Compressed"):
+        fetch_url("https://ok.test/", resolver=public, transport=t)
+
+
+def test_requests_identity_encoding():
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["ae"] = request.headers["accept-encoding"]
+        return html_response()
+
+    fetch_url(
+        "https://ok.test/", resolver=public, transport=httpx.MockTransport(handler)
+    )
+    assert seen["ae"] == "identity"
+
+
+def test_decoding_error_becomes_fetch_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.DecodingError("bad", request=request)
+
+    with pytest.raises(FetchError, match="Could not fetch"):
+        fetch_url(
+            "https://ok.test/", resolver=public, transport=httpx.MockTransport(handler)
+        )
+
+
+def test_stream_error_becomes_fetch_error():
+    def body():
+        yield b"x"
+        raise httpx.StreamConsumed()
+
+    t = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers={"content-type": "text/plain"}, content=body()
+        )
+    )
+    with pytest.raises(FetchError, match="Could not fetch"):
+        fetch_url("https://ok.test/", resolver=public, transport=t)
+
+
+def test_non_ascii_digit_content_length_ignored():
+    t = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers=[(b"content-type", b"text/plain"), (b"content-length", b"\xb2")],
+            content=b"abc",
+        )
+    )
+    assert fetch_url("https://ok.test/", resolver=public, transport=t).text == "abc"

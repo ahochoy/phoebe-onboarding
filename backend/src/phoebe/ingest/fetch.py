@@ -20,6 +20,7 @@ import codecs
 import ipaddress
 import re
 import socket
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -85,7 +86,9 @@ def _check_address(raw: str) -> None:
 def _validate(url: httpx.URL, resolver: Resolver) -> None:
     if url.scheme != "https":
         raise UnsafeUrlError("Only https links are allowed")
-    host = url.host
+    # Use the exact ASCII (punycode) host httpx will connect to, so the address
+    # we validate is the address we connect to.
+    host = url.raw_host.decode("ascii")
     if not host:
         raise UnsafeUrlError("Link has no host")
     if url.userinfo:
@@ -124,24 +127,29 @@ def _decode(body: bytes, charset: str | None) -> str:
     return body.decode("utf-8", errors="replace")
 
 
-def _read_page(response: httpx.Response) -> FetchedPage:
+def _read_page(
+    response: httpx.Response, deadline: float, clock: Callable[[], float]
+) -> FetchedPage:
     if not 200 <= response.status_code < 300:
         raise FetchError(f"Link returned HTTP {response.status_code}")
+    encoding = response.headers.get("content-encoding", "identity").strip().lower()
+    if encoding not in ("", "identity"):
+        raise FetchError("Compressed responses are not supported")
     media_type = (
         response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     )
     if media_type not in ALLOWED_CONTENT_TYPES:
         raise FetchError("Unsupported content type")
     declared = response.headers.get("content-length")
-    if (
-        declared is not None
-        and declared.strip().isdigit()
-        and int(declared) > MAX_BODY_BYTES
-    ):
-        raise FetchError("Page too large")
+    if declared is not None:
+        declared = declared.strip()
+        if declared.isascii() and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+            raise FetchError("Page too large")
     chunks: list[bytes] = []
     total = 0
     for chunk in response.iter_bytes():
+        if clock() > deadline:
+            raise FetchError("Link took too long")
         total += len(chunk)
         if total > MAX_BODY_BYTES:
             raise FetchError("Page too large")
@@ -158,22 +166,26 @@ def fetch_url(
     *,
     resolver: Resolver = default_resolver,
     transport: httpx.BaseTransport | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> FetchedPage:
     current = _parse(url)
+    deadline = clock() + TIMEOUT_S
     try:
         with httpx.Client(
             transport=transport,
             timeout=httpx.Timeout(TIMEOUT_S),
             follow_redirects=False,
             trust_env=False,
-            headers={"User-Agent": USER_AGENT},
+            headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"},
         ) as client:
             redirects = 0
             while True:
+                if clock() > deadline:
+                    raise FetchError("Link took too long")
                 _validate(current, resolver)
                 with client.stream("GET", current) as response:
                     if response.status_code not in REDIRECT_STATUSES:
-                        return _read_page(response)
+                        return _read_page(response, deadline, clock)
                     location = response.headers.get("location")
                 if not location:
                     raise FetchError("Link redirected without a destination")
@@ -184,7 +196,7 @@ def fetch_url(
                     current = current.join(location)
                 except httpx.InvalidURL:
                     raise UnsafeUrlError("Link is not a valid URL") from None
-    except httpx.TimeoutException, httpx.TransportError, httpx.InvalidURL:
+    except httpx.HTTPError, httpx.StreamError, httpx.InvalidURL:
         raise FetchError("Could not fetch link") from None
 
 
