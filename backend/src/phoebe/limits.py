@@ -42,6 +42,8 @@ class InMemoryCounterStore:
         return f"{key}#{_window(self._clock(), window_seconds)}"
 
     def hit(self, key: str, limit: int, window_seconds: int) -> bool:
+        if limit <= 0:
+            return False
         k = self._key(key, window_seconds)
         with self._lock:
             n = self._counts.get(k, 0)
@@ -61,11 +63,12 @@ class DynamoDBCounterStore:
         table: str,
         client: Any = None,
         clock: Callable[[], float] = time.time,
+        region: str | None = None,
     ) -> None:
         if client is None:
             import boto3
 
-            client = boto3.client("dynamodb")
+            client = boto3.client("dynamodb", region_name=region)
         self._client = client
         self._table = table
         self._clock = clock
@@ -74,6 +77,8 @@ class DynamoDBCounterStore:
         return {"pk": {"S": f"counter#{key}#{window}"}}
 
     def hit(self, key: str, limit: int, window_seconds: int) -> bool:
+        if limit <= 0:
+            return False
         window = _window(self._clock(), window_seconds)
         expires = (window + 1) * window_seconds + EXPIRY_GRACE_SECONDS
         try:
@@ -122,5 +127,5 @@ def state_table(settings: Settings | ControlSettings) -> str:
 
 def make_counters(settings: Settings) -> CounterStore:
     if settings.limits_backend == "dynamodb":
-        return DynamoDBCounterStore(state_table(settings))
+        return DynamoDBCounterStore(state_table(settings), region=settings.aws_region)
     return InMemoryCounterStore()

@@ -171,3 +171,51 @@ def test_cli_control_sets_file_state(tmp_path: Path):
 def test_cli_control_rejects_bad_state(tmp_path: Path):
     r = _cli("bogus", control_file=tmp_path / "c.json")
     assert r.returncode == 2 and "usage" in r.stderr
+
+
+def test_cached_error_never_downgrades_closed():
+    inner, now = _Inner(), [100.0]
+    c = CachedControlStore(inner, 5, lambda: now[0])
+    assert c.get() == "closed"
+    now[0] += 6
+    inner.fail = True
+    assert c.get() == "closed"
+    assert c.get() == "closed"
+    inner.fail = False
+    inner.state = "open"
+    assert c.get() == "open"
+
+
+def test_cached_error_after_open_is_chat_paused():
+    inner, now = _Inner(), [100.0]
+    inner.state = "open"
+    c = CachedControlStore(inner, 5, lambda: now[0])
+    assert c.get() == "open"
+    now[0] += 6
+    inner.fail = True
+    assert c.get() == "chat_paused"
+
+
+@mock_aws
+def test_budget_handler_overwrites_corrupt_state(aws_env, monkeypatch):
+    client = _table()
+    monkeypatch.setenv("PHOEBE_STATE_TABLE", TABLE)
+    event = {"Records": [{"Sns": {"MessageId": "m"}}]}
+    for corrupt in ({"state": {"N": "5"}}, {"state": {"S": "bogus"}}, {}):
+        client.put_item(TableName=TABLE, Item={"pk": {"S": "control"}, **corrupt})
+        assert budget_handler.handler(event, None) == {"state": "chat_paused"}
+        assert DynamoDBControlStore(TABLE, client=client).get() == "chat_paused"
+
+
+def test_cli_dynamodb_without_table_exits_cleanly(tmp_path: Path):
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("PHOEBE_", "AWS_"))}
+    env["PHOEBE_CONTROL_BACKEND"] = "dynamodb"
+    r = subprocess.run(
+        [sys.executable, "-m", "phoebe", "control", "status"],
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 1 and "Traceback" not in r.stderr
+    assert "PHOEBE_STATE_TABLE" in r.stderr

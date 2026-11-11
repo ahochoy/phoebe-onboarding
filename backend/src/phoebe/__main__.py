@@ -38,7 +38,10 @@ def _migrate() -> None:
 
 
 def _control(action: str) -> None:
-    store = make_inner_control(ControlSettings())
+    try:
+        store = make_inner_control(ControlSettings())
+    except RuntimeError as exc:
+        raise SystemExit(f"{exc} for dynamodb") from None
     if action != "status":
         store.set(action)  # type: ignore[arg-type]
     print(store.get())

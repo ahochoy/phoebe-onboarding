@@ -109,3 +109,10 @@ def test_dynamodb_other_error_raises_limits_unavailable():
         s.hit("k", 1, 60)
     with pytest.raises(LimitsUnavailable):
         s.peek("k", 60)
+
+
+def test_limit_zero_or_negative_denies(store):
+    _, s, _ = store
+    assert not s.hit("z", 0, 60)
+    assert not s.hit("z", -1, 60)
+    assert s.peek("z", 60) == 0

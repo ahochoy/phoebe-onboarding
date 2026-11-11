@@ -64,11 +64,13 @@ class FileControlStore:
 class DynamoDBControlStore:
     _KEY: ClassVar[dict[str, Any]] = {"pk": {"S": "control"}}
 
-    def __init__(self, table: str, client: Any = None) -> None:
+    def __init__(
+        self, table: str, client: Any = None, region: str | None = None
+    ) -> None:
         if client is None:
             import boto3
 
-            client = boto3.client("dynamodb")
+            client = boto3.client("dynamodb", region_name=region)
         self._client = client
         self._table = table
 
@@ -97,6 +99,26 @@ class DynamoDBControlStore:
         except ClientError, BotoCoreError:
             raise LimitsUnavailable from None
 
+    def pause_unless_closed(self) -> KillState:
+        """One conditional write: chat_paused unless the state is already
+        `closed` (or unreadable, which is overwritten). Returns the result."""
+        try:
+            self._client.put_item(
+                TableName=self._table,
+                Item={**self._KEY, "state": {"S": "chat_paused"}},
+                ConditionExpression=(
+                    "attribute_not_exists(pk) OR attribute_not_exists(#s) "
+                    "OR #s <> :closed"
+                ),
+                ExpressionAttributeNames={"#s": "state"},
+                ExpressionAttributeValues={":closed": {"S": "closed"}},
+            )
+        except self._client.exceptions.ConditionalCheckFailedException:
+            return "closed"
+        except ClientError, BotoCoreError:
+            raise LimitsUnavailable from None
+        return "chat_paused"
+
 
 class CachedControlStore:
     """Caches reads. An inner failure fails closed for AI (`chat_paused`) while
@@ -120,7 +142,10 @@ class CachedControlStore:
         try:
             state = self._inner.get()
         except LimitsUnavailable:
-            self._cached = None
+            # Fail closed for AI, never reopen: keep the last known value (the
+            # entry stays so the next call retries) and return the stricter.
+            if self._cached is not None and self._cached[0] == "closed":
+                return "closed"
             return "chat_paused"
         self._cached = (state, now + self._ttl)
         return state
@@ -132,7 +157,7 @@ class CachedControlStore:
 
 def make_inner_control(settings: Settings | ControlSettings) -> ControlStore:
     if settings.control_backend == "dynamodb":
-        return DynamoDBControlStore(state_table(settings))
+        return DynamoDBControlStore(state_table(settings), region=settings.aws_region)
     return FileControlStore(settings.control_file)
 
 

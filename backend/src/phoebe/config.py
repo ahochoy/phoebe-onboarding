@@ -45,4 +45,5 @@ class ControlSettings(BaseSettings):
     control_file: Path = Path("data/control.json")
     state_table: str | None = None
     sessions_table: str | None = None
+    aws_region: str = "us-east-2"
     kill_switch_cache_seconds: int = 5

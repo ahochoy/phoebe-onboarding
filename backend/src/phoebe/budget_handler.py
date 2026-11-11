@@ -18,8 +18,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, str]:
         message_id = record.get("Sns", {}).get("MessageId")
         if message_id:
             logger.info("budget alert message_id=%s", message_id)
-    store = DynamoDBControlStore(os.environ["PHOEBE_STATE_TABLE"])
-    if store.get() == "closed":
-        return {"state": "closed"}
-    store.set("chat_paused")
-    return {"state": "chat_paused"}
+    region = os.environ.get("PHOEBE_AWS_REGION", "us-east-2")
+    store = DynamoDBControlStore(os.environ["PHOEBE_STATE_TABLE"], region=region)
+    return {"state": store.pause_unless_closed()}
