@@ -1,10 +1,10 @@
-import hashlib
 import json
 import logging
 from enum import StrEnum
 from typing import Any
 
 from phoebe.db import Database
+from phoebe.sessions import session_hash
 
 
 class EntityKind(StrEnum):
@@ -51,10 +51,6 @@ def patch(
 
 _BLOB_PREFIX = "blob://"
 _log = logging.getLogger(__name__)
-
-
-def session_hash(session_id: str) -> str:
-    return hashlib.sha256(session_id.encode()).hexdigest()[:12]
 
 
 def blob_key_for(session_id: str, source_uri: str) -> str | None:

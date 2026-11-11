@@ -15,7 +15,7 @@ from phoebe.db import Database
 from phoebe.documents import EFFECTIVE_DOCUMENTS_SQL
 from phoebe.embed import Embedder
 from phoebe.groups import EFFECTIVE_GROUPS_SQL
-from phoebe.sandbox import session_hash
+from phoebe.sessions import session_hash
 
 log = logging.getLogger(__name__)
 
