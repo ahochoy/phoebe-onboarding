@@ -4,9 +4,11 @@ version = "0.1.0"
 description = "Phoebe onboarding portal backend"
 requires-python = ">=3.14"
 dependencies = [
+    "beautifulsoup4>=4.15.0",
     "psycopg-pool>=3.3.3",
     "psycopg[binary]>=3.3.8",
     "pydantic-settings>=2.16.2",
+    "pypdf>=7.0.1",
 ]
 
 [build-system]
@@ -30,6 +32,7 @@ extraPaths = ["backend/src"]
 
 [dependency-groups]
 dev = [
+    "fpdf2>=2.9.0",
     "pyright>=1.1.414",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
