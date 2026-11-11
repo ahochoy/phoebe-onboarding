@@ -1,11 +1,18 @@
 import os
+import tempfile
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from phoebe.db import Database, PsycopgDatabase
+from phoebe.embed import HashEmbedder
+from phoebe.ingest.pipeline import index_document
 from phoebe.migrate import apply_migrations
+from phoebe.storage import LocalBlobStore
+
+ALEX = ["acme", "eng", "platform"]
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
 
@@ -96,3 +103,38 @@ def seed_completion(db: Database, person_id: str, task_id: str, done: bool) -> N
         """,
         {"person_id": person_id, "task_id": task_id, "done": done},
     )
+
+
+_TMP = tempfile.TemporaryDirectory(prefix="phoebe-tests-")
+_SEED_ROOT = Path(_TMP.name) / "seed"
+_SEED_ROOT.mkdir()
+_BLOBS = LocalBlobStore(Path(_TMP.name) / "blobs")
+
+
+def index_seed_text(
+    db: Database,
+    group_id: str,
+    md: bytes,
+    *,
+    title: str = "Doc",
+    session_id: str | None = None,
+) -> str:
+    """Insert a Markdown doc (seed, or owned when `session_id` is given) and index it."""
+    name = uuid.uuid4().hex
+    if session_id is None:
+        (_SEED_ROOT / f"{name}.md").write_bytes(md)
+        uri = f"seed://{name}.md"
+    else:
+        key = f"uploads/{session_id}/{name}"
+        _BLOBS.put(key, md)
+        uri = f"blob://{key}"
+    rows = db.fetch(
+        """
+        insert into documents (session_id, title, doc_type, group_id, source_uri)
+        values (:sid, :title, 'markdown', :group_id, :uri) returning id::text as id
+        """,
+        {"sid": session_id, "title": title, "group_id": group_id, "uri": uri},
+    )
+    doc_id = rows[0]["id"]
+    index_document(db, _BLOBS, HashEmbedder(), doc_id, seed_root=_SEED_ROOT)
+    return doc_id
