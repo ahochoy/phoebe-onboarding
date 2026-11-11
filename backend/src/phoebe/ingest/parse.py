@@ -4,6 +4,10 @@ Invariant for every parser: ``full_text`` is the section texts joined with
 ``"\\n\\n"``, and for each section ``full_text[s.start:s.end]`` is exactly that
 section's text (no heading line; heading lives in ``heading_path``). Sections
 are ordered and never overlap. A section may be empty (a heading with no body).
+
+Resource limits: there is no in-process timeout. A pypdf hang is bounded by the
+Lambda timeout (plan 4), and upload size is capped at 5 MB by the API (Task 13).
+Parsers themselves cap page count, CSV rows and total extracted text.
 """
 
 import csv
@@ -18,6 +22,8 @@ from pypdf import PdfReader
 from phoebe.documents import DocType
 
 MAX_CSV_ROWS = 5000
+MAX_PDF_PAGES = 200
+MAX_TEXT_CHARS = 2_000_000
 CSV_ROWS_PER_SECTION = 25
 MIN_PDF_CHARS = 20
 _SEPARATOR = "\n\n"
@@ -45,7 +51,18 @@ class ParsedDocument:
     sections: list[Section]
 
 
+def _clean(text: str) -> str:
+    """Drop NUL (Postgres text rejects it) and replace lone surrogates."""
+    text = text.replace("\x00", "")
+    return text.encode("utf-8", "replace").decode("utf-8")
+
+
 def _build(parts: list[tuple[tuple[str, ...], str]]) -> ParsedDocument:
+    parts = [(tuple(_clean(h) for h in path), _clean(text)) for path, text in parts]
+    if not any(text for _, text in parts):
+        raise ParseError(_EMPTY)
+    if sum(len(text) for _, text in parts) > MAX_TEXT_CHARS:
+        raise ParseError("Document text too large")
     sections: list[Section] = []
     chunks: list[str] = []
     pos = 0
@@ -98,17 +115,20 @@ def _sections_from_items(items: list[_Item]) -> ParsedDocument:
             stack.pop()
         stack.append((level, title))
     flush(first and not stack)
-    if not any(text for _, text in parts):
-        raise ParseError(_EMPTY)
     return _build(parts)
 
 
-_HEADING_RE = re.compile(r"^ {0,3}(#{1,3})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
+_HEADING_RE = re.compile(r"^ {0,3}(#{1,3})[ \t]+(.*)$")
+_CLOSING_HASHES_RE = re.compile(r"[ \t]+#+$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
 def parse_markdown(data: bytes) -> ParsedDocument:
-    text = _newlines(_decode(data))
+    return _parse_markdown_text(_decode(data))
+
+
+def _parse_markdown_text(text: str) -> ParsedDocument:
+    text = _newlines(_clean(text)).removeprefix("\ufeff")
     if not text.strip():
         raise ParseError(_EMPTY)
     items: list[_Item] = []
@@ -124,8 +144,9 @@ def parse_markdown(data: bytes) -> ParsedDocument:
             items.append(line)
             continue
         h = None if fence else _HEADING_RE.match(line)
-        if h and h.group(2).strip():
-            items.append((len(h.group(1)), h.group(2).strip()))
+        title = _CLOSING_HASHES_RE.sub("", h.group(2).rstrip()).strip() if h else ""
+        if h and title:
+            items.append((len(h.group(1)), title))
         else:
             items.append(line)
     return _sections_from_items(items)
@@ -140,20 +161,19 @@ def parse_csv(data: bytes) -> ParsedDocument:
         delimiter = dialect.delimiter
     except csv.Error:
         delimiter = ","
+    rows: list[list[str]] = []
     try:
-        rows = [
-            r
-            for r in csv.reader(io.StringIO(text), delimiter=delimiter)
-            if any(c.strip() for c in r)
-        ]
+        for r in csv.reader(io.StringIO(text), delimiter=delimiter):
+            if any(c.strip() for c in r):
+                rows.append(r)
+                if len(rows) > MAX_CSV_ROWS + 1:  # header + data rows
+                    raise ParseError("CSV has more than 5,000 rows")
     except csv.Error:
         raise ParseError("Could not read CSV") from None
     if len(rows) < 2:
         raise ParseError(_EMPTY)
     headers = [h.strip() or f"Column {i}" for i, h in enumerate(rows[0], 1)]
     body = rows[1:]
-    if len(body) > MAX_CSV_ROWS:
-        raise ParseError("CSV has more than 5,000 rows")
     rendered = [
         "; ".join(
             f"{headers[i] if i < len(headers) else f'Column {i + 1}'}: {c.strip()}"
@@ -169,19 +189,27 @@ def parse_csv(data: bytes) -> ParsedDocument:
 
 
 def parse_pdf(data: bytes) -> ParsedDocument:
+    pages: list[str] = []
+    total = 0
     try:
         reader = PdfReader(io.BytesIO(data))
         encrypted = reader.is_encrypted
-        pages = (
-            []
-            if encrypted
-            else [(pg.extract_text() or "").strip() for pg in reader.pages]
-        )
+        if not encrypted and len(reader.pages) > MAX_PDF_PAGES:
+            raise ParseError("PDF has too many pages")
+        if not encrypted:
+            for pg in reader.pages:
+                text = _clean((pg.extract_text() or "").strip())
+                total += len(text)
+                if total > MAX_TEXT_CHARS:
+                    raise ParseError("PDF text too large")
+                pages.append(text)
+    except ParseError:
+        raise
     except Exception:  # noqa: BLE001 - pypdf raises many types on malformed input
         raise ParseError("Could not read PDF") from None
     if encrypted:
         raise ParseError("Could not read PDF")
-    if sum(len(p) for p in pages) < MIN_PDF_CHARS:
+    if total < MIN_PDF_CHARS:
         raise ParseError("No extractable text (scanned PDF?)")
     return _build([((f"Page {n}",), text) for n, text in enumerate(pages, 1)])
 
@@ -195,6 +223,14 @@ _MARK = ""
 
 
 def parse_html(html: str) -> ParsedDocument:
+    try:
+        items = _html_items(html)
+    except Exception:  # noqa: BLE001 - bs4 can hit RecursionError on hostile nesting
+        raise ParseError("Could not read HTML") from None
+    return _sections_from_items(items)
+
+
+def _html_items(html: str) -> list[_Item]:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup.find_all(_DROP_TAGS):
         tag.decompose()
@@ -219,7 +255,7 @@ def parse_html(html: str) -> ParsedDocument:
             items.append((int(m.group(1)), m.group(2)))
         elif not m:
             items.append(line)
-    return _sections_from_items(items)
+    return items
 
 
 _MD_HEADING_LINE = re.compile(r"^#{1,3} ", re.MULTILINE)
@@ -228,11 +264,8 @@ _MD_HEADING_LINE = re.compile(r"^#{1,3} ", re.MULTILINE)
 def parse_plain(text: str) -> ParsedDocument:
     text = _newlines(text).removeprefix("﻿")
     if _MD_HEADING_LINE.search(text):
-        return parse_markdown(text.encode("utf-8"))
-    stripped = text.strip()
-    if not stripped:
-        raise ParseError(_EMPTY)
-    return _build([((), stripped)])
+        return _parse_markdown_text(text)
+    return _build([((), _clean(text).strip())])
 
 
 def sniff_upload(filename: str, data: bytes) -> DocType:
@@ -245,9 +278,9 @@ def sniff_upload(filename: str, data: bytes) -> DocType:
         raise mismatch
     if is_pdf or ext not in {"md", "markdown", "csv"}:
         raise mismatch
+    if b"\x00" in data:
+        raise mismatch
     if ext == "csv":
-        if b"\x00" in data:
-            raise mismatch
         return "csv"
     try:
         data.decode("utf-8")

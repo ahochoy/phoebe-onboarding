@@ -248,3 +248,106 @@ def test_sniff_mismatch():
 def test_sniff_rejects(name: str, data: bytes):
     with pytest.raises(ParseError, match="Unsupported or mismatched file type"):
         sniff_upload(name, data)
+
+
+# --- hardening ---
+
+
+def test_nul_stripped_everywhere():
+    for p in (
+        parse_markdown(b"# A\x00B\nbo\x00dy\n"),
+        parse_csv(b"a,b\n1\x00,2\n"),
+        parse_plain("te\x00xt"),
+    ):
+        assert "\x00" not in p.full_text
+        assert all("\x00" not in "".join(s.heading_path) for s in p.sections)
+        check_invariant(p)
+    assert parse_markdown(b"# A\x00B\nx").sections[0].heading_path == ("AB",)
+
+
+def test_nul_only_is_empty():
+    with pytest.raises(ParseError, match="Document is empty"):
+        parse_plain("\x00\x00")
+
+
+def test_lone_surrogate_plain():
+    p = parse_plain("ok \ud800 text")
+    p.full_text.encode("utf-8")
+    check_invariant(p)
+    p = parse_plain("# T\ud800\nbody \udfff")
+    p.full_text.encode("utf-8")
+    p.sections[0].heading_path[0].encode("utf-8")
+    check_invariant(p)
+
+
+def test_sniff_markdown_nul():
+    with pytest.raises(ParseError, match="mismatched"):
+        sniff_upload("a.md", b"# hi\x00")
+
+
+def test_html_deep_nesting_never_raises_other():
+    html = "<div>" * 5000 + "text" + "</div>" * 5000
+    try:
+        p = parse_html(html)
+    except ParseError:
+        return
+    assert isinstance(p, ParsedDocument)
+
+
+def test_pdf_page_cap(monkeypatch: pytest.MonkeyPatch):
+    import phoebe.ingest.parse as m
+
+    monkeypatch.setattr(m, "MAX_PDF_PAGES", 2)
+    with pytest.raises(ParseError, match="too many pages"):
+        parse_pdf(make_pdf(["page one text here", "page two text here", "page three"]))
+
+
+def test_pdf_text_cap(monkeypatch: pytest.MonkeyPatch):
+    import phoebe.ingest.parse as m
+
+    monkeypatch.setattr(m, "MAX_TEXT_CHARS", 30)
+    with pytest.raises(ParseError, match="PDF text too large"):
+        parse_pdf(make_pdf(["page one text here", "page two text here"]))
+
+
+def test_text_cap_other_parsers(monkeypatch: pytest.MonkeyPatch):
+    import phoebe.ingest.parse as m
+
+    monkeypatch.setattr(m, "MAX_TEXT_CHARS", 10)
+    with pytest.raises(ParseError, match="too large"):
+        parse_plain("x" * 11)
+    with pytest.raises(ParseError, match="too large"):
+        parse_markdown(b"# A\n" + b"y" * 11)
+
+
+def test_csv_row_cap_is_lazy(monkeypatch: pytest.MonkeyPatch):
+    import phoebe.ingest.parse as m
+
+    seen = 0
+
+    def reader(f, **kw):  # type: ignore[no-untyped-def]
+        nonlocal seen
+        yield ["h"]
+        for _ in range(10**9):
+            seen += 1
+            yield ["x"]
+
+    monkeypatch.setattr(m.csv, "reader", reader)
+    with pytest.raises(ParseError, match="5,000"):
+        parse_csv(b"h\nx\n")
+    assert seen <= m.MAX_CSV_ROWS + 2
+
+
+def test_markdown_heading_regex_not_quadratic():
+    import time
+
+    line = ("# " + "a " * 50000 + "x").encode()
+    t = time.perf_counter()
+    p = parse_markdown(line + b"\nbody")
+    assert time.perf_counter() - t < 1
+    assert p.sections[0].heading_path[0].endswith("x")
+
+
+def test_markdown_closing_hashes():
+    p = parse_markdown(b"# A ##\nx\n## B#\ny\n")
+    assert [s.heading_path for s in p.sections] == [("A",), ("A", "B#")]
