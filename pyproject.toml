@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Phoebe onboarding portal backend"
 requires-python = ">=3.14"
 dependencies = [
+    "psycopg-pool>=3.3.3",
     "psycopg[binary]>=3.3.8",
     "pydantic-settings>=2.16.2",
 ]

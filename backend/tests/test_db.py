@@ -1,3 +1,5 @@
+import threading
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -32,3 +34,39 @@ def test_transaction_rolls_back(db):
 
 def test_literal_percent_without_params(db):
     assert db.fetch("select '100%' as p") == [{"p": "100%"}]
+
+
+def test_uncommitted_rows_invisible_to_plain_fetch(db):
+    with db.transaction() as tx:
+        tx.execute("insert into groups(id,name,kind) values ('g','G','company')")
+        assert tx.fetch("select id from groups") == [{"id": "g"}]
+        assert db.fetch("select id from groups") == []
+    assert db.fetch("select id from groups") == [{"id": "g"}]
+
+
+def test_outside_write_survives_other_threads_rollback(db):
+    in_tx, outside_done = threading.Event(), threading.Event()
+
+    def hold_then_rollback():
+        with suppress(RuntimeError), db.transaction() as tx:
+            tx.execute("insert into groups(id,name,kind) values ('a','A','company')")
+            in_tx.set()
+            outside_done.wait(timeout=5)
+            raise RuntimeError
+
+    t = threading.Thread(target=hold_then_rollback)
+    t.start()
+    assert in_tx.wait(timeout=5)
+    db.execute("insert into groups(id,name,kind) values ('b','B','company')")
+    outside_done.set()
+    t.join(timeout=5)
+    assert db.fetch("select id from groups order by id") == [{"id": "b"}]
+
+
+def test_nested_transaction_uses_savepoint(db):
+    with db.transaction() as tx:
+        tx.execute("insert into groups(id,name,kind) values ('a','A','company')")
+        with suppress(RuntimeError), tx.transaction() as inner:
+            inner.execute("insert into groups(id,name,kind) values ('b','B','company')")
+            raise RuntimeError
+    assert db.fetch("select id from groups") == [{"id": "a"}]
