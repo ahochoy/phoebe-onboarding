@@ -6,6 +6,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -49,15 +50,31 @@ def _error(status: int, code: str) -> JSONResponse:
     return JSONResponse({"detail": code}, status_code=status)
 
 
-def _code(detail: Any) -> str:
-    text = re.sub(r"[^a-z0-9]+", "_", str(detail).lower()).strip("_")
-    return text or "error"
+_CODE_RE = re.compile(r"^[a-z_]+$")
+
+
+def _code(status: int, detail: Any) -> str | None:
+    """A snake_case code, or None if `detail` isn't one (never echo free text)."""
+    if isinstance(detail, str):
+        if _CODE_RE.fullmatch(detail):
+            return detail
+        try:
+            if detail == HTTPStatus(status).phrase:  # Starlette's own 404/405
+                return detail.lower().replace(" ", "_")
+        except ValueError:
+            pass
+    return None
 
 
 def _install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
-    async def _http(_: Request, exc: StarletteHTTPException) -> Response:
-        resp = _error(exc.status_code, _code(exc.detail))
+    async def _http(request: Request, exc: StarletteHTTPException) -> Response:
+        code = _code(exc.status_code, exc.detail)
+        if code is None:
+            route = getattr(request.scope.get("route"), "path", None) or "-"
+            _log.error("non-code HTTPException detail route=%s", route)
+            return _error(500, "internal_error")
+        resp = _error(exc.status_code, code)
         if exc.headers:
             resp.headers.update(exc.headers)
         return resp
@@ -102,7 +119,7 @@ def create_app(
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[None]] | None = None,
 ) -> FastAPI:
     """Build the app. The default lifespan does not close `deps.db` (callers own it)."""
-    from phoebe.api.routes_auth import router as auth_router
+    from phoebe.api.routes_auth import routers as auth_routers
 
     @asynccontextmanager
     async def _noop(_: FastAPI):
@@ -114,10 +131,15 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    # CORS is deliberately NOT configured. The X-Phoebe-Csrf header is a custom
+    # header, so a cross-origin page can only send it after a successful CORS
+    # preflight. With no CORS middleware the preflight fails and the browser
+    # blocks the request; adding permissive CORS would disable this CSRF defence.
     app.state.deps = deps
     _install_error_handlers(app)
     _install_middleware(app)
-    app.include_router(auth_router)
+    for r in auth_routers:
+        app.include_router(r)
     return app
 
 

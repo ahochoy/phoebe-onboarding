@@ -1,13 +1,12 @@
 import logging
 from datetime import date
 
-from fastapi.routing import APIRoute
+from fastapi.routing import iter_route_contexts
 from fastapi.testclient import TestClient
 
 from conftest import CSRF, PW, make_task, seed_org
 from phoebe.api.app import Deps
-from phoebe.api.routes_auth import router as auth_router
-from phoebe.api.security import require_csrf
+from phoebe.api.security import require_csrf, require_session
 from phoebe.db import Database
 
 
@@ -62,6 +61,24 @@ def test_validation_error_does_not_echo_input(client: TestClient) -> None:
     assert r.status_code == 422 and r.json() == {"detail": "invalid_request"}
 
 
+def test_login_while_logged_in_wipes_old_session(
+    db: Database, logged_in: TestClient
+) -> None:
+    task_id, key = _own_stuff(db, logged_in)
+    old = logged_in.cookies["phoebe_session"]
+    assert (
+        logged_in.post("/api/login", json={"password": PW}, headers=CSRF).status_code
+        == 204
+    )
+    assert deps_of(logged_in).sessions.get(old) is None
+    assert _task_count(db, task_id) == 0
+    try:
+        deps_of(logged_in).blobs.get(key)
+        raise AssertionError("blob should be deleted")
+    except KeyError:
+        pass
+
+
 def test_login_while_logged_in_issues_fresh_session(logged_in: TestClient) -> None:
     old = logged_in.cookies["phoebe_session"]
     r = logged_in.post("/api/login", json={"password": PW}, headers=CSRF)
@@ -101,14 +118,18 @@ def test_post_without_csrf_header_403(logged_in: TestClient) -> None:
     )
 
 
-def test_every_non_get_route_has_csrf_dependency() -> None:
-    # Later tasks append their routers here.
-    routes = [r for rt in (auth_router,) for r in rt.routes if isinstance(r, APIRoute)]
-    assert routes
-    for r in routes:
-        if (r.methods or set()) - {"GET", "HEAD", "OPTIONS"}:
-            calls = [d.call for d in r.dependant.dependencies]
-            assert require_csrf in calls, r.path
+def test_every_state_changing_route_is_guarded(client: TestClient) -> None:
+    contexts = list(iter_route_contexts(client.app.routes))  # type: ignore[attr-defined]
+    assert contexts
+    for c in contexts:
+        unsafe = (c.methods or set()) - {"GET", "HEAD", "OPTIONS"}
+        if not unsafe:
+            continue
+        assert c.path.startswith("/api/"), c.path
+        calls = [d.call for d in c.route.dependant.dependencies]  # type: ignore[attr-defined]
+        assert require_csrf in calls, c.path
+        if c.path != "/api/login":
+            assert require_session in calls, c.path
 
 
 def test_reset_requires_session(client: TestClient) -> None:
@@ -249,3 +270,66 @@ def test_request_log_uses_route_template_and_dash_for_anonymous(
     assert "/totally/unknown/path" not in caplog.text
     assert "x=1" not in caplog.text
     assert " - " in caplog.text or caplog.text.rstrip().endswith("-")
+
+
+def test_login_429_when_scrypt_slots_exhausted(client: TestClient, monkeypatch) -> None:
+    import threading
+
+    from phoebe.api import routes_auth
+
+    sem = threading.BoundedSemaphore(1)
+    sem.acquire()
+    monkeypatch.setattr(routes_auth, "_scrypt_slots", sem)
+
+    def boom(*_a, **_k):
+        raise AssertionError("scrypt must not run")
+
+    monkeypatch.setattr(routes_auth, "verify_password", boom)
+    r = client.post("/api/login", json={"password": PW}, headers=CSRF)
+    assert r.status_code == 429 and r.json() == {"detail": "too_many_attempts"}
+
+
+def test_scrypt_slot_released_after_attempt(client: TestClient) -> None:
+    for _ in range(6):
+        r = client.post("/api/login", json={"password": "nope"}, headers=CSRF)
+        assert r.status_code == 401
+
+
+def test_no_cors_headers_on_preflight(client: TestClient) -> None:
+    r = client.options(
+        "/api/reset",
+        headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-phoebe-csrf",
+        },
+    )
+    assert not [h for h in r.headers if h.lower().startswith("access-control-")]
+
+
+def test_non_code_http_exception_detail_not_leaked(client: TestClient, caplog) -> None:
+    from fastapi import HTTPException
+
+    @client.app.get("/api/leaky")  # type: ignore[attr-defined]
+    def leaky() -> None:
+        raise HTTPException(400, "bad doc: secret doc text")
+
+    with caplog.at_level(logging.DEBUG):
+        r = client.get("/api/leaky")
+    assert r.status_code == 500 and r.json() == {"detail": "internal_error"}
+    assert "secret doc text" not in r.text + caplog.text
+    assert "/api/leaky" in caplog.text
+
+
+def test_run_guarded_swallows_and_logs_type_only(caplog) -> None:
+    from phoebe.api.background import run_guarded
+
+    def job(_doc: str) -> None:
+        raise ValueError("secret doc text")
+
+    with caplog.at_level(logging.DEBUG):
+        run_guarded(job, "d1", request_id="rid123")
+    assert "ValueError" in caplog.text and "rid123" in caplog.text
+    assert "secret doc text" not in caplog.text
+    for rec in caplog.records:
+        assert rec.exc_info is None and "secret doc text" not in rec.getMessage()
