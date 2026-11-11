@@ -33,6 +33,11 @@ CSRF = {"X-Phoebe-Csrf": "1"}
 def _migrated_db() -> Iterator[PsycopgDatabase]:
     url = os.environ.get("PHOEBE_TEST_DATABASE_URL")
     if not url:
+        if os.environ.get("PHOEBE_REQUIRE_DB") == "1":
+            pytest.exit(
+                "PHOEBE_TEST_DATABASE_URL is required (PHOEBE_REQUIRE_DB=1)",
+                returncode=2,
+            )
         pytest.skip("PHOEBE_TEST_DATABASE_URL not set")
     dbname = urlsplit(url).path.lstrip("/")
     if not dbname.endswith("_test"):
