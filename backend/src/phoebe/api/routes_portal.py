@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, StringConstraints
 
-from phoebe.api.security import require_csrf, require_session
+from phoebe.api.security import Sandbox, require_csrf
 from phoebe.groups import (
     GroupInUse,
     GroupNode,
@@ -15,7 +15,6 @@ from phoebe.groups import (
     visible_group_ids,
 )
 from phoebe.persona import PERSONA_ID, get_persona
-from phoebe.sessions import Session
 from phoebe.tasks import (
     NewTask,
     PersonProgress,
@@ -34,7 +33,6 @@ router = APIRouter(prefix="/api")
 post_router = APIRouter(prefix="/api", dependencies=[Depends(require_csrf)])
 routers = (router, post_router)
 
-CurrentSession = Annotated[Session, Depends(require_session)]
 Scope = Literal["mine", "all"]
 GroupName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
@@ -91,21 +89,19 @@ def _flatten(nodes: list[GroupNode]) -> dict[str, GroupNode]:
 
 
 @router.get("/groups")
-def get_groups(request: Request, session: CurrentSession) -> list[GroupNode]:
-    return group_tree(request.app.state.deps.db, session.id)
+def get_groups(request: Request, sid: Sandbox) -> list[GroupNode]:
+    return group_tree(request.app.state.deps.db, sid)
 
 
 @post_router.post("/groups", status_code=201)
-def post_group(
-    body: NewGroup, request: Request, session: CurrentSession
-) -> dict[str, str]:
+def post_group(body: NewGroup, request: Request, sid: Sandbox) -> dict[str, str]:
     db = request.app.state.deps.db
     want_parent = _PARENT_KIND.get(body.kind)
-    parent = _flatten(group_tree(db, session.id)).get(body.parent_id)
+    parent = _flatten(group_tree(db, sid)).get(body.parent_id)
     if want_parent is None or parent is None or parent.kind != want_parent:
         raise HTTPException(422, "invalid_group")
     try:
-        gid = create_group(db, session.id, body.name, body.kind, body.parent_id)
+        gid = create_group(db, sid, body.name, body.kind, body.parent_id)
     except ValueError:
         raise HTTPException(422, "invalid_group") from None
     return {"id": gid}
@@ -113,17 +109,17 @@ def post_group(
 
 @post_router.patch("/groups/{group_id}", status_code=204)
 def patch_group(
-    group_id: str, body: GroupRename, request: Request, session: CurrentSession
+    group_id: str, body: GroupRename, request: Request, sid: Sandbox
 ) -> Response:
-    if not rename_group(request.app.state.deps.db, session.id, group_id, body.name):
+    if not rename_group(request.app.state.deps.db, sid, group_id, body.name):
         raise HTTPException(404, "not_found")
     return Response(status_code=204)
 
 
 @post_router.delete("/groups/{group_id}", status_code=204)
-def remove_group(group_id: str, request: Request, session: CurrentSession) -> Response:
+def remove_group(group_id: str, request: Request, sid: Sandbox) -> Response:
     try:
-        found = delete_group(request.app.state.deps.db, session.id, group_id)
+        found = delete_group(request.app.state.deps.db, sid, group_id)
     except GroupInUse:
         raise HTTPException(409, "group_in_use") from None
     if not found:
@@ -139,20 +135,16 @@ class Completion(BaseModel):
 
 
 @router.get("/tasks")
-def get_tasks(
-    request: Request, session: CurrentSession, scope: Scope = "mine"
-) -> list[TaskView]:
+def get_tasks(request: Request, sid: Sandbox, scope: Scope = "mine") -> list[TaskView]:
     db = request.app.state.deps.db
-    gids = alex_groups(request, session.id) if scope == "mine" else None
-    return list_tasks(db, session.id, group_ids=gids, person_id=PERSONA_ID)
+    gids = alex_groups(request, sid) if scope == "mine" else None
+    return list_tasks(db, sid, group_ids=gids, person_id=PERSONA_ID)
 
 
 @post_router.post("/tasks", status_code=201)
-def post_task(
-    body: NewTask, request: Request, session: CurrentSession
-) -> dict[str, str]:
+def post_task(body: NewTask, request: Request, sid: Sandbox) -> dict[str, str]:
     try:
-        tid = create_task(request.app.state.deps.db, session.id, body)
+        tid = create_task(request.app.state.deps.db, sid, body)
     except ValueError:
         raise HTTPException(422, "invalid_group") from None
     return {"id": tid}
@@ -160,10 +152,10 @@ def post_task(
 
 @post_router.patch("/tasks/{task_id}", status_code=204)
 def patch_task(
-    task_id: TaskUuid, body: TaskPatch, request: Request, session: CurrentSession
+    task_id: TaskUuid, body: TaskPatch, request: Request, sid: Sandbox
 ) -> Response:
     try:
-        found = update_task(request.app.state.deps.db, session.id, task_id, body)
+        found = update_task(request.app.state.deps.db, sid, task_id, body)
     except ValueError:
         raise HTTPException(422, "invalid_group") from None
     if not found:
@@ -172,21 +164,17 @@ def patch_task(
 
 
 @post_router.delete("/tasks/{task_id}", status_code=204)
-def remove_task(
-    task_id: TaskUuid, request: Request, session: CurrentSession
-) -> Response:
-    if not delete_task(request.app.state.deps.db, session.id, task_id):
+def remove_task(task_id: TaskUuid, request: Request, sid: Sandbox) -> Response:
+    if not delete_task(request.app.state.deps.db, sid, task_id):
         raise HTTPException(404, "not_found")
     return Response(status_code=204)
 
 
 @post_router.put("/tasks/{task_id}/completion", status_code=204)
 def put_completion(
-    task_id: TaskUuid, body: Completion, request: Request, session: CurrentSession
+    task_id: TaskUuid, body: Completion, request: Request, sid: Sandbox
 ) -> Response:
-    ok = set_completion(
-        request.app.state.deps.db, session.id, PERSONA_ID, task_id, body.done
-    )
+    ok = set_completion(request.app.state.deps.db, sid, PERSONA_ID, task_id, body.done)
     if not ok:
         raise HTTPException(404, "not_found")
     return Response(status_code=204)
@@ -196,17 +184,15 @@ def put_completion(
 
 
 @router.get("/people")
-def get_people(request: Request, session: CurrentSession) -> list[PersonProgress]:
-    return progress(request.app.state.deps.db, session.id)
+def get_people(request: Request, sid: Sandbox) -> list[PersonProgress]:
+    return progress(request.app.state.deps.db, sid)
 
 
 @router.get("/people/{person_id}/tasks")
-def get_person_tasks(
-    person_id: str, request: Request, session: CurrentSession
-) -> list[TaskView]:
+def get_person_tasks(person_id: str, request: Request, sid: Sandbox) -> list[TaskView]:
     db = request.app.state.deps.db
     rows = db.fetch("select team_id from people where id = :id", {"id": person_id})
     if not rows:
         raise HTTPException(404, "not_found")
-    gids = visible_group_ids(db, session.id, rows[0]["team_id"])
-    return list_tasks(db, session.id, group_ids=gids, person_id=person_id)
+    gids = visible_group_ids(db, sid, rows[0]["team_id"])
+    return list_tasks(db, sid, group_ids=gids, person_id=person_id)

@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 
 import boto3
@@ -135,10 +136,14 @@ def make_ddb():
     return client, DynamoDBSessionStore(TABLE, client=client, clock=lambda: now[0]), now
 
 
+def _h(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def _item(client, sid):
-    return client.get_item(TableName=TABLE, Key={"pk": {"S": f"session#{sid}"}}).get(
-        "Item"
-    )
+    return client.get_item(
+        TableName=TABLE, Key={"pk": {"S": f"session#{_h(sid)}"}}
+    ).get("Item")
 
 
 @mock_aws
@@ -244,6 +249,27 @@ def test_in_memory_create_sweeps_expired():
 )
 def test_dynamodb_corrupt_item_deleted(aws_env, attrs):
     client, s, _ = make_ddb()
-    client.put_item(TableName=TABLE, Item={"pk": {"S": "session#bad"}, **attrs})
+    client.put_item(
+        TableName=TABLE, Item={"pk": {"S": f"session#{_h('bad')}"}, **attrs}
+    )
     assert s.get("bad") is None
     assert _item(client, "bad") is None
+
+
+def test_in_memory_store_does_not_store_raw_token():
+    s, _ = make_store()
+    token = s.create().id
+    assert token not in s._sessions  # pyright: ignore[reportPrivateUsage]
+    assert _h(token) in s._sessions  # pyright: ignore[reportPrivateUsage]
+    assert s.get(token) is not None and s.get(token).id == token  # pyright: ignore[reportOptionalMemberAccess]
+
+
+@mock_aws
+def test_session_store_does_not_store_raw_token(aws_env):
+    client, s, _ = make_ddb()
+    token = s.create().id
+    keys = [i["pk"]["S"] for i in client.scan(TableName=TABLE)["Items"]]
+    assert keys == [f"session#{_h(token)}"]
+    assert all(token not in k for k in keys)
+    got = s.get(token)
+    assert got is not None and got.id == token

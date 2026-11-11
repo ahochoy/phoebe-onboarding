@@ -28,6 +28,7 @@ class NewDocument(BaseModel):
     doc_type: DocType
     group_id: str
     source_uri: str
+    public_url: str | None = None
 
 
 class DocumentPatch(BaseModel):
@@ -166,10 +167,10 @@ def create_document(
         """
         insert into documents
           (id, session_id, title, purpose, last_updated, doc_type, group_id,
-           source_uri)
+           source_uri, public_url)
         values
           (coalesce(:doc_id::uuid, gen_random_uuid()), :sid, :title, :purpose,
-           :last_updated, :doc_type, :group_id, :source_uri)
+           :last_updated, :doc_type, :group_id, :source_uri, :public_url)
         returning id::text as id
         """,
         {"sid": session_id, "doc_id": doc_id, **doc.model_dump()},

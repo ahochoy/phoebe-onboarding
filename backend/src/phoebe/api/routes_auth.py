@@ -8,7 +8,7 @@ from phoebe.api.security import COOKIE_NAME, require_csrf, require_session
 from phoebe.auth import verify_password
 from phoebe.persona import Persona, get_persona
 from phoebe.sandbox import reset_session
-from phoebe.sessions import ABSOLUTE_TIMEOUT, Session
+from phoebe.sessions import ABSOLUTE_TIMEOUT, Session, sandbox_id
 
 # State-changing routes live on `post_router`, which carries the CSRF check by
 # construction. GET-only routes live on `router`.
@@ -31,9 +31,9 @@ class Me(Persona):
     day_number: int
 
 
-def _wipe_sandbox(request: Request, session_id: str) -> None:
+def _wipe_sandbox(request: Request, sandbox: str) -> None:
     deps = request.app.state.deps
-    for key in reset_session(deps.db, session_id):
+    for key in reset_session(deps.db, sandbox):
         try:
             deps.blobs.delete(key)
         except KeyError:
@@ -59,7 +59,7 @@ def login(body: LoginBody, request: Request) -> Response:
     old_id = request.cookies.get(COOKIE_NAME)
     old = deps.sessions.get(old_id) if old_id else None
     if old is not None:
-        _wipe_sandbox(request, old.id)
+        _wipe_sandbox(request, sandbox_id(old.id))
         deps.sessions.delete(old.id)
     session = deps.sessions.create()
     response = Response(status_code=204)
@@ -77,7 +77,7 @@ def login(body: LoginBody, request: Request) -> Response:
 
 @post_router.post("/logout", status_code=204)
 def logout(request: Request, session: CurrentSession) -> Response:
-    _wipe_sandbox(request, session.id)
+    _wipe_sandbox(request, sandbox_id(session.id))
     request.app.state.deps.sessions.delete(session.id)
     response = Response(status_code=204)
     response.delete_cookie(
@@ -92,7 +92,7 @@ def logout(request: Request, session: CurrentSession) -> Response:
 
 @post_router.post("/reset", status_code=204)
 def reset(request: Request, session: CurrentSession) -> Response:
-    _wipe_sandbox(request, session.id)
+    _wipe_sandbox(request, sandbox_id(session.id))
     return Response(status_code=204)
 
 

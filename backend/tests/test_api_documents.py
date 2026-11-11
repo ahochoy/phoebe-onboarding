@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from conftest import CSRF
 from phoebe.api.app import Deps
+from phoebe.sessions import sandbox_id
 
 MB5 = 5 * 1024 * 1024
 
@@ -48,6 +49,13 @@ def search(c: TestClient, q: str) -> list[dict]:
 def doc_id_by_title(c: TestClient, title: str, scope: str = "all") -> str:
     docs = c.get(f"/api/documents?scope={scope}").json()
     return next(d["id"] for d in docs if d["title"] == title)
+
+
+def _source_uri(c: TestClient, doc_id: str) -> str:
+    rows = deps_of(c).db.fetch(
+        "select source_uri from documents where id::text = :id", {"id": doc_id}
+    )
+    return rows[0]["source_uri"]
 
 
 def blob_files(c: TestClient) -> list[Path]:
@@ -108,7 +116,7 @@ def test_upload_then_search(seeded_client: TestClient) -> None:
 def test_upload_blob_key_matches_doc_id(seeded_client: TestClient) -> None:
     r = upload(seeded_client, "a.md", b"# A\ntext here\n")
     doc_id = r.json()["id"]
-    sid = seeded_client.cookies["phoebe_session"]
+    sid = sandbox_id(seeded_client.cookies["phoebe_session"])
     assert (
         deps_of(seeded_client).blobs.get(f"uploads/{sid}/{doc_id}")
         == b"# A\ntext here\n"
@@ -123,8 +131,11 @@ def test_upload_ignores_client_source_uri(seeded_client: TestClient) -> None:
         extra={"source_uri": "seed://handbook.md"},
     )
     assert r.status_code == 202
-    sid = seeded_client.cookies["phoebe_session"]
-    assert r.json()["source_uri"] == f"blob://uploads/{sid}/{r.json()['id']}"
+    sid = sandbox_id(seeded_client.cookies["phoebe_session"])
+    assert _source_uri(seeded_client, r.json()["id"]) == (
+        f"blob://uploads/{sid}/{r.json()['id']}"
+    )
+    assert "source_uri" not in r.json()
 
 
 def test_upload_csv_and_pdf_types(seeded_client: TestClient) -> None:
@@ -259,7 +270,8 @@ def test_link_web_202(seeded_client: TestClient) -> None:
     assert r.status_code == 202
     b = r.json()
     assert b["doc_type"] == "web" and b["status"] == "processing" and b["owned"]
-    assert b["source_uri"] == "https://example.com/page"
+    assert b["public_url"] == "https://example.com/page"
+    assert "source_uri" not in b
 
 
 def test_link_google_doc_type(seeded_client: TestClient) -> None:
@@ -319,7 +331,8 @@ def test_link_requires_csrf_and_session(
 
 def test_link_ignores_extra_source_uri(seeded_client: TestClient) -> None:
     r = post_link(seeded_client, "https://example.com/p", source_uri="seed://x")
-    assert r.status_code == 202 and r.json()["source_uri"] == "https://example.com/p"
+    assert r.status_code == 202
+    assert _source_uri(seeded_client, r.json()["id"]) == "https://example.com/p"
 
 
 # ---- patch / delete ------------------------------------------------------
@@ -356,11 +369,7 @@ def test_patch_rejects_source_uri_and_bad_group(seeded_client: TestClient) -> No
         headers=CSRF,
     )
     assert r.status_code == 204
-    assert (
-        seeded_client.get(f"/api/documents/{d}")
-        .json()["source_uri"]
-        .startswith("blob://")
-    )
+    assert _source_uri(seeded_client, d).startswith("blob://uploads/")
     r = seeded_client.patch(
         f"/api/documents/{d}", json={"group_id": "nope"}, headers=CSRF
     )
@@ -425,3 +434,76 @@ def test_search_only_sees_visible_groups(seeded_client: TestClient) -> None:
     for q in ("quota", "commission", "pipeline", "handbook"):
         for p in search(seeded_client, q):
             assert p["document_id"] in visible
+
+
+def test_no_session_token_in_any_response(seeded_client: TestClient) -> None:
+    token = seeded_client.cookies["phoebe_session"]
+    bodies = []
+    up = upload(seeded_client, "a.md", b"# a\nx\n")
+    bodies.append(up)
+    bodies.append(post_link(seeded_client, "https://example.com/p"))
+    bodies.append(seeded_client.get("/api/documents?scope=all"))
+    bodies.append(seeded_client.get(f"/api/documents/{up.json()['id']}"))
+    bodies.append(seeded_client.get("/api/me"))
+    bodies.append(seeded_client.get("/api/groups"))
+    bodies.append(seeded_client.get("/api/tasks?scope=all"))
+    bodies.append(seeded_client.post("/api/search", json={"query": "a"}, headers=CSRF))
+    for r in bodies:
+        assert token not in r.text and "source_uri" not in r.text
+
+
+def test_blob_key_uses_sandbox_id_not_token(seeded_client: TestClient) -> None:
+    token = seeded_client.cookies["phoebe_session"]
+    r = upload(seeded_client, "a.md", b"# a\nx\n")
+    files = blob_files(seeded_client)
+    assert len(files) == 1
+    assert token not in str(files[0])
+    assert sandbox_id(token) in str(files[0])
+    assert token not in _source_uri(seeded_client, r.json()["id"])
+    rows = deps_of(seeded_client).db.fetch(
+        "select session_id from documents where id::text = :id", {"id": r.json()["id"]}
+    )
+    assert rows[0]["session_id"] == sandbox_id(token) != token
+
+
+def test_link_doc_public_url_set(seeded_client: TestClient) -> None:
+    r = post_link(seeded_client, "https://example.com/p")
+    assert r.json()["public_url"] == "https://example.com/p"
+    got = seeded_client.get(f"/api/documents/{r.json()['id']}").json()
+    assert got["public_url"] == "https://example.com/p"
+    up = upload(seeded_client, "a.md", b"# a\nx\n")
+    assert up.json()["public_url"] is None
+
+
+def test_upload_without_content_length_411(seeded_client: TestClient) -> None:
+    boundary = "xBOUNDARYx"
+    body = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\nT\r\n'
+        f'--{boundary}\r\nContent-Disposition: form-data; name="group_id"\r\n\r\n'
+        f"platform\r\n"
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+        f'filename="a.md"\r\n\r\n# a\r\n--{boundary}--\r\n'
+    ).encode()
+
+    def gen():
+        yield body
+
+    r = seeded_client.post(
+        "/api/documents/upload",
+        content=gen(),
+        headers={**CSRF, "Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    assert r.status_code == 411 and r.json() == {"detail": "length_required"}
+    assert blob_files(seeded_client) == []
+
+
+def test_delete_blob_failure_is_swallowed(
+    seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    d = upload(seeded_client, "a.md", b"# a\nx\n").json()["id"]
+
+    def boom(_key: str) -> None:
+        raise OSError("disk")
+
+    monkeypatch.setattr(deps_of(seeded_client).blobs, "delete", boom)
+    assert seeded_client.delete(f"/api/documents/{d}", headers=CSRF).status_code == 204

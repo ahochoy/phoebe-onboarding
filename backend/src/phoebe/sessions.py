@@ -20,6 +20,17 @@ def session_hash(session_id: str) -> str:
     return hashlib.sha256(session_id.encode()).hexdigest()[:12]
 
 
+def sandbox_id(session_id: str) -> str:
+    """Non-secret sandbox key derived from the session token. The raw token is a
+    bearer secret and must never reach the DB, blob keys or API responses."""
+    return hashlib.sha256(session_id.encode()).hexdigest()
+
+
+def _store_key(session_id: str) -> str:
+    """Sessions are stored under sha256(token) so a leaked dump can't be replayed."""
+    return hashlib.sha256(session_id.encode()).hexdigest()
+
+
 @dataclass(frozen=True)
 class Session:
     id: str
@@ -65,27 +76,28 @@ class InMemorySessionStore:
             expired = [k for k, v in self._sessions.items() if _expired(v, now)]
             for k in expired:
                 del self._sessions[k]
-            self._sessions[session.id] = session
+            self._sessions[_store_key(session.id)] = session
         return session
 
     def get(self, session_id: str) -> Session | None:
         if not _valid_id(session_id):
             return None
         now = self._clock()
+        key = _store_key(session_id)
         with self._lock:
-            session = self._sessions.get(session_id)
+            session = self._sessions.get(key)
             if session is None:
                 return None
             if _expired(session, now):
-                del self._sessions[session_id]
+                del self._sessions[key]
                 return None
             session = replace(session, last_seen=now)
-            self._sessions[session_id] = session
+            self._sessions[key] = session
             return session
 
     def delete(self, session_id: str) -> None:
         with self._lock:
-            self._sessions.pop(session_id, None)
+            self._sessions.pop(_store_key(session_id), None)
 
 
 class DynamoDBSessionStore:
@@ -108,7 +120,7 @@ class DynamoDBSessionStore:
 
     @staticmethod
     def _key(session_id: str) -> dict[str, Any]:
-        return {"pk": {"S": f"session#{session_id}"}}
+        return {"pk": {"S": f"session#{_store_key(session_id)}"}}
 
     def create(self) -> Session:
         now = self._clock()

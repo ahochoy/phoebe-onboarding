@@ -8,6 +8,7 @@ from conftest import CSRF, PW, make_task, seed_org
 from phoebe.api.app import Deps
 from phoebe.api.security import require_csrf, require_session
 from phoebe.db import Database
+from phoebe.sessions import sandbox_id
 
 
 def deps_of(c: TestClient) -> Deps:
@@ -118,6 +119,14 @@ def test_post_without_csrf_header_403(logged_in: TestClient) -> None:
     )
 
 
+def _all_calls(dependant) -> list:
+    out = []
+    for d in dependant.dependencies:
+        out.append(d.call)
+        out.extend(_all_calls(d))
+    return out
+
+
 def test_every_state_changing_route_is_guarded(client: TestClient) -> None:
     contexts = list(iter_route_contexts(client.app.routes))  # type: ignore[attr-defined]
     assert contexts
@@ -132,7 +141,7 @@ def test_every_state_changing_route_is_guarded(client: TestClient) -> None:
         if not unsafe:
             continue
         assert (c.path or "").startswith("/api/"), c.path
-        calls = [d.call for d in c.route.dependant.dependencies]
+        calls = _all_calls(c.route.dependant)
         assert require_csrf in calls, c.path
         if c.path != "/api/login":
             assert require_session in calls, c.path
@@ -143,7 +152,7 @@ def test_reset_requires_session(client: TestClient) -> None:
 
 
 def _own_stuff(db: Database, c: TestClient) -> tuple[str, str]:
-    sid = c.cookies["phoebe_session"]
+    sid = sandbox_id(c.cookies["phoebe_session"])
     seed_org(db)
     task_id = make_task(db, group_id="platform", session_id=sid)
     key = f"uploads/{sid}/f1"

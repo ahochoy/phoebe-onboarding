@@ -1,7 +1,8 @@
 import contextlib
+import logging
 import uuid
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import httpx
 from fastapi import (
@@ -20,9 +21,10 @@ from pydantic import BaseModel, Field, StringConstraints, ValidationError
 
 from phoebe.api.background import run_guarded
 from phoebe.api.routes_portal import DocUuid, alex_groups
-from phoebe.api.security import require_csrf, require_session
+from phoebe.api.security import Sandbox, require_csrf
 from phoebe.documents import (
     DocType,
+    DocumentDetail,
     DocumentPatch,
     DocumentSummary,
     NewDocument,
@@ -36,13 +38,13 @@ from phoebe.documents import (
 from phoebe.ingest.fetch import google_doc_export_url
 from phoebe.ingest.parse import ParseError, sniff_upload
 from phoebe.retrieve import Passage, search
-from phoebe.sessions import Session
+
+_log = logging.getLogger("phoebe.api")
 
 router = APIRouter(prefix="/api")
 post_router = APIRouter(prefix="/api", dependencies=[Depends(require_csrf)])
 routers = (router, post_router)
 
-CurrentSession = Annotated[Session, Depends(require_session)]
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 _CHUNK = 64 * 1024
@@ -72,11 +74,40 @@ class SearchBody(BaseModel):
     ]
 
 
-def _summary(request: Request, session_id: str, doc_id: str) -> DocumentSummary:
+class DocumentOut(BaseModel):
+    """API view of a document. `source_uri` is server-side only (it carries
+    blob keys) and is deliberately absent."""
+
+    id: str
+    title: str
+    purpose: str
+    last_updated: date | None
+    doc_type: DocType
+    group_id: str
+    group_name: str
+    group_kind: str
+    status: str
+    failure_reason: str | None
+    public_url: str | None
+    owned: bool
+
+
+class DocumentDetailOut(DocumentOut):
+    full_text: str | None
+    sections: list[dict[str, Any]]
+
+
+def _out(doc: DocumentSummary) -> DocumentOut:
+    return DocumentOut(
+        **doc.model_dump(exclude={"source_uri", "full_text", "sections"})
+    )
+
+
+def _summary(request: Request, session_id: str, doc_id: str) -> DocumentOut:
     detail = get_document(request.app.state.deps.db, session_id, doc_id)
     if detail is None:  # raced with a reset/delete
         raise HTTPException(404, "not_found")
-    return DocumentSummary(**detail.model_dump(exclude={"full_text", "sections"}))
+    return _out(detail)
 
 
 def _enqueue(request: Request, background: BackgroundTasks, doc_id: str) -> None:
@@ -104,25 +135,28 @@ def _too_large() -> HTTPException:
 
 @router.get("/documents")
 def get_documents(
-    request: Request, session: CurrentSession, scope: Literal["mine", "all"] = "mine"
-) -> list[DocumentSummary]:
-    gids = alex_groups(request, session.id) if scope == "mine" else None
-    return list_documents(request.app.state.deps.db, session.id, group_ids=gids)
+    request: Request, sid: Sandbox, scope: Literal["mine", "all"] = "mine"
+) -> list[DocumentOut]:
+    gids = alex_groups(request, sid) if scope == "mine" else None
+    docs = list_documents(request.app.state.deps.db, sid, group_ids=gids)
+    return [_out(d) for d in docs]
 
 
 @router.get("/documents/{doc_id}")
-def get_one_document(doc_id: DocUuid, request: Request, session: CurrentSession):
-    detail = get_document(request.app.state.deps.db, session.id, doc_id)
+def get_one_document(
+    doc_id: DocUuid, request: Request, sid: Sandbox
+) -> DocumentDetailOut:
+    detail: DocumentDetail | None = get_document(request.app.state.deps.db, sid, doc_id)
     if detail is None:
         raise HTTPException(404, "not_found")
-    return detail
+    return DocumentDetailOut(**detail.model_dump(exclude={"source_uri"}))
 
 
 @post_router.post("/documents/upload", status_code=202)
 def upload_document(
     request: Request,
     background: BackgroundTasks,
-    session: CurrentSession,
+    sid: Sandbox,
     file: Annotated[UploadFile, File()],
     title: Annotated[str, Form()],
     group_id: Annotated[str, Form()],
@@ -131,7 +165,9 @@ def upload_document(
 ) -> Response:
     deps = request.app.state.deps
     declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES + _MULTIPART_SLACK:
+    if not declared.isdigit():
+        raise HTTPException(411, "length_required")
+    if int(declared) > MAX_UPLOAD_BYTES + _MULTIPART_SLACK:
         raise _too_large()
     data = _read_capped(file)
     if data is None:
@@ -152,12 +188,12 @@ def upload_document(
             {"detail": "unsupported_type", "reason": exc.reason}, status_code=415
         )
     doc_id = str(uuid.uuid4())
-    key = f"uploads/{session.id}/{doc_id}"
+    key = f"uploads/{sid}/{doc_id}"
     deps.blobs.put(key, data)
     try:
         create_document(
             deps.db,
-            session.id,
+            sid,
             NewDocument(
                 title=meta.title,
                 purpose=meta.purpose,
@@ -176,7 +212,7 @@ def upload_document(
         if isinstance(exc, ValueError):
             raise HTTPException(422, "invalid_group") from None
         raise
-    summary = _summary(request, session.id, doc_id)
+    summary = _summary(request, sid, doc_id)
     _enqueue(request, background, doc_id)
     return JSONResponse(summary.model_dump(mode="json"), status_code=202)
 
@@ -195,7 +231,7 @@ def link_document(
     body: LinkBody,
     request: Request,
     background: BackgroundTasks,
-    session: CurrentSession,
+    sid: Sandbox,
 ) -> Response:
     if not _valid_link(body.url):
         raise HTTPException(422, "invalid_link")
@@ -203,7 +239,7 @@ def link_document(
     try:
         doc_id = create_document(
             request.app.state.deps.db,
-            session.id,
+            sid,
             NewDocument(
                 title=body.title,
                 purpose=body.purpose,
@@ -211,23 +247,24 @@ def link_document(
                 doc_type=doc_type,
                 group_id=body.group_id,
                 source_uri=body.url,
+                public_url=body.url,
             ),
         )
     except SandboxFull:
         raise HTTPException(409, "sandbox_full") from None
     except ValueError:
         raise HTTPException(422, "invalid_group") from None
-    summary = _summary(request, session.id, doc_id)
+    summary = _summary(request, sid, doc_id)
     _enqueue(request, background, doc_id)
     return JSONResponse(summary.model_dump(mode="json"), status_code=202)
 
 
 @post_router.patch("/documents/{doc_id}", status_code=204)
 def patch_document(
-    doc_id: DocUuid, body: DocumentPatch, request: Request, session: CurrentSession
+    doc_id: DocUuid, body: DocumentPatch, request: Request, sid: Sandbox
 ) -> Response:
     try:
-        found = update_document(request.app.state.deps.db, session.id, doc_id, body)
+        found = update_document(request.app.state.deps.db, sid, doc_id, body)
     except ValueError:
         raise HTTPException(422, "invalid_group") from None
     if not found:
@@ -236,26 +273,20 @@ def patch_document(
 
 
 @post_router.delete("/documents/{doc_id}", status_code=204)
-def remove_document(
-    doc_id: DocUuid, request: Request, session: CurrentSession
-) -> Response:
+def remove_document(doc_id: DocUuid, request: Request, sid: Sandbox) -> Response:
     deps = request.app.state.deps
-    result = delete_document(deps.db, session.id, doc_id)
+    result = delete_document(deps.db, sid, doc_id)
     if not result.deleted:
         raise HTTPException(404, "not_found")
     if result.blob_key:
         try:
             deps.blobs.delete(result.blob_key)
-        except KeyError:
-            pass
+        except Exception as exc:  # noqa: BLE001 - the row is gone; log type only
+            _log.error("blob delete failed %s", type(exc).__name__)
     return Response(status_code=204)
 
 
 @post_router.post("/search")
-def search_documents(
-    body: SearchBody, request: Request, session: CurrentSession
-) -> list[Passage]:
+def search_documents(body: SearchBody, request: Request, sid: Sandbox) -> list[Passage]:
     deps = request.app.state.deps
-    return search(
-        deps.db, deps.embedder, session.id, alex_groups(request, session.id), body.query
-    )
+    return search(deps.db, deps.embedder, sid, alex_groups(request, sid), body.query)
