@@ -563,7 +563,6 @@ dependencies = [
     { name = "beautifulsoup4" },
     { name = "boto3" },
     { name = "httpx" },
-    { name = "moto", extra = ["dynamodb"] },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
     { name = "pydantic-settings" },
@@ -574,6 +573,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "fpdf2" },
+    { name = "moto", extra = ["dynamodb"] },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -585,7 +585,6 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.15.0" },
     { name = "boto3", specifier = ">=1.44.0" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "moto", extras = ["dynamodb"], specifier = ">=5.2.5" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.8" },
     { name = "psycopg-pool", specifier = ">=3.3.3" },
     { name = "pydantic-settings", specifier = ">=2.16.2" },
@@ -596,6 +595,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "fpdf2", specifier = ">=2.9.0" },
+    { name = "moto", extras = ["dynamodb"], specifier = ">=5.2.5" },
     { name = "pyright", specifier = ">=1.1.414" },
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "ruff", specifier = ">=0.17.4" },

@@ -216,3 +216,34 @@ def test_dynamodb_default_client(aws_env):
     s = DynamoDBSessionStore(TABLE)
     sess = s.create()
     assert s.get(sess.id)
+
+
+def test_in_memory_create_sweeps_expired():
+    s, now = make_store()
+    old = [s.create() for _ in range(3)]
+    now[0] = T0 + timedelta(hours=3)
+    fresh = s.create()
+    assert len(s._sessions) == 1  # pyright: ignore[reportPrivateUsage]
+    assert all(s.get(o.id) is None for o in old)
+    assert s.get(fresh.id) is not None
+
+
+@mock_aws
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        {},
+        {"created_at": {"S": "garbage"}, "last_seen": {"S": "garbage"}},
+        {"created_at": {"S": T0.isoformat()}},
+        {"created_at": {"S": T0.isoformat()}, "last_seen": {"N": "1"}},
+        {
+            "created_at": {"S": "2026-01-01T12:00:00"},
+            "last_seen": {"S": "2026-01-01T12:00:00"},
+        },
+    ],
+)
+def test_dynamodb_corrupt_item_deleted(aws_env, attrs):
+    client, s, _ = make_ddb()
+    client.put_item(TableName=TABLE, Item={"pk": {"S": "session#bad"}, **attrs})
+    assert s.get("bad") is None
+    assert _item(client, "bad") is None

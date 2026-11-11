@@ -62,6 +62,9 @@ class InMemorySessionStore:
         now = self._clock()
         session = Session(secrets.token_urlsafe(32), now, now)
         with self._lock:
+            expired = [k for k, v in self._sessions.items() if _expired(v, now)]
+            for k in expired:
+                del self._sessions[k]
             self._sessions[session.id] = session
         return session
 
@@ -132,11 +135,16 @@ class DynamoDBSessionStore:
         if item is None:
             return None
         now = self._clock()
-        session = Session(
-            session_id,
-            datetime.fromisoformat(item["created_at"]["S"]),
-            datetime.fromisoformat(item["last_seen"]["S"]),
-        )
+        try:
+            session = Session(
+                session_id,
+                datetime.fromisoformat(item["created_at"]["S"]),
+                datetime.fromisoformat(item["last_seen"]["S"]),
+            )
+            _expired(session, now)  # naive/aware mismatch raises TypeError
+        except KeyError, ValueError, TypeError:
+            self.delete(session_id)
+            return None
         if _expired(session, now):
             self.delete(session_id)
             return None
