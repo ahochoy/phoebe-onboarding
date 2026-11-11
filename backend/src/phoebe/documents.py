@@ -6,13 +6,15 @@ from pydantic import BaseModel, Field
 
 from phoebe.db import Database
 from phoebe.groups import EFFECTIVE_GROUPS_SQL
-from phoebe.sandbox import EntityKind, hide, patch
+from phoebe.sandbox import EntityKind, blob_key_for, hide, patch
 
 DocType = Literal["pdf", "markdown", "csv", "web", "google_doc"]
 DocStatus = Literal["processing", "indexed", "failed"]
 
 MAX_OWNED_DOCUMENTS = 20
 _BLOB_PREFIX = "blob://"
+
+__all__ = ["blob_key_for"]  # defined in sandbox (shared with reset_session)
 
 
 class SandboxFull(Exception):
@@ -150,6 +152,10 @@ def _owned_count(db: Database, session_id: str) -> int:
 def create_document(db: Database, session_id: str, doc: NewDocument) -> str:
     if doc.group_id not in _effective_group_ids(db, session_id):
         raise ValueError(f"unknown group {doc.group_id}")
+    if doc.source_uri.startswith(_BLOB_PREFIX) and (
+        blob_key_for(session_id, doc.source_uri) is None
+    ):
+        raise ValueError("blob source_uri must be inside this session's uploads")
     if _owned_count(db, session_id) >= MAX_OWNED_DOCUMENTS:
         raise SandboxFull(session_id)
     rows = db.fetch(
@@ -223,8 +229,7 @@ def delete_document(db: Database, session_id: str, doc_id: str) -> DeleteResult:
             {"id": doc_id, "sid": session_id},
         )
         uri: str = row["source_uri"]
-        key = uri.removeprefix(_BLOB_PREFIX) if uri.startswith(_BLOB_PREFIX) else None
-        return DeleteResult(deleted=True, blob_key=key)
+        return DeleteResult(deleted=True, blob_key=blob_key_for(session_id, uri))
     if _visible_seed_document(db, session_id, doc_id):
         hide(db, session_id, EntityKind.DOCUMENT, doc_id)
         return DeleteResult(deleted=True)

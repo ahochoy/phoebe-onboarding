@@ -66,7 +66,7 @@ def test_reset_returns_blob_keys_and_deletes_documents_and_chunks(db):
         """
         insert into documents (session_id, title, doc_type, group_id, source_uri, status)
         values
-          ('s1', 'Up', 'pdf', 'platform', 'blob://abc/key.pdf', 'indexed'),
+          ('s1', 'Up', 'pdf', 'platform', 'blob://uploads/s1/key.pdf', 'indexed'),
           ('s1', 'Link', 'web', 'platform', 'https://example.com', 'indexed'),
           ('s2', 'Other', 'pdf', 'platform', 'blob://zzz/other.pdf', 'indexed')
         returning id::text as id, title
@@ -82,7 +82,7 @@ def test_reset_returns_blob_keys_and_deletes_documents_and_chunks(db):
         {"d": up, "emb": "[" + ",".join(["0"] * 1024) + "]"},
     )
     keys = reset_session(db, "s1")
-    assert keys == ["abc/key.pdf"]
+    assert keys == ["uploads/s1/key.pdf"]
     assert count(db, "documents", "s1") == 0
     assert count(db, "documents", "s2") == 1
     assert db.fetch("select 1 from documents where id = :d::uuid", {"d": seed_doc})
@@ -94,3 +94,14 @@ def test_reset_fresh_session_is_noop(db):
     make_task(db, group_id="acme")
     assert reset_session(db, "s0") == []
     assert len(list_tasks(db, "s0")) == 1
+
+
+def test_reset_never_returns_foreign_blob_key(db):
+    from test_documents import _raw_owned
+
+    seed_org(db)
+    _raw_owned(db, "s1", "blob://uploads/s2/victim")
+    _raw_owned(db, "s1", "blob://uploads/s1/../s2/x")
+    mine = _raw_owned(db, "s1", "blob://uploads/s1/mine")
+    assert reset_session(db, "s1") == ["uploads/s1/mine"]
+    assert mine

@@ -1,4 +1,6 @@
+import hashlib
 import json
+import logging
 from enum import StrEnum
 from typing import Any
 
@@ -48,6 +50,37 @@ def patch(
 
 
 _BLOB_PREFIX = "blob://"
+_log = logging.getLogger(__name__)
+
+
+def session_hash(session_id: str) -> str:
+    return hashlib.sha256(session_id.encode()).hexdigest()[:12]
+
+
+def blob_key_for(session_id: str, source_uri: str) -> str | None:
+    """Blob key of a `blob://` URI, only if it lies inside this session's prefix.
+
+    Returns None for non-blob URIs and for any key that is not
+    `uploads/{session_id}/<something>` (leading slash, backslash and `..`
+    segments are rejected). A rejected blob URI is logged by session hash only.
+    """
+    if not source_uri.startswith(_BLOB_PREFIX):
+        return None
+    key = source_uri.removeprefix(_BLOB_PREFIX)
+    prefix = f"uploads/{session_id}/"
+    ok = (
+        key.startswith(prefix)
+        and len(key) > len(prefix)
+        and not key.startswith("/")
+        and "\\" not in key
+        and ".." not in key.split("/")
+    )
+    if not ok:
+        _log.warning(
+            "rejected foreign blob key for session %s", session_hash(session_id)
+        )
+        return None
+    return key
 
 
 def reset_session(db: Database, session_id: str) -> list[str]:
@@ -67,8 +100,5 @@ def reset_session(db: Database, session_id: str) -> list[str]:
         tx.execute("delete from tasks where session_id = :sid", params)
         tx.execute("delete from documents where session_id = :sid", params)
         tx.execute("delete from groups where session_id = :sid", params)
-    return [
-        r["source_uri"].removeprefix(_BLOB_PREFIX)
-        for r in uris
-        if r["source_uri"].startswith(_BLOB_PREFIX)
-    ]
+    keys = (blob_key_for(session_id, r["source_uri"]) for r in uris)
+    return [k for k in keys if k is not None]

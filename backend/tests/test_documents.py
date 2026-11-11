@@ -12,6 +12,7 @@ from phoebe.documents import (
     DocumentSummary,
     NewDocument,
     SandboxFull,
+    blob_key_for,
     create_document,
     delete_document,
     get_document,
@@ -30,7 +31,7 @@ def new_doc(**overrides: Any) -> NewDocument:
         "last_updated": None,
         "doc_type": "markdown",
         "group_id": "platform",
-        "source_uri": "blob://uploads/s1/placeholder",
+        "source_uri": "seed://placeholder",
     }
     return NewDocument(**(fields | overrides))
 
@@ -229,3 +230,49 @@ def test_validation():
         new_doc(purpose="x" * 501)
     with pytest.raises(ValidationError):
         new_doc(doc_type="exe")
+
+
+def test_foreign_blob_uri_rejected_on_create(db):
+    seed_org(db)
+    for uri in (
+        "blob://uploads/s2/x",
+        "blob://uploads/s1/",
+        "blob://uploads/s1/../s2/x",
+        "blob:///uploads/s1/x",
+        "blob://other/s1/x",
+    ):
+        with pytest.raises(ValueError):
+            create_document(db, "s1", new_doc(source_uri=uri))
+    create_document(db, "s1", new_doc(source_uri="blob://uploads/s1/ok"))
+    create_document(db, "s1", new_doc(doc_type="web", source_uri="https://e.com/a"))
+    create_document(db, "s1", new_doc(source_uri="seed://x"))
+
+
+def _raw_owned(db, sid: str, uri: str) -> str:
+    rows = db.fetch(
+        """
+        insert into documents (session_id, title, doc_type, group_id, source_uri)
+        values (:sid, 't', 'markdown', 'platform', :uri) returning id::text as id
+        """,
+        {"sid": sid, "uri": uri},
+    )
+    return rows[0]["id"]
+
+
+def test_delete_never_returns_foreign_blob_key(db):
+    seed_org(db)
+    d = _raw_owned(db, "s1", "blob://uploads/s2/victim")
+    result = delete_document(db, "s1", d)
+    assert result.deleted is True and result.blob_key is None
+
+
+def test_blob_key_traversal_rejected(db):
+    seed_org(db)
+    assert blob_key_for("s1", "blob://uploads/s1/../s2/x") is None
+    assert blob_key_for("s1", "blob:///uploads/s1/x") is None
+    assert blob_key_for("s1", "blob://uploads/s1/a\\b") is None
+    assert blob_key_for("s1", "blob://uploads/s10/x") is None
+    assert blob_key_for("s1", "https://x") is None
+    assert blob_key_for("s1", "blob://uploads/s1/x") == "uploads/s1/x"
+    d = _raw_owned(db, "s1", "blob://uploads/s1/../s2/x")
+    assert delete_document(db, "s1", d).blob_key is None
