@@ -55,11 +55,24 @@ non-zero on any failure. For the Nova run, set `PHOEBE_HARNESS_ARN` to
 
 ## Results
 
-Not yet run.
+Applied 2026-11-11 (6 resources, us-east-2). Seeding with Titan v2 indexed
+12 documents into 123 chunks. The `us.` inference profiles route to us-east-1,
+us-east-2 and us-west-2, and the project's policies allow that routing.
 
 | Date | Harness | Check | Result |
 |---|---|---|---|
-| not yet run | Haiku 4.5 | PTO question: cited, mentions 20 | not yet run |
-| not yet run | Haiku 4.5 | Follow-up: cited or refused | not yet run |
-| not yet run | Haiku 4.5 | Sales East quota: refused | not yet run |
-| not yet run | Nova Micro | PTO question: cited, mentions 20 | not yet run |
+| 2026-11-11 | Nova Micro | PTO question: cited, mentions 20 | PASS (Benefits Guide, Employee Handbook) |
+| 2026-11-11 | Nova Micro | Follow-up: cited or refused | PASS, cited (Benefits Guide, Employee Handbook) |
+| 2026-11-11 | Nova Micro | Sales East quota: refused | PASS, no citations |
+| 2026-11-11 | Haiku 4.5 | PTO question: cited, mentions 20 | BLOCKED: refused `model_unavailable` |
+| 2026-11-11 | Haiku 4.5 | Follow-up and quota checks | PASS, refused (Haiku not reachable) |
+
+Haiku is blocked on an account step, not on code. Through the Harness,
+ConverseStream returns "Model use case details have not been submitted for
+this account". The account owner submits the Anthropic use case form once
+(Bedrock console, Model catalog, any Claude model), waits about 15 minutes,
+then reruns `make live-check` with `harness_haiku_arn`. Until then, run with
+`PHOEBE_HARNESS_ARN` set to `harness_nova_arn`.
+
+Python reads `aws login` credentials through `botocore[crt]`, which is a dev
+dependency for that reason.
