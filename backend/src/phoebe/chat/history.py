@@ -71,7 +71,7 @@ def recent(
     n: int,
     *,
     group_ids: Sequence[str] | None = None,
-    max_chars: int = 2000,
+    max_chars: int,
 ) -> list[Message]:
     """The last `n` user/assistant pairs, oldest first, each text truncated."""
     if n <= 0:

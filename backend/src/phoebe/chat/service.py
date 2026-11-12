@@ -10,7 +10,7 @@ persists nothing. Logs carry metadata only, never question or answer text.
 import json
 import logging
 import time
-from collections.abc import Callable, Generator, Sequence
+from collections.abc import Callable, Generator, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 from uuid import uuid4
@@ -111,9 +111,12 @@ def _refuse(reason: Reason, passages: Sequence[Passage] = ()) -> _Outcome:
 
 
 def _held(text: str) -> bool:
-    """True while `text` could still become the NO_ANSWER sentinel."""
+    """True while `text` could still be, or already is, a NO_ANSWER reply.
+
+    Once an answer starts with NO_ANSWER none of it is ever streamed.
+    """
     head = text.lstrip()
-    return len(head) <= len(NO_ANSWER) and NO_ANSWER.startswith(head)
+    return NO_ANSWER.startswith(head) or head.startswith(NO_ANSWER)
 
 
 def _answer(
@@ -159,8 +162,10 @@ def _answer(
     holding = True
     overflow = False
     started = time.monotonic()
-    stream = ctx.answer.stream(build_messages(history, passages, question))
+    messages = build_messages(history, passages, question)
+    stream: Iterator[str] | None = None
     try:
+        stream = ctx.answer.stream(messages)
         for delta in stream:
             if len(answer) + len(delta) > cap:
                 overflow = True
@@ -176,7 +181,7 @@ def _answer(
     except ModelUnavailable:
         return _refuse("model_unavailable", passages)
     finally:
-        close = getattr(stream, "close", None)
+        close = getattr(stream, "close", None) if stream is not None else None
         if close is not None:
             close()
         st.model_ms = int((time.monotonic() - started) * 1000)

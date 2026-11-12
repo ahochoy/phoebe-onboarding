@@ -345,3 +345,23 @@ def test_refusal_threshold_defaults_by_embedder():
 def test_done_payload_is_json_serializable(seeded):
     events = run(ctx(seeded))
     json.dumps([e.data for e in events])
+
+
+@pytest.mark.parametrize(
+    "deltas",
+    [["NO_ANSWER", "\n"], ["NO_ANSWER."], ["NO", "_ANSWER - not in docs"]],
+)
+def test_no_answer_with_trailing_text_never_streamed(seeded, deltas):
+    events = run(ctx(seeded, answer=ScriptedAnswerModel(deltas)))
+    assert [e for e in events if e.name == "delta"] == []
+    assert_refused(events, "no_support")
+
+
+def test_eager_model_unavailable_refuses(seeded):
+    class EagerFail:
+        def stream(self, messages):
+            raise ModelUnavailable("model request failed")
+
+    events = run(ctx(seeded, answer=EagerFail()))
+    assert_refused(events, "model_unavailable")
+    assert [r["refused"] for r in turns(seeded)] == [False, True]

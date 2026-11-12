@@ -14,6 +14,7 @@ from phoebe.seed import load_seed
 SB = "b" * 64
 OTHER = "c" * 64
 PTO = "How many PTO days do I get?"
+MAX = Settings(database_url="x", password_hash="x").history_turn_max_chars
 
 
 @pytest.fixture
@@ -48,12 +49,12 @@ def handbook_id(db) -> str:
 def test_recent_returns_pairs_oldest_first(seeded):
     first = chat(seeded)
     chat(seeded, "What about sick days?")
-    msgs = recent(seeded, SB, n=3)
+    msgs = recent(seeded, SB, n=3, max_chars=MAX)
     assert [m["role"] for m in msgs] == ["user", "assistant"] * 2
     assert msgs[0]["text"] == PTO
     assert msgs[1]["text"] == first["text"]
     assert msgs[2]["text"] == "What about sick days?"
-    last = recent(seeded, SB, n=1)
+    last = recent(seeded, SB, n=1, max_chars=MAX)
     assert [m["text"] for m in last] == [msgs[2]["text"], msgs[3]["text"]]
 
 
@@ -66,16 +67,16 @@ def test_recent_truncates_turn_text(seeded):
 
 def test_recent_keeps_refusal_text(seeded):
     chat(seeded, "zzqx vbnmw plokij", refusal_min_similarity=0.99)
-    msgs = recent(seeded, SB, n=3)
+    msgs = recent(seeded, SB, n=3, max_chars=MAX)
     assert msgs[1]["text"] == REFUSAL_TEXT
 
 
 def test_recent_withdraws_answer_with_removed_source(seeded):
     done = chat(seeded)
     assert done["refused"] is False
-    assert recent(seeded, SB, n=3)[1]["text"] == done["text"]
+    assert recent(seeded, SB, n=3, max_chars=MAX)[1]["text"] == done["text"]
     delete_document(seeded, SB, handbook_id(seeded))
-    msgs = recent(seeded, SB, n=3)
+    msgs = recent(seeded, SB, n=3, max_chars=MAX)
     assert msgs[0]["text"] == PTO
     assert msgs[1]["text"] == WITHDRAWN
     assert WITHDRAWN == "(Earlier answer withdrawn: its source is no longer available.)"
@@ -99,10 +100,15 @@ def test_list_turns_marks_removed(seeded):
 
 def test_history_is_per_sandbox(seeded):
     chat(seeded)
-    assert recent(seeded, OTHER, n=3) == []
+    assert recent(seeded, OTHER, n=3, max_chars=MAX) == []
     assert list_turns(seeded, OTHER, groups(seeded, OTHER)) == []
     # Deleting in one sandbox does not withdraw the answer in another.
     chat(seeded, sandbox=OTHER)
     delete_document(seeded, SB, handbook_id(seeded))
-    assert recent(seeded, OTHER, n=3)[1]["text"] != WITHDRAWN
-    assert recent(seeded, SB, n=3)[1]["text"] == WITHDRAWN
+    assert recent(seeded, OTHER, n=3, max_chars=MAX)[1]["text"] != WITHDRAWN
+    assert recent(seeded, SB, n=3, max_chars=MAX)[1]["text"] == WITHDRAWN
+
+
+def test_recent_requires_max_chars(seeded):
+    with pytest.raises(TypeError):
+        recent(seeded, SB, n=3)  # type: ignore[call-arg]
