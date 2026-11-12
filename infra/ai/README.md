@@ -20,6 +20,16 @@ terraform -chdir=infra/ai apply     # only after the owner says go
 terraform -chdir=infra/ai output
 ```
 
+The execution role deliberately has no `logs:PutResourcePolicy`: a runtime role
+must not be able to change account-wide policies. If AgentCore log delivery
+turns out to need a CloudWatch Logs resource policy, create it once in
+Terraform (`aws_cloudwatch_log_resource_policy`), not by granting it to the role.
+
+`aws_bedrock_guardrail_version` does not auto-bump when the Guardrail's filters
+change. After editing filters, replace the version resource
+(`terraform apply -replace=aws_bedrock_guardrail_version.answers`) so
+`guardrail_version` points at the new snapshot.
+
 State is local and gitignored (`*.tfstate*`, `.terraform/`, `*.tfvars`).
 Offline check, no AWS: `init -backend=false`, `fmt -check`, `validate`.
 
@@ -28,6 +38,7 @@ Offline check, no AWS: `init -backend=false`, `fmt -check`, `validate`.
 After apply, with a throwaway database whose name ends in `_live`:
 
 ```sh
+docker compose exec -T db createdb -U postgres phoebe_live
 export PHOEBE_LIVE_DATABASE_URL=postgresql://postgres:phoebe@localhost:5433/phoebe_live
 export PHOEBE_EMBEDDER=titan
 export PHOEBE_ANSWER_BACKEND=harness

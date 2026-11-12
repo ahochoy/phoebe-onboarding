@@ -181,13 +181,6 @@ data "aws_iam_policy_document" "harness_execution" {
   }
 
   statement {
-    sid       = "ConfigureAgentCoreLogDelivery"
-    effect    = "Allow"
-    actions   = ["logs:PutResourcePolicy"]
-    resources = ["*"]
-  }
-
-  statement {
     sid       = "PublishAgentCoreMetrics"
     effect    = "Allow"
     actions   = ["cloudwatch:PutMetricData"]

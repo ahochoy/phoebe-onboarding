@@ -53,13 +53,20 @@ def live_database_url() -> str:
     return url
 
 
-def parse_sse(raw: str) -> list[tuple[str, dict[str, Any]]]:
+def parse_sse(raw: str) -> list[tuple[str, dict[str, Any]]] | None:
+    """Parse SSE frames; None if any frame is malformed (treated as a failure)."""
     out: list[tuple[str, dict[str, Any]]] = []
     for frame in raw.strip().split("\n\n"):
         head, _, data = frame.partition("\n")
-        out.append(
-            (head.removeprefix("event: "), json.loads(data.removeprefix("data: ")))
-        )
+        if not head.startswith("event: ") or not data.startswith("data: "):
+            return None
+        try:
+            payload = json.loads(data.removeprefix("data: "))
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        out.append((head.removeprefix("event: "), payload))  # pyright: ignore[reportUnknownArgumentType]
     return out
 
 
@@ -68,7 +75,10 @@ def ask(client: TestClient, question: str) -> dict[str, Any] | None:
     r = client.post("/api/chat", json={"question": question}, headers=CSRF)
     if r.status_code != 200:
         return None
-    done = [data for name, data in parse_sse(r.text) if name == "done"]
+    events = parse_sse(r.text)
+    if events is None:
+        return None
+    done = [data for name, data in events if name == "done"]
     return done[0] if len(done) == 1 else None
 
 
@@ -119,10 +129,29 @@ def check_out_of_scope(report: Report, done: dict[str, Any] | None) -> None:
     report.check("out-of-scope: no citations", not done["citations"])
 
 
+def require_live_settings(settings: Settings) -> None:
+    """Refuse offline defaults, which would exercise fakes and report ALL PASS."""
+    missing = [
+        name
+        for name, ok in (
+            ("PHOEBE_EMBEDDER=titan", settings.embedder == "titan"),
+            ("PHOEBE_ANSWER_BACKEND=harness", settings.answer_backend == "harness"),
+            ("PHOEBE_HARNESS_ARN", bool(settings.harness_arn)),
+            ("PHOEBE_REWRITER_BACKEND=bedrock", settings.rewriter_backend == "bedrock"),
+            ("PHOEBE_GUARDRAIL_ID", bool(settings.guardrail_id)),
+            ("PHOEBE_GUARDRAIL_VERSION", bool(settings.guardrail_version)),
+        )
+        if not ok
+    ]
+    if missing:
+        raise SystemExit("refusing: live settings required: " + ", ".join(missing))
+
+
 def build_client(db: PsycopgDatabase, settings: Settings) -> TestClient:
     embedder = make_embedder(settings)
     apply_migrations(db, MIGRATIONS_DIR)
-    load_seed(db, embedder, settings.seed_dir)
+    seeded = load_seed(db, embedder, settings.seed_dir)
+    print(f"seeded documents={seeded.documents} chunks={seeded.chunks}")
     answer, rewriter, guardrail = make_models(settings)
     blobs = LocalBlobStore(Path(settings.blob_dir))
     deps = Deps(
@@ -146,6 +175,7 @@ def main() -> int:
     settings = Settings(  # pyright: ignore[reportCallIssue]
         database_url=url, password_hash=hash_password(PASSWORD), cookie_secure=False
     )
+    require_live_settings(settings)
     print(
         f"embedder={settings.embedder} answer={settings.answer_backend} "
         f"rewriter={settings.rewriter_backend} "
