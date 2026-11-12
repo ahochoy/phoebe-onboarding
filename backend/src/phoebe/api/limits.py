@@ -4,6 +4,8 @@ Everything fails closed: if a store cannot answer, the AI path is refused with
 503 `chat_paused` and nothing is admitted.
 """
 
+import ipaddress
+
 from fastapi import HTTPException, Request
 
 from phoebe.config import Settings
@@ -27,7 +29,10 @@ def client_ip(request: Request, header: str | None) -> str:
         host = raw.split(":", 1)[0]
     else:
         host = raw  # bare IPv6 or bare IPv4
-    return host or fallback
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        return fallback
 
 
 def _deps(request: Request):

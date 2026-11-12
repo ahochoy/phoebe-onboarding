@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints, ValidationError
 
 from phoebe.api.background import run_guarded
-from phoebe.api.limits import charge_upload, require_ai_open
+from phoebe.api.limits import charge_chat, charge_upload, require_ai_open
 from phoebe.api.routes_portal import DocUuid, alex_groups
 from phoebe.api.security import Sandbox, require_csrf
 from phoebe.documents import (
@@ -295,5 +295,7 @@ def remove_document(doc_id: DocUuid, request: Request, sid: Sandbox) -> Response
 
 @post_router.post("/search")
 def search_documents(body: SearchBody, request: Request, sid: Sandbox) -> list[Passage]:
+    require_ai_open(request)
+    charge_chat(request, sid)
     deps = request.app.state.deps
     return search(deps.db, deps.embedder, sid, alex_groups(request, sid), body.query)

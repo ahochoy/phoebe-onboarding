@@ -8,8 +8,7 @@ from phoebe.limits import LimitsUnavailable
 from phoebe.sessions import sandbox_id
 
 router = APIRouter(prefix="/api")
-post_router = APIRouter(prefix="/api")
-routers = (router, post_router)
+routers = (router,)
 
 
 def _unavailable(state: str) -> dict[str, Any]:

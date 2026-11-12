@@ -13,7 +13,7 @@ from phoebe.embed import HashEmbedder
 from phoebe.ingest.pipeline import index_document
 from phoebe.jobs import InlineJobQueue
 from phoebe.limits import InMemoryCounterStore, LimitsUnavailable
-from phoebe.sessions import InMemorySessionStore
+from phoebe.sessions import InMemorySessionStore, sandbox_id
 from phoebe.storage import LocalBlobStore
 
 
@@ -165,13 +165,79 @@ def test_upload_rejected_when_chat_paused(db, tmp_path):
         db, tmp_path, counters=counters, control=InMemoryControlStore("chat_paused")
     )
     _login(c)
+    sb = sandbox_id(c.cookies["phoebe_session"])
+
+    def owned() -> int:
+        return db.fetch(
+            "select count(*) as n from documents where session_id = :s", {"s": sb}
+        )[0]["n"]
+
     r = up(c)
     assert (r.status_code, r.json()) == (503, {"detail": "chat_paused"})
-    assert link(c).status_code == 503
+    assert owned() == 0
+    assert counters.peek(f"upload#{sb}", 86400) == 0
     assert counters.peek("upload#global", 86400) == 0
-    assert c.get("/api/documents").json() == [] or all(
-        d.get("scope") != "mine" for d in c.get("/api/documents?scope=mine").json()
+    assert link(c).status_code == 503
+    assert owned() == 0
+    assert counters.peek(f"upload#{sb}", 86400) == 0
+    assert counters.peek("upload#global", 86400) == 0
+
+
+def search(c):
+    return c.post("/api/search", json={"query": "onboarding"}, headers=CSRF)
+
+
+def test_search_rejected_when_paused(db, tmp_path):
+    counters = InMemoryCounterStore()
+    c = make_client(
+        db, tmp_path, counters=counters, control=InMemoryControlStore("chat_paused")
     )
+    _login(c)
+    r = search(c)
+    assert (r.status_code, r.json()) == (503, {"detail": "chat_paused"})
+    assert counters.peek("chat#global", 86400) == 0
+
+
+def test_search_counts_against_chat_cap(db, tmp_path):
+    c = make_client(db, tmp_path, chat_per_session_hour=2)
+    _login(c)
+    assert search(c).status_code == 200
+    assert search(c).status_code == 200
+    r = search(c)
+    assert (r.status_code, r.json()) == (429, {"detail": "session_chat_limit"})
+
+
+def test_client_ip_garbage_header_falls_back():
+    from starlette.requests import Request
+
+    r = Request(
+        {
+            "type": "http",
+            "headers": [(b"h", b"not-an-ip:80")],
+            "client": ("10.0.0.1", 1),
+        }
+    )
+    assert client_ip(r, "h") == "10.0.0.1"
+
+
+def test_status_reports_chat_limits_when_seeded(db, tmp_path):
+    counters = InMemoryCounterStore()
+    c = make_client(
+        db, tmp_path, counters=counters, chat_per_session_hour=2, chat_global_day=3
+    )
+    _login(c)
+    sb = sandbox_id(c.cookies["phoebe_session"])
+    for _ in range(2):
+        counters.hit(f"chat#{sb}", 2, 3600)
+    s = c.get("/api/status").json()
+    assert s["chat_available"] is False and s["reasons"] == ["session_chat_limit"]
+    counters.hit("chat#global", 3, 86400)
+    c.cookies.clear()
+    assert c.get("/api/status").json()["reasons"] == []
+    counters.hit("chat#global", 3, 86400)
+    counters.hit("chat#global", 3, 86400)
+    s = c.get("/api/status").json()
+    assert s["chat_available"] is False and s["reasons"] == ["global_chat_limit"]
 
 
 def test_closed_blocks_api_but_not_status_or_health(db, tmp_path):
