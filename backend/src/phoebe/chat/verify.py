@@ -17,6 +17,7 @@ from phoebe.retrieve import Passage
 
 _LABEL = re.compile(r"\[P(\d+)\]")
 _PARAGRAPHS = re.compile(r"\n\s*\n")
+_LEADING_BLANK = re.compile(r"\A(?:[ \t]*\r?\n)+")
 _HEADING = re.compile(r"[ ]{0,3}#{1,6}[ \t]+\S.*")
 
 
@@ -37,9 +38,10 @@ class Verified:
 
 
 def verify(answer: str, passages: Sequence[Passage]) -> Verified | None:
-    stripped = answer.strip()
-    if stripped.startswith(NO_ANSWER):
+    if answer.strip().startswith(NO_ANSWER):
         return None
+    # Drop leading blank lines only: first-line indentation decides heading-ness.
+    stripped = _LEADING_BLANK.sub("", answer).rstrip()
     labels = [int(m) for m in _LABEL.findall(stripped)]
     if not labels or any(not 1 <= n <= len(passages) for n in labels):
         return None
