@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     history_turn_max_chars: int = 2000
     answer_max_tokens: int = 700
     answer_max_chars: int = 6000
+    # None: per-embedder default (see chat.service.min_similarity).
+    refusal_min_similarity: float | None = None
     rewrite_max_tokens: int = 64
     answer_backend: Literal["extractive", "harness"] = "extractive"
     harness_arn: str | None = None
