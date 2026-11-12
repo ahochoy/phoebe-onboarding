@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     answer_max_tokens: int = 700
     answer_max_chars: int = 6000
     rewrite_max_tokens: int = 64
+    answer_backend: Literal["extractive", "harness"] = "extractive"
+    harness_arn: str | None = None
+    rewriter_backend: Literal["heuristic", "bedrock"] = "heuristic"
+    rewrite_model_id: str = "us.amazon.nova-micro-v1:0"
+    guardrail_id: str | None = None
+    guardrail_version: str | None = None
     client_ip_header: str | None = None
 
 
