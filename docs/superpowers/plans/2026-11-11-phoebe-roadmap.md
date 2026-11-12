@@ -48,3 +48,17 @@ Plans 2–5 are written when their predecessor ships, so they build on real inte
 
 **Plan 5 (Evals & polish)**
 - HTML `td`/`th` cells run together, which hurts table retrieval. Fix it in the parser before the evals.
+
+## Carry-forward notes from Plan 2 final review
+
+**Plan 3 (Frontend)**
+- On every `done` event, replace the streamed text with `done.text`. Streamed deltas carry raw `[P3]` labels; `done.text` and `citations[].n` are renumbered.
+- Polling `GET /api/status` refreshes the session's `last_seen`, so an open tab keeps the session alive past the 2 h idle timeout. Pick a polling interval (or stop polling when the tab is hidden) with that in mind.
+
+**Plan 4 (Cloud)**
+- The sweeper must also purge `chat_turns` for expired sandboxes.
+- Configure Python logging in the Lambda image. Today no `phoebe.*` INFO lines reach the container log.
+- Trust `cloudfront-viewer-address` (`PHOEBE_CLIENT_IP_HEADER`) only when the origin is reachable through CloudFront alone (origin secret header or a restricted function URL). Otherwise the login throttle can be bypassed by forging the header.
+- `infra/ai` resource names are stable; move them into the module layout with `moved {}` blocks, not a rebuild. Terraform reads `backend/prompts/answer.txt` from the repo, not from the image.
+- Check whether idle AgentCore runtime sessions are billed. Each chat uses a fresh `runtimeSessionId` with a 1800 s idle timeout.
+- When `PHOEBE_ANSWER_BACKEND=harness`, require `PHOEBE_GUARDRAIL_ID` and `PHOEBE_GUARDRAIL_VERSION` in the deployed config.
