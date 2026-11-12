@@ -39,7 +39,7 @@ Settings are `PHOEBE_*` environment variables. Every default works offline: noth
 | `PHOEBE_LOGIN_PER_IP_WINDOW` | `10` | Login attempts per client IP per window (429 `too_many_attempts`). |
 | `PHOEBE_LOGIN_WINDOW_SECONDS` | `900` | Login throttle window, in seconds. |
 | `PHOEBE_CLIENT_IP_HEADER` | (unset) | Header that carries the client IP behind a proxy; unset uses the socket peer. |
-| `PHOEBE_QUESTION_MAX_CHARS` | `1000` | Longest accepted chat question, after trimming (422 `invalid_request`). |
+| `PHOEBE_QUESTION_MAX_CHARS` | `1000` | Longest accepted chat question, after trimming (422 `invalid_request`). Must be 1 to 4000 (max 4000, the request body cap). |
 | `PHOEBE_HISTORY_EXCHANGES` | `3` | Earlier question/answer pairs given to the rewriter and the answer model. |
 | `PHOEBE_HISTORY_TURN_MAX_CHARS` | `2000` | Each history turn is truncated to this length. |
 | `PHOEBE_ANSWER_MAX_TOKENS` | `700` | `max_tokens` for the answer model. |

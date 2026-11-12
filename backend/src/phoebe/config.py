@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,7 +29,8 @@ class Settings(BaseSettings):
     uploads_global_day: int = 50
     login_per_ip_window: int = 10
     login_window_seconds: int = 900
-    question_max_chars: int = 1000
+    # At most the static body cap in api.routes_chat (4000).
+    question_max_chars: int = Field(default=1000, ge=1, le=4000)
     history_exchanges: int = 3
     history_turn_max_chars: int = 2000
     answer_max_tokens: int = 700

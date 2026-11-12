@@ -342,3 +342,98 @@ def test_startup_check_raises_on_mismatch(db) -> None:
     db.execute("insert into app_meta (key, value) values ('embedder', 'titan-v2-1024')")
     with pytest.raises(EmbedderMismatch):
         startup_check_embedder(db, HashEmbedder())
+
+
+# ---- visibility ----------------------------------------------------------------
+
+
+def _alex_visible(c: TestClient) -> set[str]:
+    from phoebe.api.routes_portal import alex_groups
+    from phoebe.sessions import sandbox_id
+
+    class _Req:
+        app = c.app
+
+    sid = sandbox_id(c.cookies["phoebe_session"])
+    return set(alex_groups(_Req(), sid))  # type: ignore[arg-type]
+
+
+def _done_doc_ids(raw: str) -> tuple[list[str], list[str]]:
+    name, done = events(raw)[-1]
+    assert name == "done"
+    return (
+        [c["document_id"] for c in done["citations"]],
+        [d["document_id"] for d in done["closest"]],
+    )
+
+
+def _doc_id(db: PsycopgDatabase, title: str) -> str:
+    return db.fetch(
+        "select id::text id from documents where title = :t and session_id is null",
+        {"t": title},
+    )[0]["id"]
+
+
+OUTSIDE_QUESTIONS = (
+    (
+        "Who is the team lead for Sales East, and which states does the East"
+        " territory cover?"
+    ),
+    (
+        "How do I handle a settlement mismatch alert from the settlement worker"
+        " against the Meridian Pay processor report?"
+    ),
+)
+
+
+@pytest.mark.parametrize("question", OUTSIDE_QUESTIONS)
+def test_chat_never_cites_outside_groups(
+    db: PsycopgDatabase, seeded_client: TestClient, question: str
+) -> None:
+    visible = _alex_visible(seeded_client)
+    assert visible and not visible & {"sales", "sales-east", "payments"}
+    r = chat(seeded_client, {"question": question})
+    cited, closest = _done_doc_ids(r.text)
+    ids = sorted(set(cited) | set(closest))
+    if ids:
+        rows = db.fetch(
+            "select id::text id, group_id from documents where id::text = any(:ids)",
+            {"ids": ids},
+        )
+        assert len(rows) == len(ids)
+        outside = [row for row in rows if row["group_id"] not in visible]
+        assert outside == []
+    for title in ("East Territory Notes", "Sales Playbook", "Payments Runbook"):
+        assert _doc_id(db, title) not in ids, title
+
+
+def test_chat_stops_citing_doc_moved_outside_groups(
+    db: PsycopgDatabase, seeded_client: TestClient
+) -> None:
+    q = "Who is Mei Tanaka, my onboarding buddy on the Platform team?"
+    doc = _doc_id(db, "Team Breakdown")
+    cited, _ = _done_doc_ids(chat(seeded_client, {"question": q}).text)
+    assert doc in cited  # visible: it answers the question
+    r = seeded_client.patch(
+        f"/api/documents/{doc}", json={"group_id": "sales"}, headers=CSRF
+    )
+    assert r.status_code == 204
+    cited, closest = _done_doc_ids(chat(seeded_client, {"question": q}).text)
+    assert doc not in cited and doc not in closest
+
+
+@pytest.mark.parametrize("value", [0, 4001])
+def test_question_max_chars_is_bounded(value: int) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Settings(database_url="x", password_hash="x", question_max_chars=value)
+
+
+def test_question_max_chars_within_body_cap() -> None:
+    from phoebe.api.routes_chat import _QUESTION_HARD_CAP
+
+    field = Settings.model_fields["question_max_chars"]
+    le = next(m.le for m in field.metadata if getattr(m, "le", None) is not None)
+    assert le <= _QUESTION_HARD_CAP
+    assert Settings(database_url="x", password_hash="x", question_max_chars=4000)
