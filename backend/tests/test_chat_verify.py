@@ -99,3 +99,14 @@ def test_verify_zero_padded_label_is_normalised() -> None:
     out = verify("A [P01].", _passages(1))
     assert out is not None
     assert out.text == "A [1]."
+
+
+def test_verify_heading_requires_ascii_space_after_hashes() -> None:
+    assert verify("# uncited\n\nA [P1].", _passages(1)) is None
+    assert verify("#　uncited\n\nA [P1].", _passages(1)) is None
+    assert verify("# 　uncited\n\nA [P1].", _passages(1)) is None
+
+
+def test_verify_heading_allows_at_most_three_leading_spaces() -> None:
+    assert verify("    # uncited\n\nA [P1].", _passages(1)) is None
+    assert verify("   # Heading\n\nA [P1].", _passages(1)) is not None

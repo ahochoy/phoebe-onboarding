@@ -17,7 +17,7 @@ from phoebe.retrieve import Passage
 
 _LABEL = re.compile(r"\[P(\d+)\]")
 _PARAGRAPHS = re.compile(r"\n\s*\n")
-_HEADING = re.compile(r"#{1,6}\s+\S.*")
+_HEADING = re.compile(r"[ ]{0,3}#{1,6}[ \t]+\S.*")
 
 
 class Citation(BaseModel):
@@ -47,7 +47,7 @@ def verify(answer: str, passages: Sequence[Passage]) -> Verified | None:
         body = "\n".join(
             line
             for line in paragraph.splitlines()
-            if line.strip() and not _HEADING.fullmatch(line.strip())
+            if line.strip() and not _HEADING.fullmatch(line.rstrip())
         )
         if body and not _LABEL.search(body):
             return None
