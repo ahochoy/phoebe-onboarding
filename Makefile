@@ -43,20 +43,26 @@ test: test-db
 lint:
 	uv run ruff check . && uv run ruff format --check . && uv run pyright
 
+# Kill-switch state lives in data/control.json. When the api container is up it
+# reads its own copy, so run the command inside it; otherwise use the host.
+control = if docker compose ps --status running -q api 2>/dev/null | grep -q .; then \
+		docker compose exec -T api python -m phoebe control $(1); \
+	else uv run python -m phoebe control $(1); fi
+
 seed:
 	uv run python -m phoebe.seed
 
 pause:
-	uv run python -m phoebe control chat_paused
+	@$(call control,chat_paused)
 
 kill:
-	uv run python -m phoebe control closed
+	@$(call control,closed)
 
 open:
-	uv run python -m phoebe control open
+	@$(call control,open)
 
 status:
-	uv run python -m phoebe control status
+	@$(call control,status)
 
 # Owner-gated live AWS check (costs money). NOT part of `make test` or CI.
 # Needs PHOEBE_LIVE_DATABASE_URL (database name ending in _live) and the

@@ -507,3 +507,19 @@ def test_delete_blob_failure_is_swallowed(
 
     monkeypatch.setattr(deps_of(seeded_client).blobs, "delete", boom)
     assert seeded_client.delete(f"/api/documents/{d}", headers=CSRF).status_code == 204
+
+
+def test_search_embedding_outage_is_503_chat_paused(
+    seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections.abc import Sequence
+
+    from phoebe.embed import EmbeddingUnavailable
+
+    def boom(texts: Sequence[str]) -> list[list[float]]:
+        raise EmbeddingUnavailable("embedding request failed")
+
+    monkeypatch.setattr(deps_of(seeded_client).embedder, "embed", boom)
+    r = seeded_client.post("/api/search", json={"query": "pto"}, headers=CSRF)
+    assert r.status_code == 503
+    assert r.json() == {"detail": "chat_paused"}

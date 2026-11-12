@@ -94,7 +94,7 @@ Task 10's pre-flight confirms these in us-east-2.
 - The terminal event is either `done` or `error` `{"code": str}`.
 - `done` is `{"text": str, "refused": bool, "reason": str | null, "citations": [Citation], "closest": [{"document_id": str, "title": str}]}`.
 - `Citation` is `{"n": int, "chunk_id": str, "document_id": str, "document_title": str, "heading_path": str, "start": int, "end": int}`.
-- When `done.refused` is true, the client replaces any streamed text with `done.text`. `done.text` is always the settled answer.
+- `delta` text carries the model's raw labels such as `[P3]`; `done.text` and `citations[].n` are renumbered. The client ALWAYS replaces the streamed text with `done.text` on `done`, refused or not. `done.text` is always the settled answer.
 
 **Refusal reasons:** `no_support`, `verification_failed`, `blocked`, `model_unavailable`.
 
@@ -536,6 +536,6 @@ Task 10's pre-flight confirms these in us-east-2.
 ## Notes for Plan 3 (frontend), recorded now
 
 - The pill polls `GET /api/status`. Treat `chat_available=false` as red. Map `reasons` to tooltip copy, with `demo_closed` going to the landing-page offline state.
-- On a `done` event with `refused: true`, replace the streamed text. Show `closest` as document links.
+- On every `done` event, replace the streamed text with `done.text` (labels are renumbered, so this applies to answers too, not only refusals). When `refused` is true, show `closest` as document links.
 - Citation `start`/`end` are Python code-point offsets; convert them to UTF-16 (carry-forward note).
 - `GET /api/chat/history` restores the thread after a reload. Citations with `removed: true` render as "source removed".

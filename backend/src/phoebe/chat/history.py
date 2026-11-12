@@ -73,14 +73,23 @@ def recent(
     group_ids: Sequence[str] | None = None,
     max_chars: int,
 ) -> list[Message]:
-    """The last `n` user/assistant pairs, oldest first, each text truncated."""
+    """The last `n` non-refused user/assistant pairs, oldest first, truncated.
+
+    Refused pairs are dropped (the question may have been blocked by the input
+    guardrail and must not be replayed to a model); the filter runs before the
+    last `n` are taken.
+    """
     if n <= 0:
         return []
     rows = db.fetch(
         f"""
         select * from (
-          select id, role, text, citations, refused, created_at from chat_turns
-          where session_id = :sid
+          select id, role, text, citations, refused, created_at from (
+            select *, lead(refused) over (order by {_ORDER}) next_refused
+            from chat_turns where session_id = :sid
+          ) all_turns
+          where not (case role when 'user' then coalesce(next_refused, false)
+                     else refused end)
           order by created_at desc, case role when 'user' then 0 else 1 end desc,
                    id desc
           limit :lim

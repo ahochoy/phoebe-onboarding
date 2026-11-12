@@ -3,7 +3,7 @@ import pytest
 from conftest import SEED_DIR
 from phoebe.chat.history import WITHDRAWN, list_turns, recent
 from phoebe.chat.models import ExtractiveAnswerModel, HeuristicRewriter, NoGuardrail
-from phoebe.chat.service import REFUSAL_TEXT, ChatContext, run_chat
+from phoebe.chat.service import ChatContext, run_chat
 from phoebe.config import Settings
 from phoebe.documents import delete_document
 from phoebe.embed import HashEmbedder
@@ -65,10 +65,18 @@ def test_recent_truncates_turn_text(seeded):
     assert msgs[0]["text"] == PTO[:10]
 
 
-def test_recent_keeps_refusal_text(seeded):
+def test_recent_drops_refused_pairs(seeded):
     chat(seeded, "zzqx vbnmw plokij", refusal_min_similarity=0.99)
-    msgs = recent(seeded, SB, n=3, max_chars=MAX)
-    assert msgs[1]["text"] == REFUSAL_TEXT
+    assert recent(seeded, SB, n=3, max_chars=MAX) == []
+    assert len(list_turns(seeded, SB, groups(seeded))) == 2
+
+
+def test_recent_returns_last_n_non_refused_pairs(seeded):
+    chat(seeded, PTO)
+    chat(seeded, "zzqx vbnmw plokij", refusal_min_similarity=0.99)
+    chat(seeded, "zzqx again", refusal_min_similarity=0.99)
+    msgs = recent(seeded, SB, n=1, max_chars=MAX)
+    assert msgs[0]["text"] == PTO and len(msgs) == 2
 
 
 def test_recent_withdraws_answer_with_removed_source(seeded):

@@ -37,6 +37,7 @@ from phoebe.documents import (
     list_documents,
     update_document,
 )
+from phoebe.embed import EmbeddingUnavailable
 from phoebe.ingest.fetch import google_doc_export_url
 from phoebe.ingest.parse import ParseError, sniff_upload
 from phoebe.retrieve import Passage, search
@@ -298,4 +299,9 @@ def search_documents(body: SearchBody, request: Request, sid: Sandbox) -> list[P
     require_ai_open(request)
     charge_chat(request, sid)
     deps = request.app.state.deps
-    return search(deps.db, deps.embedder, sid, alex_groups(request, sid), body.query)
+    try:
+        return search(
+            deps.db, deps.embedder, sid, alex_groups(request, sid), body.query
+        )
+    except EmbeddingUnavailable:
+        raise HTTPException(503, "chat_paused") from None

@@ -275,3 +275,9 @@ def test_make_models_wires_aws_backends() -> None:
     assert isinstance(a, HarnessAnswerModel)
     assert isinstance(r, BedrockRewriter)
     assert isinstance(g, BedrockGuardrail)
+
+
+@pytest.mark.parametrize("kw", [{"guardrail_id": "gid"}, {"guardrail_version": "1"}])
+def test_make_models_half_configured_guardrail_raises(kw: dict) -> None:
+    with pytest.raises(RuntimeError):
+        make_models(settings(**kw))

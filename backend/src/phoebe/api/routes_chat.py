@@ -4,6 +4,11 @@ Every check (session, kill switch, validation, caps) runs before the stream
 opens, so failures are ordinary JSON errors. Once streaming, the wire format is
 `event: <name>\\ndata: <json>\\n\\n` per `ChatEvent`.
 
+Streamed `delta` text carries the model's raw citation labels (for example
+`[P3]`). Verification renumbers labels and citations in order of first use, so
+`done.text` and `citations[].n` differ from the streamed text. The client must
+ALWAYS replace the streamed text with `done.text` on `done`, refused or not.
+
 `run_chat` is a sync generator that may hold a Bedrock stream open. Starlette
 would iterate it in a threadpool and never close it on disconnect, so it is
 wrapped in an async generator that pulls each event via the threadpool and

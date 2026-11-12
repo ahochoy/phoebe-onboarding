@@ -250,6 +250,10 @@ def make_models(settings: Settings) -> tuple[AnswerModel, Rewriter, Guardrail]:
     else:
         rewriter = HeuristicRewriter()
     guardrail: Guardrail = NoGuardrail()
+    if bool(settings.guardrail_id) != bool(settings.guardrail_version):
+        raise RuntimeError(
+            "PHOEBE_GUARDRAIL_ID and PHOEBE_GUARDRAIL_VERSION must be set together"
+        )
     if settings.guardrail_id and settings.guardrail_version:
         guardrail = BedrockGuardrail(
             settings.guardrail_id, settings.guardrail_version, settings.aws_region

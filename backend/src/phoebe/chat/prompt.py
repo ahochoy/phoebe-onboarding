@@ -20,8 +20,8 @@ def build_messages(
 ) -> list[Message]:
     """History, then one user message: fenced passages and the question.
 
-    Titles, sections and text are entity-escaped so a document cannot close the
-    fence or forge a passage.
+    Titles, sections, text and the question are entity-escaped so neither a
+    document nor the visitor can close the fence or forge a passage.
     """
     parts = ["<passages>"]
     for i, p in enumerate(passages, start=1):
@@ -30,5 +30,5 @@ def build_messages(
             f'section="{_esc(p.heading_path)}">{_esc(p.text)}</passage>'
         )
     parts.append("</passages>")
-    parts.append(f"Question: {question}")
+    parts.append(f"Question: {_esc(question)}")
     return [*history, {"role": "user", "text": "\n".join(parts)}]

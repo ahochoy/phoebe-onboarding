@@ -27,7 +27,7 @@ from phoebe.chat.prompt import build_messages
 from phoebe.chat.verify import Citation, verify
 from phoebe.config import Settings
 from phoebe.db import Database
-from phoebe.embed import Embedder
+from phoebe.embed import Embedder, EmbeddingUnavailable
 from phoebe.groups import visible_group_ids
 from phoebe.persona import get_persona
 from phoebe.retrieve import Passage, search
@@ -140,15 +140,18 @@ def _answer(
     query = ctx.rewriter.rewrite(history, question).strip() or question.strip()
     if not query:
         return _refuse("no_support")
-    passages = search(
-        db,
-        ctx.embedder,
-        sandbox,
-        groups,
-        query,
-        k=SEARCH_K,
-        candidates=SEARCH_CANDIDATES,
-    )
+    try:
+        passages = search(
+            db,
+            ctx.embedder,
+            sandbox,
+            groups,
+            query,
+            k=SEARCH_K,
+            candidates=SEARCH_CANDIDATES,
+        )
+    except EmbeddingUnavailable:
+        return _refuse("model_unavailable")
     st.passages = [p.chunk_id for p in passages]
     st.top_sim = max((p.similarity for p in passages), default=0.0)
     if not passages or (
