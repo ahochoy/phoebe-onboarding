@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed pause kill open status
+.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -57,3 +57,9 @@ open:
 
 status:
 	uv run python -m phoebe control status
+
+# Owner-gated live AWS check (costs money). NOT part of `make test` or CI.
+# Needs PHOEBE_LIVE_DATABASE_URL (database name ending in _live) and the
+# PHOEBE_* AI settings; see infra/ai/README.md.
+live-check:
+	uv run python backend/scripts/live_chat_check.py
