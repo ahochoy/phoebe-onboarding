@@ -15,6 +15,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from phoebe.chat.models import (
+    AnswerModel,
+    ExtractiveAnswerModel,
+    Guardrail,
+    HeuristicRewriter,
+    NoGuardrail,
+    Rewriter,
+    make_models,
+)
 from phoebe.config import Settings
 from phoebe.control import ControlStore, InMemoryControlStore, make_control
 from phoebe.db import Database, PsycopgDatabase
@@ -27,6 +36,7 @@ from phoebe.limits import (
     LimitsUnavailable,
     make_counters,
 )
+from phoebe.meta import check_embedder
 from phoebe.sessions import (
     DynamoDBSessionStore,
     InMemorySessionStore,
@@ -53,6 +63,9 @@ class Deps:
     today: Callable[[], date] = field(default=utc_today)
     counters: CounterStore = field(default_factory=InMemoryCounterStore)
     control: ControlStore = field(default_factory=InMemoryControlStore)
+    answer: AnswerModel = field(default_factory=ExtractiveAnswerModel)
+    rewriter: Rewriter = field(default_factory=HeuristicRewriter)
+    guardrail: Guardrail = field(default_factory=NoGuardrail)
 
 
 def _error(status: int, code: str) -> JSONResponse:
@@ -145,6 +158,7 @@ def create_app(
 ) -> FastAPI:
     """Build the app. The default lifespan does not close `deps.db` (callers own it)."""
     from phoebe.api.routes_auth import routers as auth_routers
+    from phoebe.api.routes_chat import routers as chat_routers
     from phoebe.api.routes_documents import routers as document_routers
     from phoebe.api.routes_portal import routers as portal_routers
     from phoebe.api.routes_status import routers as status_routers
@@ -166,14 +180,39 @@ def create_app(
     app.state.deps = deps
     _install_error_handlers(app)
     _install_middleware(app)
-    for r in (*auth_routers, *portal_routers, *document_routers, *status_routers):
+    for r in (
+        *auth_routers,
+        *portal_routers,
+        *document_routers,
+        *status_routers,
+        *chat_routers,
+    ):
         app.include_router(r)
     return app
+
+
+def startup_check_embedder(db: Database, embedder: Embedder) -> None:
+    """Fail fast if stored vectors came from a different embedder.
+
+    `make stack` starts the API before `migrate`, so a database without the
+    `app_meta` table yet has nothing recorded and is not a mismatch.
+    """
+    rows = db.fetch("select to_regclass('public.app_meta')::text t")
+    if rows and rows[0]["t"] is not None:
+        check_embedder(db, embedder)
 
 
 def create_configured_app() -> FastAPI:
     settings = Settings()  # type: ignore[call-arg]  # values come from PHOEBE_* env
     db = PsycopgDatabase(settings.database_url)
+    try:
+        return _configure(settings, db)
+    except BaseException:
+        db.close()
+        raise
+
+
+def _configure(settings: Settings, db: PsycopgDatabase) -> FastAPI:
     sessions: SessionStore
     if settings.session_backend == "dynamodb":
         if not settings.sessions_table:
@@ -183,6 +222,8 @@ def create_configured_app() -> FastAPI:
         sessions = InMemorySessionStore()
     blobs = LocalBlobStore(Path(settings.blob_dir))
     embedder = make_embedder(settings)
+    startup_check_embedder(db, embedder)
+    answer, rewriter, guardrail = make_models(settings)
     jobs = InlineJobQueue(
         lambda doc_id: index_document(
             db,
@@ -211,6 +252,9 @@ def create_configured_app() -> FastAPI:
             settings,
             counters=make_counters(settings),
             control=make_control(settings),
+            answer=answer,
+            rewriter=rewriter,
+            guardrail=guardrail,
         ),
         lifespan=lifespan,
     )

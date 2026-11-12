@@ -50,6 +50,17 @@ jq -e 'type == "array" and any(.[]; (.text | type == "string") and (.text | cont
   || fail "search: response is not an array with a passage whose text contains \"20 days\""
 echo "search ok"
 
+req POST /api/chat 200 '{"question":"How many PTO days do I get?"}'
+grep -qx 'event: done' "$BODY" || fail "chat: stream has no 'event: done' frame"
+done_json="$(grep -A1 -x 'event: done' "$BODY" | sed -n 's/^data: //p')"
+jq -e '.refused == false and (.citations | length > 0)' <<<"$done_json" >/dev/null \
+  || fail "chat: done event is not a cited answer"
+echo "chat ok: $(jq -r .text <<<"$done_json")"
+
+req GET /api/chat/history 200
+[ "$(jq 'length' "$BODY")" = 2 ] || fail "chat history: expected 2 turns"
+echo "chat history ok"
+
 req POST /api/reset 204
 echo "reset ok"
 
