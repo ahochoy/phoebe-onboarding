@@ -90,7 +90,7 @@ class HarnessAnswerModel:
                 allowedTools=["phoebe_no_tools"],
             )
             events = response["stream"]
-        except BotoCoreError, ClientError:
+        except BotoCoreError, ClientError, KeyError, TypeError:
             raise ModelUnavailable("model request failed") from None
         completed = False
         try:
