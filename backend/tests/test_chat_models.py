@@ -138,6 +138,15 @@ def test_harness_aws_error_is_clean() -> None:
     assert "private details" not in str(info.value)
 
 
+def test_harness_malformed_response_raises() -> None:
+    client = Mock()
+    client.invoke_harness.return_value = {}
+    model = HarnessAnswerModel("arn:x", "us-east-2", client=client, max_tokens=10)
+    with pytest.raises(ModelUnavailable) as info:
+        list(model.stream(MSGS))
+    assert info.value.__suppress_context__
+
+
 def test_harness_closes_stream_on_generator_close() -> None:
     model, stream, _ = harness([delta("a"), delta("b"), STOP])
     gen = model.stream(MSGS)
@@ -164,7 +173,8 @@ def test_extractive_unescapes_entities() -> None:
 
 def test_extractive_without_passage() -> None:
     out = "".join(ExtractiveAnswerModel().stream(MSGS))
-    assert out == NO_ANSWER
+    assert out == "NO_ANSWER"
+    assert NO_ANSWER == "NO_ANSWER"
 
 
 def test_heuristic_rewriter() -> None:

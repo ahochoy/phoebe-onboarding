@@ -16,7 +16,8 @@ from phoebe.config import Settings
 
 Message = TypedDict("Message", {"role": Literal["user", "assistant"], "text": str})
 
-NO_ANSWER = "I could not find that in the available documents."
+# Machine sentinel emitted by the model; detected by the verifier and stream.
+NO_ANSWER = "NO_ANSWER"
 REWRITE_SYSTEM = (
     "Rewrite the user's final question as one standalone search query for an "
     "employee handbook search. Use earlier turns only to resolve references. "
