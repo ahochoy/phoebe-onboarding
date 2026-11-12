@@ -16,10 +16,17 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from phoebe.config import Settings
+from phoebe.control import ControlStore, InMemoryControlStore, make_control
 from phoebe.db import Database, PsycopgDatabase
 from phoebe.embed import Embedder, make_embedder
 from phoebe.ingest.pipeline import index_document
 from phoebe.jobs import InlineJobQueue, JobQueue
+from phoebe.limits import (
+    CounterStore,
+    InMemoryCounterStore,
+    LimitsUnavailable,
+    make_counters,
+)
 from phoebe.sessions import (
     DynamoDBSessionStore,
     InMemorySessionStore,
@@ -44,6 +51,8 @@ class Deps:
     jobs: JobQueue
     settings: Settings
     today: Callable[[], date] = field(default=utc_today)
+    counters: CounterStore = field(default_factory=InMemoryCounterStore)
+    control: ControlStore = field(default_factory=InMemoryControlStore)
 
 
 def _error(status: int, code: str) -> JSONResponse:
@@ -84,6 +93,19 @@ def _install_error_handlers(app: FastAPI) -> None:
         return _error(422, "invalid_request")
 
 
+_OPEN_WHEN_CLOSED = ("/api/status", "/api/health")
+
+
+def _is_closed(request: Request) -> bool:
+    path = request.url.path
+    if not path.startswith("/api/") or path in _OPEN_WHEN_CLOSED:
+        return False
+    try:
+        return request.app.state.deps.control.get() == "closed"
+    except LimitsUnavailable:
+        return False  # unreadable never closes the site (AI stays paused)
+
+
 def _install_middleware(app: FastAPI) -> None:
     @app.middleware("http")
     async def _meta(request: Request, call_next: Callable[..., Any]) -> Response:
@@ -91,7 +113,10 @@ def _install_middleware(app: FastAPI) -> None:
         request.state.request_id = rid
         start = time.perf_counter()
         try:
-            response: Response = await call_next(request)
+            if _is_closed(request):
+                response: Response = _error(503, "demo_closed")
+            else:
+                response = await call_next(request)
         except Exception as exc:  # noqa: BLE001 - last-resort 500, logs type only
             _log.error("unhandled %s request_id=%s", type(exc).__name__, rid)
             response = _error(500, "internal_error")
@@ -122,6 +147,7 @@ def create_app(
     from phoebe.api.routes_auth import routers as auth_routers
     from phoebe.api.routes_documents import routers as document_routers
     from phoebe.api.routes_portal import routers as portal_routers
+    from phoebe.api.routes_status import routers as status_routers
 
     @asynccontextmanager
     async def _noop(_: FastAPI):
@@ -140,7 +166,7 @@ def create_app(
     app.state.deps = deps
     _install_error_handlers(app)
     _install_middleware(app)
-    for r in (*auth_routers, *portal_routers, *document_routers):
+    for r in (*auth_routers, *portal_routers, *document_routers, *status_routers):
         app.include_router(r)
     return app
 
@@ -176,5 +202,15 @@ def create_configured_app() -> FastAPI:
             db.close()
 
     return create_app(
-        Deps(db, sessions, blobs, embedder, jobs, settings), lifespan=lifespan
+        Deps(
+            db,
+            sessions,
+            blobs,
+            embedder,
+            jobs,
+            settings,
+            counters=make_counters(settings),
+            control=make_control(settings),
+        ),
+        lifespan=lifespan,
     )

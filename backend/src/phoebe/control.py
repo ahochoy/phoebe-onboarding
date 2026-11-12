@@ -29,6 +29,19 @@ class ControlStore(Protocol):
     def set(self, state: KillState) -> None: ...
 
 
+class InMemoryControlStore:
+    """Offline default for `Deps`: never touches the filesystem."""
+
+    def __init__(self, state: KillState = "open") -> None:
+        self._state: KillState = _valid(state)
+
+    def get(self) -> KillState:
+        return self._state
+
+    def set(self, state: KillState) -> None:
+        self._state = _valid(state)
+
+
 class FileControlStore:
     def __init__(self, path: Path) -> None:
         self._path = Path(path)

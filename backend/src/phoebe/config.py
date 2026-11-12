@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     answer_max_tokens: int = 700
     answer_max_chars: int = 6000
     rewrite_max_tokens: int = 64
+    client_ip_header: str | None = None
 
 
 class ControlSettings(BaseSettings):

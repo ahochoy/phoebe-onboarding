@@ -174,6 +174,9 @@ def client(db: PsycopgDatabase, tmp_path: Path) -> Iterator[TestClient]:
         cookie_secure=False,
         blob_dir=tmp_path / "blobs",
         seed_dir=SEED_DIR,
+        # Pre-existing suites upload/link far past the production demo caps.
+        uploads_per_session_day=1000,
+        uploads_global_day=1000,
     )
     jobs = InlineJobQueue(
         lambda doc_id: index_document(

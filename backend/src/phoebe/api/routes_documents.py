@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints, ValidationError
 
 from phoebe.api.background import run_guarded
+from phoebe.api.limits import charge_upload, require_ai_open
 from phoebe.api.routes_portal import DocUuid, alex_groups
 from phoebe.api.security import Sandbox, require_csrf
 from phoebe.documents import (
@@ -165,6 +166,8 @@ def upload_document(
     purpose: Annotated[str, Form()] = "",
     last_updated: Annotated[str, Form()] = "",
 ) -> Response:
+    require_ai_open(request)
+    charge_upload(request, sid)
     deps = request.app.state.deps
     declared = request.headers.get("content-length", "")
     if not declared.isdigit():
@@ -235,6 +238,8 @@ def link_document(
     background: BackgroundTasks,
     sid: Sandbox,
 ) -> Response:
+    require_ai_open(request)
+    charge_upload(request, sid)
     if not _valid_link(body.url):
         raise HTTPException(422, "invalid_link")
     doc_type: DocType = "google_doc" if google_doc_export_url(body.url) else "web"
