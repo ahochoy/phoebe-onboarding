@@ -1,6 +1,6 @@
 """Citation verifier: the gate between model output and the user.
 
-Rules: every non-empty paragraph (except a Markdown heading line) carries a
+Rules: every paragraph with text beyond single-line Markdown headings carries a
 valid `[P<n>]` label, every label names a real passage, and there is at least
 one label. Labels are plain text matches, so `[P1]` inside backticks counts.
 Anything else is refused (None). Labels are renumbered by first appearance.
@@ -17,6 +17,7 @@ from phoebe.retrieve import Passage
 
 _LABEL = re.compile(r"\[P(\d+)\]")
 _PARAGRAPHS = re.compile(r"\n\s*\n")
+_HEADING = re.compile(r"#{1,6}\s+\S.*")
 
 
 class Citation(BaseModel):
@@ -43,10 +44,12 @@ def verify(answer: str, passages: Sequence[Passage]) -> Verified | None:
     if not labels or any(not 1 <= n <= len(passages) for n in labels):
         return None
     for paragraph in _PARAGRAPHS.split(stripped):
-        para = paragraph.strip()
-        if not para or para.startswith("#"):
-            continue
-        if not _LABEL.search(para):
+        body = "\n".join(
+            line
+            for line in paragraph.splitlines()
+            if line.strip() and not _HEADING.fullmatch(line.strip())
+        )
+        if body and not _LABEL.search(body):
             return None
     order: dict[int, int] = {}
     for n in labels:

@@ -68,3 +68,34 @@ def test_verify_counts_labels_inside_code() -> None:
     out = verify("Use `[P1]` here.", _passages(1))
     assert out is not None
     assert out.text == "Use `[1]` here."
+
+
+def test_verify_rejects_uncited_text_after_heading() -> None:
+    assert verify("# H\nuncited claim\n\nB [P1].", _passages(1)) is None
+
+
+def test_verify_accepts_heading_with_cited_line() -> None:
+    out = verify("# H\nclaim [P1].", _passages(1))
+    assert out is not None
+    assert out.text == "# H\nclaim [1]."
+
+
+def test_verify_accepts_heading_only_paragraph() -> None:
+    out = verify("## Only heading\n\nA [P1].", _passages(1))
+    assert out is not None
+
+
+def test_verify_requires_label_for_hash_without_space() -> None:
+    assert verify("#not-a-heading claim\n\nA [P1].", _passages(1)) is None
+
+
+def test_verify_rejects_empty_answer() -> None:
+    assert verify("", _passages(1)) is None
+    assert verify("  \n\n ", _passages(1)) is None
+
+
+def test_verify_zero_padded_label_is_normalised() -> None:
+    # [P01] parses as passage 1 and is renumbered like [P1].
+    out = verify("A [P01].", _passages(1))
+    assert out is not None
+    assert out.text == "A [1]."
