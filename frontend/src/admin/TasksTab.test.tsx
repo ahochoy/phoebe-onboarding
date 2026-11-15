@@ -371,6 +371,49 @@ describe("TasksTab", () => {
       );
     });
 
+    it("a failed second PATCH restores the first task's original position", async () => {
+      mockList();
+      const seen: { id: string; body: unknown }[] = [];
+      server.use(
+        http.patch("/api/tasks/:id", async ({ params, request }) => {
+          seen.push({ id: String(params.id), body: await request.json() });
+          if (params.id === "p2")
+            return HttpResponse.json({ detail: "not_found" }, { status: 404 });
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      const user = userEvent.setup();
+      renderTab();
+      await user.click(await screen.findByRole("button", { name: "Move down Set up laptop" }));
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      await waitFor(() => expect(seen).toHaveLength(3));
+      expect(seen).toEqual([
+        { id: "p1", body: { position: 2 } },
+        { id: "p2", body: { position: 1 } },
+        { id: "p1", body: { position: 1 } },
+      ]);
+    });
+
+    it("moving between tasks with equal positions renumbers the group", async () => {
+      mockList(tasks().map((t) => (t.group_id === "t1" ? { ...t, position: 1 } : t)));
+      const seen: { id: string; body: unknown }[] = [];
+      server.use(
+        http.patch("/api/tasks/:id", async ({ params, request }) => {
+          seen.push({ id: String(params.id), body: await request.json() });
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      const user = userEvent.setup();
+      renderTab();
+      await user.click(await screen.findByRole("button", { name: "Move down Set up laptop" }));
+      await waitFor(() => expect(seen).toHaveLength(2));
+      // New order p2, p1, p3 -> positions 1, 2, 3; p2 already holds 1.
+      expect(seen).toEqual([
+        { id: "p1", body: { position: 2 } },
+        { id: "p3", body: { position: 3 } },
+      ]);
+    });
+
     it("shows messageFor copy when a swap fails", async () => {
       mockList();
       server.use(

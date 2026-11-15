@@ -39,7 +39,7 @@ function TaskGroup({
 }: {
   section: Section;
   locked: boolean;
-  onMove: (a: TaskView, b: TaskView) => void;
+  onMove: (list: TaskView[], from: number, to: number) => void;
   onEdit: (t: TaskView) => void;
   onDelete: (t: TaskView) => void;
 }) {
@@ -71,7 +71,7 @@ function TaskGroup({
                 aria-label={`Move up ${t.title}`}
                 disabled={locked || i === 0}
                 className={iconButton}
-                onClick={() => onMove(t, section.tasks[i - 1]!)}
+                onClick={() => onMove(section.tasks, i, i - 1)}
               >
                 <ArrowUp aria-hidden="true" className="size-4" />
               </button>
@@ -80,7 +80,7 @@ function TaskGroup({
                 aria-label={`Move down ${t.title}`}
                 disabled={locked || i === last}
                 className={iconButton}
-                onClick={() => onMove(t, section.tasks[i + 1]!)}
+                onClick={() => onMove(section.tasks, i, i + 1)}
               >
                 <ArrowDown aria-hidden="true" className="size-4" />
               </button>
@@ -116,14 +116,40 @@ export function TasksTab() {
   const [swapping, setSwapping] = useState(false);
   const [swapError, setSwapError] = useState<string | null>(null);
 
-  /** Swap `position` between two neighbours: two PATCHes, in order, one swap at a time. */
-  async function swap(a: TaskView, b: TaskView) {
+  const patchPosition = (t: TaskView, position: number) =>
+    apiSend("PATCH", `/api/tasks/${encodeURIComponent(t.id)}`, { position });
+
+  /**
+   * Move the task at index `i` to index `j` (a neighbour) in its group's displayed order,
+   * one move at a time. With strictly increasing positions this swaps the two positions
+   * (two PATCHes, in order; if the second fails the first is rolled back, best effort).
+   * With tied or out-of-order positions a plain swap could change nothing, so the group
+   * is renumbered 1..N in the new order instead, PATCHing only tasks whose position changes.
+   */
+  async function move(list: TaskView[], i: number, j: number) {
     if (swapping) return;
     setSwapping(true);
     setSwapError(null);
     try {
-      await apiSend("PATCH", `/api/tasks/${encodeURIComponent(a.id)}`, { position: b.position });
-      await apiSend("PATCH", `/api/tasks/${encodeURIComponent(b.id)}`, { position: a.position });
+      const a = list[i]!;
+      const b = list[j]!;
+      const clean = list.every((t, k) => k === 0 || list[k - 1]!.position < t.position);
+      if (clean) {
+        await patchPosition(a, b.position);
+        try {
+          await patchPosition(b, a.position);
+        } catch (err) {
+          await patchPosition(a, a.position).catch(() => undefined);
+          throw err;
+        }
+      } else {
+        const next = [...list];
+        next[i] = b;
+        next[j] = a;
+        for (const [k, t] of next.entries()) {
+          if (t.position !== k + 1) await patchPosition(t, k + 1);
+        }
+      }
     } catch (err) {
       setSwapError(messageFor(err));
     } finally {
@@ -169,7 +195,7 @@ export function TasksTab() {
               key={s.id}
               section={s}
               locked={swapping}
-              onMove={(a, b) => void swap(a, b)}
+              onMove={(l, f, t) => void move(l, f, t)}
               onEdit={setDialog}
               onDelete={setDeleting}
             />
