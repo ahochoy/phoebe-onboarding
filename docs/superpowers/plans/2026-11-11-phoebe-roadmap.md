@@ -62,3 +62,14 @@ Plans 2–5 are written when their predecessor ships, so they build on real inte
 - `infra/ai` resource names are stable; move them into the module layout with `moved {}` blocks, not a rebuild. Terraform reads `backend/prompts/answer.txt` from the repo, not from the image.
 - Check whether idle AgentCore runtime sessions are billed. Each chat uses a fresh `runtimeSessionId` with a 1800 s idle timeout.
 - When `PHOEBE_ANSWER_BACKEND=harness`, require `PHOEBE_GUARDRAIL_ID` and `PHOEBE_GUARDRAIL_VERSION` in the deployed config.
+
+## Follow-up: switch the answer model to Claude Haiku 5.5
+
+Do this before Plan 3 ships the chat UI.
+- Account prerequisites (owner): submit the Anthropic use case form in the Bedrock console and confirm a payment method in AWS Settings. On 2026-11-15, `us.anthropic.claude-haiku-5-5` returned "not available for this account", and `GetUseCaseForModelAccess` reported that the form had not been filled out.
+- `infra/ai`: set the Haiku Harness model to `us.anthropic.claude-haiku-5-5`, then update the IAM foundation-model and inference-profile ARNs to match.
+- Remove `temperature = 0.1`: Haiku 5.5 rejects non-default sampling parameters.
+- Thinking is on by default. Set effort `low` through the Harness `additionalParams`, and verify that it reaches the model.
+- Raise `maxTokens` to leave room for thinking.
+- Re-tune `answer_max_chars` and the caps, because the newer tokenizer counts about 30% more tokens.
+- Rerun `make live-check` on Haiku 5.5. Then update the spec, Plan 2 and `infra/ai/README.md`, which currently name Haiku 4.5.
