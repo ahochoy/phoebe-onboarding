@@ -85,28 +85,42 @@ export function lastAnswer(page: Page): Locator {
   return page.locator('[data-role="assistant"]').last();
 }
 
+export interface SettleOptions {
+  /** Accept a failed answer (an error line) as settled. Off by default. */
+  allowError?: boolean;
+}
+
 /**
- * Waits for the latest answer to settle: cited (a Sources list), refused (Closest
- * documents) or failed. Citation buttons only render once an answer has settled.
+ * Waits for the latest answer to settle as a real answer: cited (a Sources list) or
+ * refused (Closest documents). A failed answer (rate limit, 500, ...) fails the test,
+ * so absence-only assertions afterwards cannot pass on an error; pass `allowError` to
+ * accept one instead. Citation buttons only render once an answer has settled.
  */
-export async function settledAnswer(page: Page): Promise<Locator> {
+export async function settledAnswer(page: Page, opts: SettleOptions = {}): Promise<Locator> {
   const answer = lastAnswer(page);
+  const real = answer.getByText(/^(Sources|Closest documents)$/);
+  const failed = answer.locator(".text-danger");
   await expect(answer).toBeVisible();
   await expect(answer.getByText("Phoebe is thinking…")).toBeHidden({ timeout: 30_000 });
-  // A failed answer is a `.text-danger` line; the spec's next assertion then fails clearly.
-  await expect(
-    answer.getByText(/^(Sources|Closest documents)$/).or(answer.locator(".text-danger")),
-  ).toBeVisible({ timeout: 30_000 });
+  await expect(real.or(failed)).toBeVisible({ timeout: 30_000 });
+  if (!opts.allowError) {
+    await expect(failed, "the answer failed instead of settling").toHaveCount(0);
+    await expect(real).toBeVisible();
+  }
   return answer;
 }
 
 /** Types a question into the composer and sends it with Enter. */
-export async function ask(page: Page, question: string): Promise<Locator> {
+export async function ask(
+  page: Page,
+  question: string,
+  opts: SettleOptions = {},
+): Promise<Locator> {
   const box = composer(page);
   await box.fill(question);
   await box.press("Enter");
   await expect(page.locator('[data-role="user"]').last()).toHaveText(question);
-  return settledAnswer(page);
+  return settledAnswer(page, opts);
 }
 
 export function citationButtons(scope: Locator | Page): Locator {
