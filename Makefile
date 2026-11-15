@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check
+.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check fe-install fe-gen fe-dev fe-test fe-lint fe-build
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -69,3 +69,26 @@ status:
 # PHOEBE_* AI settings; see infra/ai/README.md.
 live-check:
 	uv run python backend/scripts/live_chat_check.py
+
+# Frontend (run from frontend/; Node version in frontend/.nvmrc).
+fe-install:
+	cd frontend && npm ci
+
+fe-gen:
+	cd frontend && npx openapi-typescript openapi.json -o src/api/schema.ts
+
+fe-dev:
+	cd frontend && npm run dev
+
+fe-test:
+	cd frontend && npx vitest run
+
+# Also fails if regenerating the schema would change src/api/schema.ts
+# (openapi-typescript prints to stdout when no -o is given).
+fe-lint:
+	cd frontend && npx tsc -b --noEmit && npx eslint . && npx prettier --check .
+	cd frontend && npx openapi-typescript openapi.json 2>/dev/null | diff -u src/api/schema.ts - \
+		|| { echo "src/api/schema.ts is stale: run make fe-gen" >&2; exit 1; }
+
+fe-build:
+	cd frontend && npm run build

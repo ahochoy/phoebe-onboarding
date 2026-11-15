@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/* Single light theme. Text colors are chosen for >= 4.5:1 on --color-surface. */
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-ink: #1f1a17;
+  --color-surface: #faf7f4;
+  --color-accent: #5c4033; /* phoebe slate-brown, ~9:1 on surface */
+  --color-ok: #166534;
+  --color-warn: #8a4b00;
+  --color-danger: #b42318;
+  --color-focus: #1d4ed8;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
