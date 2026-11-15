@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from phoebe.api.limits import throttle_login
 from phoebe.api.security import COOKIE_NAME, require_csrf, require_session
 from phoebe.auth import verify_password
 from phoebe.persona import Persona, get_persona
@@ -17,8 +18,8 @@ router = APIRouter(prefix="/api")
 post_router = APIRouter(prefix="/api", dependencies=[Depends(require_csrf)])
 routers = (router, post_router)
 
-# TODO(plan 2): per-IP rate limiting for /api/login. Until then this only caps
-# concurrent scrypt work so a flood cannot pin every CPU.
+# Caps concurrent scrypt work so a flood cannot pin every CPU (the per-IP
+# throttle runs first).
 _scrypt_slots = threading.BoundedSemaphore(4)
 
 _log = logging.getLogger("phoebe.api")
@@ -51,6 +52,7 @@ def health() -> dict[str, str]:
 @post_router.post("/login", status_code=204)
 def login(body: LoginBody, request: Request) -> Response:
     deps = request.app.state.deps
+    throttle_login(request)
     if not _scrypt_slots.acquire(blocking=False):
         raise HTTPException(429, "too_many_attempts")
     try:

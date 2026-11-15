@@ -38,6 +38,7 @@ extraPaths = ["backend/src"]
 
 [dependency-groups]
 dev = [
+    "botocore[crt]>=1.44.0",
     "fpdf2>=2.9.0",
     "moto[dynamodb]>=5.2.5",
     "pyright>=1.1.414",

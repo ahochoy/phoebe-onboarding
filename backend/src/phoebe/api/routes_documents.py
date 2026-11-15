@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints, ValidationError
 
 from phoebe.api.background import run_guarded
+from phoebe.api.limits import charge_chat, charge_upload, require_ai_open
 from phoebe.api.routes_portal import DocUuid, alex_groups
 from phoebe.api.security import Sandbox, require_csrf
 from phoebe.documents import (
@@ -36,6 +37,7 @@ from phoebe.documents import (
     list_documents,
     update_document,
 )
+from phoebe.embed import EmbeddingUnavailable
 from phoebe.ingest.fetch import google_doc_export_url
 from phoebe.ingest.parse import ParseError, sniff_upload
 from phoebe.retrieve import Passage, search
@@ -165,6 +167,8 @@ def upload_document(
     purpose: Annotated[str, Form()] = "",
     last_updated: Annotated[str, Form()] = "",
 ) -> Response:
+    require_ai_open(request)
+    charge_upload(request, sid)
     deps = request.app.state.deps
     declared = request.headers.get("content-length", "")
     if not declared.isdigit():
@@ -235,6 +239,8 @@ def link_document(
     background: BackgroundTasks,
     sid: Sandbox,
 ) -> Response:
+    require_ai_open(request)
+    charge_upload(request, sid)
     if not _valid_link(body.url):
         raise HTTPException(422, "invalid_link")
     doc_type: DocType = "google_doc" if google_doc_export_url(body.url) else "web"
@@ -290,5 +296,12 @@ def remove_document(doc_id: DocUuid, request: Request, sid: Sandbox) -> Response
 
 @post_router.post("/search")
 def search_documents(body: SearchBody, request: Request, sid: Sandbox) -> list[Passage]:
+    require_ai_open(request)
+    charge_chat(request, sid)
     deps = request.app.state.deps
-    return search(deps.db, deps.embedder, sid, alex_groups(request, sid), body.query)
+    try:
+        return search(
+            deps.db, deps.embedder, sid, alex_groups(request, sid), body.query
+        )
+    except EmbeddingUnavailable:
+        raise HTTPException(503, "chat_paused") from None

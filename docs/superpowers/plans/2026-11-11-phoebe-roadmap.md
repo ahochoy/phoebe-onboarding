@@ -7,10 +7,10 @@ The spec covers five subsystems. Each one gets its own plan. Every plan ends wit
 | # | Plan | Delivers | Depends on |
 |---|------|----------|------------|
 | 1 | **Backend core** (`2026-11-11-phoebe-01-backend-core.md`) | Local FastAPI + Postgres/pgvector in docker compose. Password login and sessions, sandbox overlay, groups, tasks, progress, documents CRUD, ingestion (MD/CSV/PDF/URL/Google Doc), chunking, hybrid search with the visibility filter, seed company, and 0-leak tests. Uses a deterministic local embedder. No AWS. | none |
-| 2 | AI chat & spend safety | Titan embedder, AgentCore Harness answers (Haiku 4.5, plus a manual Nova Micro switch), multi-turn memory with query rewrite, citation verifier, refusal, SSE streaming, Guardrail, per-session and global caps, login throttle, the kill switch, and the `/api/status` endpoint for the red pill. | 1 |
+| 2 | AI chat & spend safety | Titan embedder, AgentCore Harness answers (Haiku 4.5, plus a manual Nova Micro switch), multi-turn memory with query rewrite, citation verifier, refusal, SSE streaming, Guardrail, per-session and global caps, login throttle, the kill switch, and the `/api/status` endpoint for the red pill. GitHub Actions CI (tests + lint, no Bedrock). | 1 |
 | 3 | Frontend | React/Vite/TS app: landing, employee three-column and mobile tabs, admin vertical tabs, document viewer with passage highlight, assistant-ui chat, delight moments, status pill. Playwright cross-browser and axe tests. | 1, 2 |
 | 4 | Cloud | Terraform (us-east-2, budget in us-east-1): ECR, API and worker Lambdas, function URL, CloudFront + S3, Aurora Serverless v2 with the Data API (adds a `DataApiDatabase` adapter), DynamoDB, SQS + DLQ, S3 uploads, Secrets Manager, EventBridge session cleanup, budget → kill-switch Lambda, and the custom domain toggle (verify the ACM-in-us-east-1 SCP first). | 1–3 |
-| 5 | Evals & polish | Golden set, metrics script, faithfulness judge (shadow mode), GitHub Actions (no Bedrock on PRs; manual eval workflow through OIDC), README with diagram, trade-offs, cost table, and demo GIF. A dated reminder before 2027-03-30. | 1–4 |
+| 5 | Evals & polish | Golden set, metrics script, faithfulness judge (shadow mode), manual eval workflow through OIDC; Playwright job added to CI, README with diagram, trade-offs, cost table, and demo GIF. A dated reminder before 2027-03-30. | 1–4 |
 
 Plans 2–5 are written when their predecessor ships, so they build on real interfaces instead of guesses.
 
@@ -44,8 +44,32 @@ Plans 2–5 are written when their predecessor ships, so they build on real inte
 - Deploy and ops:
   - Take a migration advisory lock (`pg_advisory_xact_lock`).
   - Re-seed runbook: wipe all sandboxes first, because `load_seed` breaks once visitors exist.
-  - CI: `PHOEBE_REQUIRE_DB=1` fails when the DB env var is missing.
   - Log `skipped` (not `indexed`) when a doc is deleted mid-index.
 
 **Plan 5 (Evals & polish)**
 - HTML `td`/`th` cells run together, which hurts table retrieval. Fix it in the parser before the evals.
+
+## Carry-forward notes from Plan 2 final review
+
+**Plan 3 (Frontend)**
+- On every `done` event, replace the streamed text with `done.text`. Streamed deltas carry raw `[P3]` labels; `done.text` and `citations[].n` are renumbered.
+- Polling `GET /api/status` refreshes the session's `last_seen`, so an open tab keeps the session alive past the 2 h idle timeout. Pick a polling interval (or stop polling when the tab is hidden) with that in mind.
+
+**Plan 4 (Cloud)**
+- The sweeper must also purge `chat_turns` for expired sandboxes.
+- Configure Python logging in the Lambda image. Today no `phoebe.*` INFO lines reach the container log.
+- Trust `cloudfront-viewer-address` (`PHOEBE_CLIENT_IP_HEADER`) only when the origin is reachable through CloudFront alone (origin secret header or a restricted function URL). Otherwise the login throttle can be bypassed by forging the header.
+- `infra/ai` resource names are stable; move them into the module layout with `moved {}` blocks, not a rebuild. Terraform reads `backend/prompts/answer.txt` from the repo, not from the image.
+- Check whether idle AgentCore runtime sessions are billed. Each chat uses a fresh `runtimeSessionId` with a 1800 s idle timeout.
+- When `PHOEBE_ANSWER_BACKEND=harness`, require `PHOEBE_GUARDRAIL_ID` and `PHOEBE_GUARDRAIL_VERSION` in the deployed config.
+
+## Follow-up: switch the answer model to Claude Haiku 5.5
+
+Do this before Plan 3 ships the chat UI.
+- Account prerequisites (owner): submit the Anthropic use case form in the Bedrock console and confirm a payment method in AWS Settings. On 2026-11-15, `us.anthropic.claude-haiku-5-5` returned "not available for this account", and `GetUseCaseForModelAccess` reported that the form had not been filled out.
+- `infra/ai`: set the Haiku Harness model to `us.anthropic.claude-haiku-5-5`, then update the IAM foundation-model and inference-profile ARNs to match.
+- Remove `temperature = 0.1`: Haiku 5.5 rejects non-default sampling parameters.
+- Thinking is on by default. Set effort `low` through the Harness `additionalParams`, and verify that it reaches the model.
+- Raise `maxTokens` to leave room for thinking.
+- Re-tune `answer_max_chars` and the caps, because the newer tokenizer counts about 30% more tokens.
+- Rerun `make live-check` on Haiku 5.5. Then update the spec, Plan 2 and `infra/ai/README.md`, which currently name Haiku 4.5.

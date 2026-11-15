@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Any
 
 from phoebe.db import Database
-from phoebe.sessions import session_hash
+from phoebe.sessions import log_id
 
 
 class EntityKind(StrEnum):
@@ -72,9 +72,7 @@ def blob_key_for(session_id: str, source_uri: str) -> str | None:
         and ".." not in key.split("/")
     )
     if not ok:
-        _log.warning(
-            "rejected foreign blob key for session %s", session_hash(session_id)
-        )
+        _log.warning("rejected foreign blob key for session %s", log_id(session_id))
         return None
     return key
 
@@ -110,6 +108,7 @@ def reset_session(db: Database, session_id: str) -> list[str]:
         uris = tx.fetch(
             "select source_uri from documents where session_id = :sid", params
         )
+        tx.execute("delete from chat_turns where session_id = :sid", params)
         tx.execute("delete from task_completions where session_id = :sid", params)
         tx.execute("delete from overrides where session_id = :sid", params)
         tx.execute("delete from tasks where session_id = :sid", params)

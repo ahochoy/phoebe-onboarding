@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed
+.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -43,5 +43,29 @@ test: test-db
 lint:
 	uv run ruff check . && uv run ruff format --check . && uv run pyright
 
+# Kill-switch state lives in data/control.json. When the api container is up it
+# reads its own copy, so run the command inside it; otherwise use the host.
+control = if docker compose ps --status running -q api 2>/dev/null | grep -q .; then \
+		docker compose exec -T api python -m phoebe control $(1); \
+	else uv run python -m phoebe control $(1); fi
+
 seed:
 	uv run python -m phoebe.seed
+
+pause:
+	@$(call control,chat_paused)
+
+kill:
+	@$(call control,closed)
+
+open:
+	@$(call control,open)
+
+status:
+	@$(call control,status)
+
+# Owner-gated live AWS check (costs money). NOT part of `make test` or CI.
+# Needs PHOEBE_LIVE_DATABASE_URL (database name ending in _live) and the
+# PHOEBE_* AI settings; see infra/ai/README.md.
+live-check:
+	uv run python backend/scripts/live_chat_check.py

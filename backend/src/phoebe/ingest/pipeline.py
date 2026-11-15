@@ -11,7 +11,7 @@ from typing import Any
 
 from phoebe.db import Database
 from phoebe.documents import mark_failed, mark_indexed
-from phoebe.embed import Embedder, vector_literal
+from phoebe.embed import Embedder, EmbeddingUnavailable, vector_literal
 from phoebe.ingest.chunk import Chunk, chunk_document, embedding_text
 from phoebe.ingest.fetch import (
     FetchedPage,
@@ -182,6 +182,7 @@ def index_document(
     *,
     fetch: Callable[[str], FetchedPage] = fetch_url,
     seed_root: Path | None = None,
+    max_chunks: int = 400,
 ) -> None:
     rows = db.fetch(
         """
@@ -200,12 +201,19 @@ def index_document(
         if not chunks:
             mark_failed(db, document_id, "No indexable text")
             return
+        if len(chunks) > max_chunks:
+            mark_failed(db, document_id, "Document is too long to index")
+            return
         vectors = _embed_all(embedder, chunks)
         if len(vectors) != len(chunks):
             raise RuntimeError("embedder returned wrong number of vectors")
         stored = _store(db, document_id, parsed, chunks, vectors)
     except _Fail as exc:
         mark_failed(db, document_id, exc.reason)
+        return
+    except EmbeddingUnavailable:
+        log.error("embedding unavailable document=%s", document_id)
+        mark_failed(db, document_id, "Embedding service unavailable")
         return
     except (ParseError, UnsafeUrlError, FetchError) as exc:
         mark_failed(db, document_id, exc.reason)

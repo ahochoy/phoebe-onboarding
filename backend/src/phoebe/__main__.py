@@ -1,18 +1,24 @@
-"""Operational CLI: `python -m phoebe migrate|seed`.
+"""Operational CLI: `python -m phoebe migrate|seed|control`.
 
-Reads only PHOEBE_DATABASE_URL (and PHOEBE_SEED_DIR for seed), so it works in a
-container that has no PHOEBE_PASSWORD_HASH.
+migrate and seed read only PHOEBE_DATABASE_URL (and PHOEBE_SEED_DIR for seed);
+control reads only the PHOEBE_CONTROL_* / state-table settings. None needs
+PHOEBE_PASSWORD_HASH.
 """
 
 import os
 import sys
 
+from phoebe.config import ControlSettings
+from phoebe.control import STATES, make_inner_control
 from phoebe.db import PsycopgDatabase
 from phoebe.migrate import apply_migrations
 from phoebe.seed import MIGRATIONS_DIR
 from phoebe.seed import main as seed_main
 
-USAGE = "usage: python -m phoebe {migrate|seed}"
+USAGE = (
+    "usage: python -m phoebe {migrate|seed}"
+    " | python -m phoebe control {open|chat_paused|closed|status}"
+)
 
 
 def _migrate() -> None:
@@ -31,7 +37,23 @@ def _migrate() -> None:
     )
 
 
+def _control(action: str) -> None:
+    try:
+        store = make_inner_control(ControlSettings())
+    except RuntimeError as exc:
+        raise SystemExit(f"{exc} for dynamodb") from None
+    if action != "status":
+        store.set(action)  # type: ignore[arg-type]
+    print(store.get())
+
+
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["control"]:
+        if len(argv) != 2 or argv[1] not in (*STATES, "status"):
+            print(USAGE, file=sys.stderr)
+            return 2
+        _control(argv[1])
+        return 0
     if len(argv) != 1 or argv[0] not in ("migrate", "seed"):
         print(USAGE, file=sys.stderr)
         return 2

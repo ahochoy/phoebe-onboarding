@@ -273,3 +273,9 @@ def test_session_store_does_not_store_raw_token(aws_env):
     assert all(token not in k for k in keys)
     got = s.get(token)
     assert got is not None and got.id == token
+
+
+def test_log_id_matches_middleware_hash():
+    from phoebe.sessions import log_id, sandbox_id, session_hash
+
+    assert log_id(sandbox_id("tok")) == session_hash("tok")

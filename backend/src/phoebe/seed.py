@@ -18,8 +18,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from phoebe.db import Database, PsycopgDatabase
 from phoebe.documents import mark_failed
-from phoebe.embed import Embedder, HashEmbedder
+from phoebe.embed import Embedder, make_embedder
 from phoebe.ingest.pipeline import index_document
+from phoebe.meta import check_embedder, record_embedder
 from phoebe.migrate import apply_migrations
 from phoebe.storage import LocalBlobStore
 
@@ -152,6 +153,7 @@ def load_seed(db: Database, embedder: Embedder, seed_dir: Path) -> SeedReport:
     seed groups, tasks or people by foreign key, which would make a reload
     fail while visitors exist. Run the seed on an empty or freshly reset DB.
     """
+    check_embedder(db, embedder)
     manifest = yaml.safe_load((seed_dir / "manifest.yaml").read_text(encoding="utf-8"))
     with db.transaction() as tx:
         _clear_seed(tx)
@@ -183,6 +185,7 @@ def load_seed(db: Database, embedder: Embedder, seed_dir: Path) -> SeedReport:
             "seed documents failed to index: "
             + ", ".join(f"{r['title']} ({r['failure_reason']})" for r in failed)
         )
+    record_embedder(db, embedder)
     chunks = db.fetch(
         "select count(*) as n from chunks c join documents d on d.id = c.document_id "
         "where d.session_id is null"
@@ -201,6 +204,8 @@ class _SeedSettings(BaseSettings):
 
     database_url: str
     seed_dir: Path = Path("backend/seed")
+    embedder: str = "hash"
+    aws_region: str = "us-east-2"
 
 
 def main() -> None:
@@ -210,7 +215,7 @@ def main() -> None:
         applied = apply_migrations(db, MIGRATIONS_DIR)
         if applied:
             print(f"applied migrations: {', '.join(applied)}")
-        report = load_seed(db, HashEmbedder(), settings.seed_dir)
+        report = load_seed(db, make_embedder(settings), settings.seed_dir)
     finally:
         db.close()
     print(
