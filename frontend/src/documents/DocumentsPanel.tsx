@@ -1,0 +1,90 @@
+import type { DocumentOut, GroupKind } from "../api/types";
+import { messageFor } from "../lib/messages";
+import { groupByTier, TIER_ORDER } from "../lib/tiers";
+import { DocIcon } from "./DocIcon";
+import { useDocuments } from "./useDocuments";
+import { useViewer } from "./ViewerProvider";
+
+function tierTitle(kind: GroupKind, docs: DocumentOut[]): string {
+  if (kind === "company") return "Company";
+  return docs[0]?.group_name ?? kind;
+}
+
+const dateFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" });
+
+/** `last_updated` is an ISO date; format it in UTC so the day never shifts. */
+function formatDate(iso: string | null): string {
+  if (!iso) return "Not dated";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : dateFormat.format(date);
+}
+
+function DocRow({ doc, onOpen }: { doc: DocumentOut; onOpen: () => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-h-6 w-full cursor-pointer items-start gap-3 rounded-md px-2 py-2 text-left hover:bg-ink/5"
+      >
+        <span className="mt-0.5 flex">
+          <DocIcon type={doc.doc_type} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-ink">{doc.title}</span>
+          {doc.purpose ? <span className="block text-sm text-ink/80">{doc.purpose}</span> : null}
+          <span className="block text-xs text-ink/70">
+            Updated <span>{formatDate(doc.last_updated)}</span>
+            {doc.status === "processing" ? " · Processing" : null}
+            {doc.status === "failed" ? " · Failed" : null}
+          </span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
+export function DocumentsPanel() {
+  const { data, error, isPending } = useDocuments();
+  const viewer = useViewer();
+
+  if (isPending) {
+    return (
+      <p role="status" className="text-sm text-ink/80">
+        Loading documents…
+      </p>
+    );
+  }
+  if (error) {
+    return (
+      <p role="alert" className="text-sm font-medium text-danger">
+        {messageFor(error)}
+      </p>
+    );
+  }
+  if (data.length === 0) {
+    return <p className="text-sm text-ink/80">There are no documents for you yet.</p>;
+  }
+
+  const tiers = groupByTier(data);
+  return (
+    <div className="space-y-4">
+      {TIER_ORDER.filter((k) => tiers[k].length > 0).map((kind) => {
+        const docs = tiers[kind];
+        const headingId = `docs-tier-${kind}`;
+        return (
+          <section key={kind} aria-labelledby={headingId}>
+            <h3 id={headingId} className="mb-1 text-sm font-semibold text-accent">
+              {tierTitle(kind, docs)}
+            </h3>
+            <ul>
+              {docs.map((doc) => (
+                <DocRow key={doc.id} doc={doc} onOpen={() => viewer.open(doc.id)} />
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+    </div>
+  );
+}

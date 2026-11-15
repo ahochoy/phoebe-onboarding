@@ -25,6 +25,19 @@ Element.prototype.setPointerCapture ??= () => {};
 Element.prototype.releasePointerCapture ??= () => {};
 Element.prototype.scrollIntoView ??= () => {};
 
+// jsdom has no matchMedia; default to "no match" (narrow viewport). Tests that
+// need a wide viewport override window.matchMedia themselves.
+window.matchMedia ??= ((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addEventListener() {},
+  removeEventListener() {},
+  addListener() {},
+  removeListener() {},
+  dispatchEvent: () => false,
+})) as typeof window.matchMedia;
+
 beforeEach(() => {
   window.sessionStorage.clear();
 });

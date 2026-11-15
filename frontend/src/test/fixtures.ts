@@ -1,5 +1,14 @@
 import { delay, http, HttpResponse } from "msw";
-import type { GroupKind, GroupNode, Me, StatusOut, TaskView } from "../api/types";
+import type {
+  DocumentDetailOut,
+  DocumentOut,
+  GroupKind,
+  GroupNode,
+  Me,
+  StatusOut,
+  TaskView,
+} from "../api/types";
+import type { DocSection } from "../documents/sections";
 import { server } from "./server";
 
 export const ME: Me = {
@@ -90,6 +99,38 @@ export function makeTask(id: string, kind: GroupKind, over: Partial<TaskView> = 
     done: false,
     owned: false,
     ...over,
+  };
+}
+
+/** Builds one document list row; override any field. */
+export function makeDoc(id: string, kind: GroupKind, over: Partial<DocumentOut> = {}): DocumentOut {
+  return {
+    id,
+    title: `Doc ${id}`,
+    purpose: `Purpose of doc ${id}`,
+    last_updated: "2026-11-03",
+    doc_type: "pdf",
+    group_id: `g-${kind}`,
+    group_name: TIER_NAMES[kind],
+    group_kind: kind,
+    status: "indexed",
+    failure_reason: null,
+    public_url: null,
+    owned: false,
+    ...over,
+  };
+}
+
+/** Builds a document detail; `sections` are code-point ranges into `full_text`. */
+export function makeDetail(
+  id: string,
+  over: Partial<Omit<DocumentDetailOut, "sections">> & { sections?: DocSection[] } = {},
+): DocumentDetailOut {
+  return {
+    ...makeDoc(id, "company"),
+    full_text: null,
+    ...over,
+    sections: (over.sections ?? []) as unknown as DocumentDetailOut["sections"],
   };
 }
 
