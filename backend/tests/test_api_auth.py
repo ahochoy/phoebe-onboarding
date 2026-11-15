@@ -111,6 +111,12 @@ def test_me_day_number_from_injected_clock(db: Database, logged_in: TestClient) 
     assert logged_in.get("/api/me").json()["day_number"] == 10
 
 
+def test_day_number_never_below_one(db: Database, logged_in: TestClient) -> None:
+    seed_org(db)  # alex starts 2026-11-02
+    deps_of(logged_in).today = lambda: date(2026, 10, 20)
+    assert logged_in.get("/api/me").json()["day_number"] == 1
+
+
 def test_post_without_csrf_header_403(logged_in: TestClient) -> None:
     assert logged_in.post("/api/reset").status_code == 403
     assert logged_in.post("/api/logout").status_code == 403

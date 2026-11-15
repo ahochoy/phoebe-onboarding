@@ -1,11 +1,11 @@
 import json
 from datetime import date
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from phoebe.db import Database
-from phoebe.groups import effective_group_ids
+from phoebe.groups import GroupKind, effective_group_ids
 from phoebe.overlay_sql import EFFECTIVE_DOCUMENTS_SQL, EFFECTIVE_GROUPS_SQL
 from phoebe.sandbox import BLOB_PREFIX, EntityKind, blob_key_for, hide, patch
 
@@ -35,6 +35,21 @@ class DocumentPatch(BaseModel):
     last_updated: date | None = None
     group_id: str | None = None
 
+    @model_validator(mode="after")
+    def _no_null_required(self) -> Self:
+        for name in ("title", "group_id"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null")
+        return self
+
+    def changes(self, *, mode: Literal["python", "json"] = "python") -> dict[str, Any]:
+        """Fields the caller sent. An omitted field is absent; an explicit null
+        clears `last_updated`, and turns a null purpose into ""."""
+        out = self.model_dump(mode=mode, include=set(self.model_fields_set))
+        if "purpose" in out and out["purpose"] is None:
+            out["purpose"] = ""
+        return out
+
 
 class DocumentSummary(BaseModel):
     id: str
@@ -44,7 +59,7 @@ class DocumentSummary(BaseModel):
     doc_type: DocType
     group_id: str
     group_name: str
-    group_kind: str
+    group_kind: GroupKind
     status: DocStatus
     failure_reason: str | None
     source_uri: str
@@ -176,7 +191,7 @@ def _visible_seed_document(db: Database, session_id: str, doc_id: str) -> bool:
 def update_document(
     db: Database, session_id: str, doc_id: str, changes: DocumentPatch
 ) -> bool:
-    fields = changes.model_dump(exclude_none=True)
+    fields = changes.changes()
     owned = _owned_row(db, session_id, doc_id) is not None
     if not owned and not _visible_seed_document(db, session_id, doc_id):
         return False
@@ -193,7 +208,7 @@ def update_document(
             {**fields, "id": doc_id, "sid": session_id},
         )
     else:
-        json_fields = changes.model_dump(exclude_none=True, mode="json")
+        json_fields = changes.changes(mode="json")
         patch(db, session_id, EntityKind.DOCUMENT, doc_id, json_fields)
     return True
 

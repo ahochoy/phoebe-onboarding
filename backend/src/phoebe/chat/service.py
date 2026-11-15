@@ -15,6 +15,14 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 from uuid import uuid4
 
+from phoebe.chat.events import (
+    ClosestDoc,
+    DeltaEvent,
+    DoneEvent,
+    ErrorEvent,
+    MetaEvent,
+    Reason,
+)
 from phoebe.chat.history import recent, visible_chunk_ids
 from phoebe.chat.models import (
     NO_ANSWER,
@@ -43,8 +51,6 @@ CLOSEST_MAX = 3
 _DEFAULT_MIN_SIMILARITY = {"hash-v1-1024": 0.05, "titan-v2-1024": 0.25}
 _FALLBACK_MIN_SIMILARITY = 0.25
 
-Reason = Literal["no_support", "verification_failed", "blocked", "model_unavailable"]
-
 
 @dataclass
 class ChatEvent:
@@ -68,16 +74,16 @@ class _Outcome:
     text: str
     reason: Reason | None = None
     citations: list[Citation] = field(default_factory=list)
-    closest: list[dict[str, str]] = field(default_factory=list)
+    closest: list[ClosestDoc] = field(default_factory=list)
 
     def payload(self) -> dict[str, Any]:
-        return {
-            "text": self.text,
-            "refused": self.reason is not None,
-            "reason": self.reason,
-            "citations": [c.model_dump() for c in self.citations],
-            "closest": self.closest,
-        }
+        return DoneEvent(
+            text=self.text,
+            refused=self.reason is not None,
+            reason=self.reason,
+            citations=self.citations,
+            closest=self.closest,
+        ).model_dump(mode="json")
 
 
 @dataclass
@@ -94,13 +100,13 @@ def min_similarity(settings: Settings, embedder: Embedder) -> float:
     return _DEFAULT_MIN_SIMILARITY.get(embedder.id, _FALLBACK_MIN_SIMILARITY)
 
 
-def _closest(passages: Sequence[Passage]) -> list[dict[str, str]]:
-    out: list[dict[str, str]] = []
+def _closest(passages: Sequence[Passage]) -> list[ClosestDoc]:
+    out: list[ClosestDoc] = []
     seen: set[str] = set()
     for p in passages:
         if p.document_id not in seen:
             seen.add(p.document_id)
-            out.append({"document_id": p.document_id, "title": p.document_title})
+            out.append(ClosestDoc(document_id=p.document_id, title=p.document_title))
             if len(out) == CLOSEST_MAX:
                 break
     return out
@@ -180,7 +186,7 @@ def _answer(
                 holding = False
                 delta = answer  # flush what was held back
             if delta:
-                yield ChatEvent("delta", {"text": delta})
+                yield ChatEvent("delta", DeltaEvent(text=delta).model_dump())
     except ModelUnavailable:
         return _refuse("model_unavailable", passages)
     finally:
@@ -238,7 +244,7 @@ def _persist(
 
 def run_chat(ctx: ChatContext, sandbox: str, question: str) -> Generator[ChatEvent]:
     turn_id = str(uuid4())
-    yield ChatEvent("meta", {"turn_id": turn_id})
+    yield ChatEvent("meta", MetaEvent(turn_id=turn_id).model_dump())
     st = _Stats()
     try:
         outcome = yield from _answer(ctx, sandbox, question, st)
@@ -250,7 +256,7 @@ def run_chat(ctx: ChatContext, sandbox: str, question: str) -> Generator[ChatEve
             turn_id,
             type(exc).__name__,
         )
-        yield ChatEvent("error", {"code": "internal_error"})
+        yield ChatEvent("error", ErrorEvent(code="internal_error").model_dump())
         return
     log.info(
         "chat sandbox=%s turn=%s passages=%s top_sim=%.3f refused=%s model_ms=%d"

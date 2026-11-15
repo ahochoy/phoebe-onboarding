@@ -1,9 +1,11 @@
-from typing import Any
+from typing import Literal
 
 from fastapi import APIRouter, Request
+from pydantic import BaseModel
 
 from phoebe.api.limits import DAY, HOUR
 from phoebe.api.security import COOKIE_NAME
+from phoebe.control import KillState
 from phoebe.limits import LimitsUnavailable
 from phoebe.sessions import sandbox_id
 
@@ -11,17 +13,34 @@ router = APIRouter(prefix="/api")
 routers = (router,)
 
 
-def _unavailable(state: str) -> dict[str, Any]:
-    return {
-        "state": state,
-        "chat_available": False,
-        "upload_available": False,
-        "reasons": ["chat_paused"],
-    }
+StatusReason = Literal[
+    "chat_paused",
+    "demo_closed",
+    "session_chat_limit",
+    "global_chat_limit",
+    "session_upload_limit",
+    "global_upload_limit",
+]
+
+
+class StatusOut(BaseModel):
+    state: KillState
+    chat_available: bool
+    upload_available: bool
+    reasons: list[StatusReason]
+
+
+def _unavailable(state: KillState) -> StatusOut:
+    return StatusOut(
+        state=state,
+        chat_available=False,
+        upload_available=False,
+        reasons=["chat_paused"],
+    )
 
 
 @router.get("/status")
-def status(request: Request) -> dict[str, Any]:
+def status(request: Request) -> StatusOut:
     """Public, read-only: uses `peek` only, never `hit`."""
     deps = request.app.state.deps
     s = deps.settings
@@ -30,18 +49,18 @@ def status(request: Request) -> dict[str, Any]:
     except LimitsUnavailable:
         return _unavailable("chat_paused")
     if state == "closed":
-        return {
-            "state": state,
-            "chat_available": False,
-            "upload_available": False,
-            "reasons": ["demo_closed"],
-        }
+        return StatusOut(
+            state=state,
+            chat_available=False,
+            upload_available=False,
+            reasons=["demo_closed"],
+        )
     if state == "chat_paused":
-        return _unavailable(state) | {"reasons": ["chat_paused"]}
+        return _unavailable(state)
     sid = request.cookies.get(COOKIE_NAME)
     session = deps.sessions.get(sid) if sid else None
-    chat: list[str] = []
-    upload: list[str] = []
+    chat: list[StatusReason] = []
+    upload: list[StatusReason] = []
     try:
         if session is not None:
             sb = sandbox_id(session.id)
@@ -55,9 +74,9 @@ def status(request: Request) -> dict[str, Any]:
             upload.append("global_upload_limit")
     except LimitsUnavailable:
         return _unavailable(state)
-    return {
-        "state": state,
-        "chat_available": not chat,
-        "upload_available": not upload,
-        "reasons": [*chat, *upload],
-    }
+    return StatusOut(
+        state=state,
+        chat_available=not chat,
+        upload_available=not upload,
+        reasons=[*chat, *upload],
+    )

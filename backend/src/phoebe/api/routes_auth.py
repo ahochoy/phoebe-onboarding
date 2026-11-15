@@ -107,5 +107,5 @@ def reset(request: Request, session: CurrentSession) -> Response:
 def me(request: Request, _: CurrentSession) -> Me:
     deps = request.app.state.deps
     persona = get_persona(deps.db)
-    day = (deps.today() - persona.start_date).days + 1
+    day = max(1, (deps.today() - persona.start_date).days + 1)
     return Me(**persona.model_dump(), day_number=day)

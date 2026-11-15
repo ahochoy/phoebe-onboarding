@@ -38,6 +38,7 @@ from phoebe.documents import (
     update_document,
 )
 from phoebe.embed import EmbeddingUnavailable
+from phoebe.groups import GroupKind
 from phoebe.ingest.fetch import google_doc_export_url
 from phoebe.ingest.parse import ParseError, sniff_upload
 from phoebe.retrieve import Passage, search
@@ -89,7 +90,7 @@ class DocumentOut(BaseModel):
     doc_type: DocType
     group_id: str
     group_name: str
-    group_kind: str
+    group_kind: GroupKind
     status: DocStatus
     failure_reason: str | None
     public_url: str | None
