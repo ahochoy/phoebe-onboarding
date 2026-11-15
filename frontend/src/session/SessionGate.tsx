@@ -53,12 +53,12 @@ export function SessionGate() {
   }
 
   return (
-    <>
+    <div className="flex h-dvh flex-col">
       <Header />
-      <main className="mx-auto max-w-6xl p-4">
+      <main className="mx-auto min-h-0 w-full max-w-6xl flex-1 overflow-y-auto p-4">
         <Outlet />
       </main>
       <WelcomeSplash me={me.data} />
-    </>
+    </div>
   );
 }

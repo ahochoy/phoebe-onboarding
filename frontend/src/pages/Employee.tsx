@@ -5,7 +5,7 @@ import { DocumentsPanel } from "../documents/DocumentsPanel";
 import { ViewerProvider } from "../documents/ViewerProvider";
 import { PersonaCard } from "../employee/PersonaCard";
 import { TasksPanel } from "../employee/TasksPanel";
-import { MD_UP, useMediaQuery } from "../lib/useMediaQuery";
+import { LG_UP, useMediaQuery } from "../lib/useMediaQuery";
 
 type TabId = "tasks" | "chat" | "docs";
 
@@ -14,15 +14,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "chat", label: "Chat" },
   { id: "docs", label: "Docs" },
 ];
-
-function TasksColumn() {
-  return (
-    <div className="space-y-4">
-      <PersonaCard />
-      <TasksPanel />
-    </div>
-  );
-}
 
 function Region({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
@@ -35,80 +26,73 @@ function Region({ id, title, children }: { id: string; title: string; children: 
   );
 }
 
-const chatRegion = (
-  <Region id="chat-heading" title="Chat">
-    <div className="flex min-h-0 flex-1 flex-col">
-      <ChatPanel />
-    </div>
-  </Region>
-);
-
-const docsRegion = (
-  <Region id="docs-heading" title="Documents">
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <DocumentsPanel />
-    </div>
-  </Region>
-);
-
-function DesktopLayout() {
-  return (
-    <div className="grid h-[calc(100dvh-6rem)] grid-cols-[18rem_1fr_20rem] gap-4">
-      <div className="min-h-0 overflow-y-auto">
-        <TasksColumn />
-      </div>
-      <div className="flex min-h-0 flex-col">{chatRegion}</div>
-      <div className="flex min-h-0 flex-col">{docsRegion}</div>
-    </div>
-  );
-}
-
 const tabTrigger =
   "flex min-h-12 flex-1 cursor-pointer items-center justify-center text-sm font-medium text-ink/80 data-[state=active]:border-t-2 data-[state=active]:border-accent data-[state=active]:font-semibold data-[state=active]:text-accent";
 
-function MobileLayout() {
+/**
+ * The employee view: three columns from lg up, bottom tabs below. One stable tree
+ * (each panel mounted once, never remounted) so chat state survives tab switches and
+ * breakpoint changes; CSS decides which panels show.
+ */
+export function Employee() {
+  const wide = useMediaQuery(LG_UP);
   const [tab, setTab] = useState<TabId>("chat");
-  // Every panel stays mounted (forceMount) so chat state survives tab switches.
+
   const panel = (id: TabId, children: ReactNode) => (
     <Tabs.Content
       value={id}
       forceMount
-      hidden={tab !== id}
-      className="min-h-0 flex-1 flex-col data-[state=active]:flex data-[state=inactive]:hidden"
+      // At lg+ the panels are plain columns, not tab panels.
+      {...(wide ? { role: "presentation", "aria-labelledby": undefined } : {})}
+      className="flex min-h-0 flex-1 flex-col max-lg:data-[state=inactive]:hidden lg:flex-none"
     >
       {children}
     </Tabs.Content>
   );
-  return (
-    <Tabs.Root
-      value={tab}
-      onValueChange={(v) => setTab(v as TabId)}
-      className="flex h-[calc(100dvh-7rem)] flex-col pb-[calc(3rem+env(safe-area-inset-bottom))]"
-    >
-      {panel(
-        "tasks",
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <TasksColumn />
-        </div>,
-      )}
-      {panel("chat", chatRegion)}
-      {panel("docs", docsRegion)}
-      <Tabs.List
-        aria-label="Sections"
-        className="fixed inset-x-0 bottom-0 z-10 flex border-t border-ink/15 bg-white pb-[env(safe-area-inset-bottom)]"
-      >
-        {TABS.map((t) => (
-          <Tabs.Trigger key={t.id} value={t.id} className={tabTrigger}>
-            {t.label}
-          </Tabs.Trigger>
-        ))}
-      </Tabs.List>
-    </Tabs.Root>
-  );
-}
 
-/** The employee view: three columns from md up, bottom tabs below. */
-export function Employee() {
-  const wide = useMediaQuery(MD_UP);
-  return <ViewerProvider>{wide ? <DesktopLayout /> : <MobileLayout />}</ViewerProvider>;
+  return (
+    <ViewerProvider>
+      <Tabs.Root
+        value={tab}
+        onValueChange={(v) => setTab(v as TabId)}
+        className="flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[18rem_minmax(0,1fr)_20rem] lg:gap-4"
+      >
+        {panel(
+          "tasks",
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+            <PersonaCard />
+            <TasksPanel />
+          </div>,
+        )}
+        {panel(
+          "chat",
+          <Region id="chat-heading" title="Chat">
+            <div className="flex min-h-0 flex-1 flex-col">
+              <ChatPanel />
+            </div>
+          </Region>,
+        )}
+        {panel(
+          "docs",
+          <Region id="docs-heading" title="Documents">
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <DocumentsPanel />
+            </div>
+          </Region>,
+        )}
+        {!wide && (
+          <Tabs.List
+            aria-label="Sections"
+            className="-mx-4 -mb-4 flex shrink-0 border-t border-ink/15 bg-white pb-[env(safe-area-inset-bottom)]"
+          >
+            {TABS.map((t) => (
+              <Tabs.Trigger key={t.id} value={t.id} className={tabTrigger}>
+                {t.label}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+        )}
+      </Tabs.Root>
+    </ViewerProvider>
+  );
 }

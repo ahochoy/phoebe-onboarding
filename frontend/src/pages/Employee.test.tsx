@@ -1,9 +1,9 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MD_UP } from "../lib/useMediaQuery";
+import { LG_UP } from "../lib/useMediaQuery";
 import { useSession } from "../test/fixtures";
 import { makeClient } from "../test/render";
 import { Employee } from "./Employee";
@@ -35,18 +35,28 @@ vi.mock("../documents/ViewerProvider", () => ({
 }));
 
 const realMatchMedia = window.matchMedia;
+const listeners = new Set<() => void>();
+let isWide = false;
 
 function setWide(wide: boolean) {
+  isWide = wide;
   window.matchMedia = ((query: string) => ({
-    matches: query === MD_UP ? wide : false,
+    get matches() {
+      return query === LG_UP ? isWide : false;
+    },
     media: query,
     onchange: null,
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener: (_: string, l: () => void) => {
+      listeners.add(l);
+    },
+    removeEventListener: (_: string, l: () => void) => {
+      listeners.delete(l);
+    },
     addListener() {},
     removeListener() {},
     dispatchEvent: () => false,
-  })) as typeof window.matchMedia;
+  })) as unknown as typeof window.matchMedia;
+  act(() => listeners.forEach((l) => l()));
 }
 
 function renderEmployee() {
@@ -65,7 +75,7 @@ describe("Employee page", () => {
     window.matchMedia = realMatchMedia;
   });
 
-  it("desktop (>=768px) shows Tasks | Chat | Documents as three labelled regions", async () => {
+  it("desktop (>=1024px) shows Tasks | Chat | Documents as three labelled regions", async () => {
     setWide(true);
     renderEmployee();
     expect(await screen.findByRole("region", { name: "Tasks" })).toBeInTheDocument();
@@ -88,6 +98,18 @@ describe("Employee page", () => {
     expect(tabs.getByRole("tab", { name: "Docs" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("docs list")).toBeVisible();
     await user.click(tabs.getByRole("tab", { name: "Chat" }));
+    expect(screen.getByLabelText("Ask Phoebe a question")).toHaveValue("hello");
+  });
+
+  it("crossing the breakpoint keeps chat state (panels are not remounted)", async () => {
+    setWide(false);
+    const user = userEvent.setup();
+    renderEmployee();
+    await user.type(await screen.findByLabelText("Ask Phoebe a question"), "hello");
+    setWide(true);
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Ask Phoebe a question")).toHaveValue("hello");
+    setWide(false);
     expect(screen.getByLabelText("Ask Phoebe a question")).toHaveValue("hello");
   });
 
