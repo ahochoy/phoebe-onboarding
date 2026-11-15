@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Info, Link as LinkIcon, Loader2, Pencil, Trash2, Upload } from "lucide-react";
-import { AlertDialog } from "radix-ui";
 import { useId, useState } from "react";
 import { apiGet, apiSend } from "../api/client";
 import type { DocumentOut } from "../api/types";
@@ -9,7 +8,8 @@ import { messageFor, PAUSED_COPY } from "../lib/messages";
 import { useStatus } from "../state/status";
 import { AddDocumentDialog, type AddMode } from "./AddDocumentDialog";
 import { EditDocumentDialog } from "./EditDocumentDialog";
-import { buttonClass, dialogContent, primaryButton, secondaryButton } from "./formParts";
+import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
+import { buttonClass, iconButton } from "./formParts";
 
 const POLL_MS = 3000;
 
@@ -21,7 +21,7 @@ const TYPE_LABELS: Record<DocumentOut["doc_type"], string> = {
   google_doc: "Google Doc",
 };
 
-function useAdminDocuments() {
+export function useAdminDocuments() {
   return useQuery({
     queryKey: ["documents", "all"],
     queryFn: () => apiGet<DocumentOut[]>("/api/documents?scope=all"),
@@ -53,82 +53,25 @@ function StatusCell({ doc }: { doc: DocumentOut }) {
 
 function DeleteDialog({ doc, onClose }: { doc: DocumentOut | null; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function confirm() {
-    if (!doc) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await apiSend("DELETE", `/api/documents/${encodeURIComponent(doc.id)}`);
-      // ["documents"] covers both the admin list and the employee panel's query.
-      await queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.removeQueries({ queryKey: ["document", doc.id] });
-      onClose();
-    } catch (err) {
-      setError(messageFor(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <AlertDialog.Root
+    <ConfirmDeleteDialog
       open={doc !== null}
-      onOpenChange={(open) => {
-        if (busy) return;
-        if (!open) {
-          setError(null);
-          onClose();
-        }
+      title="Delete this document?"
+      description={doc ? `“${doc.title}” will be removed, and Phoebe will stop citing it.` : ""}
+      onClose={onClose}
+      onConfirm={async () => {
+        if (!doc) return;
+        await apiSend("DELETE", `/api/documents/${encodeURIComponent(doc.id)}`);
+        // ["documents"] covers both the admin list and the employee panel's query.
+        await queryClient.invalidateQueries({ queryKey: ["documents"] });
+        queryClient.removeQueries({ queryKey: ["document", doc.id] });
       }}
-    >
-      <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 z-40 bg-ink/40" />
-        <AlertDialog.Content className={dialogContent}>
-          <AlertDialog.Title className="text-lg font-semibold">
-            Delete this document?
-          </AlertDialog.Title>
-          <AlertDialog.Description className="mt-2 text-sm">
-            {doc ? `“${doc.title}” will be removed, and Phoebe will stop citing it.` : ""}
-          </AlertDialog.Description>
-          {error ? (
-            <p role="alert" className="mt-3 text-sm font-medium text-danger">
-              {error}
-            </p>
-          ) : null}
-          <div className="mt-5 flex justify-end gap-2">
-            <AlertDialog.Cancel asChild>
-              <button type="button" disabled={busy} className={secondaryButton}>
-                Cancel
-              </button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action asChild>
-              <button
-                type="button"
-                disabled={busy}
-                className={primaryButton}
-                onClick={(e) => {
-                  // Stay open until the request finishes.
-                  e.preventDefault();
-                  void confirm();
-                }}
-              >
-                Yes, delete
-              </button>
-            </AlertDialog.Action>
-          </div>
-        </AlertDialog.Content>
-      </AlertDialog.Portal>
-    </AlertDialog.Root>
+    />
   );
 }
 
 const th = "px-3 py-2 text-left text-sm font-semibold";
 const td = "px-3 py-2 align-top text-sm";
-const iconButton =
-  "inline-flex size-8 cursor-pointer items-center justify-center rounded-md border border-ink/30 text-ink hover:bg-ink/5";
 
 export function DocumentsTab() {
   const { data, error, isPending } = useAdminDocuments();

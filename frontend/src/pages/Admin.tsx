@@ -1,7 +1,9 @@
 import { Tabs } from "radix-ui";
 import { Navigate, useNavigate, useParams } from "react-router";
 import { DocumentsTab } from "../admin/DocumentsTab";
+import { GroupsTab } from "../admin/GroupsTab";
 import { PeopleTab } from "../admin/PeopleTab";
+import { TasksTab } from "../admin/TasksTab";
 import { MD_UP, useMediaQuery } from "../lib/useMediaQuery";
 
 export const ADMIN_TABS = [
@@ -19,16 +21,6 @@ function isAdminTab(value: string | undefined): value is AdminTab {
 
 const trigger =
   "inline-flex min-h-10 shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md px-3 py-2 text-left text-sm font-medium text-ink/80 -outline-offset-2 data-[state=active]:bg-accent data-[state=active]:font-semibold data-[state=active]:text-white";
-
-/** Placeholder until the tab's real content lands. */
-function Soon({ title }: { title: string }) {
-  return (
-    <section aria-label={title} className="space-y-2">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="text-sm text-ink/80">This section is coming soon.</p>
-    </section>
-  );
-}
 
 /**
  * The admin view. The active tab lives in the URL (`/admin/:tab`), so links and the back
@@ -65,11 +57,12 @@ export function Admin() {
       <Tabs.Content value="documents" className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
         <DocumentsTab />
       </Tabs.Content>
-      {ADMIN_TABS.filter((t) => t.id !== "people" && t.id !== "documents").map((t) => (
-        <Tabs.Content key={t.id} value={t.id} className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
-          <Soon title={t.label} />
-        </Tabs.Content>
-      ))}
+      <Tabs.Content value="tasks" className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
+        <TasksTab />
+      </Tabs.Content>
+      <Tabs.Content value="groups" className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
+        <GroupsTab />
+      </Tabs.Content>
     </Tabs.Root>
   );
 }

@@ -6,6 +6,9 @@ export const inputClass =
 export const buttonClass =
   "inline-flex min-h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md px-3 py-1 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60";
 
+export const iconButton =
+  "inline-flex size-8 cursor-pointer items-center justify-center rounded-md border border-ink/30 text-ink hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-60";
+
 export const primaryButton = `${buttonClass} bg-accent text-white`;
 export const secondaryButton = `${buttonClass} border border-ink/30`;
 
