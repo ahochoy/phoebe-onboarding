@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 import { server } from "./server";
 
 // Node's fetch rejects relative URLs; resolve them against the jsdom origin,
@@ -12,6 +12,22 @@ globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   }
   return nativeFetch(input, init);
 }) as typeof fetch;
+
+// jsdom lacks a few browser APIs that Radix primitives touch.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= ResizeObserverStub;
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.setPointerCapture ??= () => {};
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+
+beforeEach(() => {
+  window.sessionStorage.clear();
+});
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 afterEach(() => {
