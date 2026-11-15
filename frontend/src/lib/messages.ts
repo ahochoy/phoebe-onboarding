@@ -27,6 +27,10 @@ const MESSAGES: Record<string, string> = {
 
 const GENERIC = "Something went wrong. Try again in a moment.";
 
+/** Shown beside the chat composer and the upload controls when a limit has paused them. */
+export const PAUSED_COPY =
+  "You can still browse Phoebe and explore the UX. Chat and document upload are paused until limits reset.";
+
 /** Copy for an ApiError, or for a bare error code string. */
 export function messageFor(err: unknown): string {
   if (typeof err === "string") return MESSAGES[err] ?? GENERIC;

@@ -1,5 +1,6 @@
 import { Tabs } from "radix-ui";
 import { Navigate, useNavigate, useParams } from "react-router";
+import { DocumentsTab } from "../admin/DocumentsTab";
 import { PeopleTab } from "../admin/PeopleTab";
 import { MD_UP, useMediaQuery } from "../lib/useMediaQuery";
 
@@ -61,7 +62,10 @@ export function Admin() {
       <Tabs.Content value="people" className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
         <PeopleTab />
       </Tabs.Content>
-      {ADMIN_TABS.filter((t) => t.id !== "people").map((t) => (
+      <Tabs.Content value="documents" className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
+        <DocumentsTab />
+      </Tabs.Content>
+      {ADMIN_TABS.filter((t) => t.id !== "people" && t.id !== "documents").map((t) => (
         <Tabs.Content key={t.id} value={t.id} className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
           <Soon title={t.label} />
         </Tabs.Content>

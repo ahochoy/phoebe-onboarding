@@ -3,6 +3,7 @@ import { AlertCircle, Info, SendHorizontal } from "lucide-react";
 import { useId } from "react";
 import { Mascot } from "../components/Mascot";
 import { useViewer } from "../documents/ViewerProvider";
+import { PAUSED_COPY } from "../lib/messages";
 import { ChatRuntimeProvider, useChat } from "./ChatRuntimeProvider";
 import { CitedText } from "./CitedText";
 import type { ChatMessage } from "./reducer";
@@ -14,9 +15,6 @@ const SUGGESTED = [
   "Who's who on the Platform team?",
   "How does on-call work?",
 ];
-
-const PAUSED_COPY =
-  "You can still browse Phoebe and explore the UX. Chat and document upload are paused until limits reset.";
 
 function Greeting() {
   return (
