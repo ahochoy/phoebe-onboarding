@@ -4,22 +4,11 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { apiGet, apiSend } from "../api/client";
 import type { GroupNode } from "../api/types";
+import { formatStart } from "../lib/dates";
 import { forgetSession, useMe } from "../session/useMe";
 import { Mascot } from "./Mascot";
 import { ResetDialog } from "./ResetDialog";
 import { StatusPill } from "./StatusPill";
-
-const startFormat = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
-function formatStart(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  return Number.isNaN(d.getTime()) ? iso : startFormat.format(d);
-}
 
 const toggleItem =
   "inline-flex min-h-8 min-w-16 cursor-pointer items-center justify-center rounded-md px-3 py-1 text-sm font-medium data-[state=on]:bg-accent data-[state=on]:text-white";

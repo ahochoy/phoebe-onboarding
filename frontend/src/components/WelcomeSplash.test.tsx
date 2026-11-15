@@ -33,14 +33,14 @@ describe("WelcomeSplash", () => {
     first.unmount();
 
     renderApp("/employee");
-    expect(await screen.findByRole("heading", { name: "Employee view" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Chat" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("does not appear for a session restored from /api/me", async () => {
     useSession();
     renderApp("/");
-    expect(await screen.findByRole("heading", { name: "Employee view" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Chat" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

@@ -10,7 +10,7 @@ describe("session", () => {
   it("skips landing when /api/me succeeds", async () => {
     useSession();
     const { router } = renderApp("/");
-    expect(await screen.findByRole("heading", { name: "Employee view" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Chat" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/employee");
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
   });
@@ -29,9 +29,10 @@ describe("session", () => {
       http.get("/api/status", () => HttpResponse.json(OPEN)),
       http.get("/api/groups", () => HttpResponse.json(GROUPS)),
       http.get("/api/tasks", () => (expired ? unauthorized() : HttpResponse.json([]))),
+      http.get("/api/documents", () => HttpResponse.json([])),
     );
     const { router } = renderApp("/employee");
-    expect(await screen.findByRole("heading", { name: "Employee view" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Chat" })).toBeInTheDocument();
 
     expired = true;
     await expect(apiGet("/api/tasks")).rejects.toMatchObject({ code: "session_expired" });

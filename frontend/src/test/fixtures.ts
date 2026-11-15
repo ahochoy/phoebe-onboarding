@@ -75,6 +75,9 @@ export function useSession(opts: { status?: StatusOut; meDelayMs?: number } = {}
       calls.groups += 1;
       return HttpResponse.json(GROUPS);
     }),
+    // The employee page mounts the tasks and documents panels; tests that care override these.
+    http.get("/api/tasks", () => HttpResponse.json([])),
+    http.get("/api/documents", () => HttpResponse.json([])),
   );
   return calls;
 }
