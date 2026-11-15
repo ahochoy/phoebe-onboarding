@@ -1,5 +1,5 @@
 import { delay, http, HttpResponse } from "msw";
-import type { GroupNode, Me, StatusOut } from "../api/types";
+import type { GroupKind, GroupNode, Me, StatusOut, TaskView } from "../api/types";
 import { server } from "./server";
 
 export const ME: Me = {
@@ -68,4 +68,41 @@ export function useSession(opts: { status?: StatusOut; meDelayMs?: number } = {}
     }),
   );
   return calls;
+}
+
+const TIER_NAMES: Record<GroupKind, string> = {
+  company: "Acme Corp",
+  department: "Engineering",
+  team: "Platform",
+};
+
+/** Builds one task; override any field. */
+export function makeTask(id: string, kind: GroupKind, over: Partial<TaskView> = {}): TaskView {
+  return {
+    id,
+    title: `Task ${id}`,
+    description: `Description of task ${id}`,
+    link: null,
+    group_id: `g-${kind}`,
+    group_name: TIER_NAMES[kind],
+    group_kind: kind,
+    position: 0,
+    done: false,
+    owned: false,
+    ...over,
+  };
+}
+
+/** 14 tasks across the three tiers (4 company, 5 department, 5 team), 6 done. */
+export function makeTasks(): TaskView[] {
+  const shape: [GroupKind, number, number][] = [
+    ["company", 4, 2],
+    ["department", 5, 2],
+    ["team", 5, 2],
+  ];
+  return shape.flatMap(([kind, count, done]) =>
+    Array.from({ length: count }, (_, i) =>
+      makeTask(`${kind}-${i + 1}`, kind, { position: i, done: i < done }),
+    ),
+  );
 }
