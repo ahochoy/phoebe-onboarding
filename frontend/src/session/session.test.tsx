@@ -19,7 +19,7 @@ describe("session", () => {
     useSession();
     const { router } = renderApp("/admin");
     await waitFor(() => expect(router.state.location.pathname).toBe("/admin/people"));
-    expect(await screen.findByRole("heading", { name: "Admin: people" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "People & Progress" })).toBeInTheDocument();
   });
 
   it("401 session_expired anywhere returns to landing with the session-ended message", async () => {

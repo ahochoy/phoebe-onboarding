@@ -21,7 +21,7 @@ describe("Header", () => {
   it("hides the persona block in admin mode", async () => {
     useSession();
     renderApp("/admin/people");
-    expect(await screen.findByRole("heading", { name: "Admin: people" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "People & Progress" })).toBeInTheDocument();
     expect(screen.queryByText("Alex Rivera")).not.toBeInTheDocument();
   });
 

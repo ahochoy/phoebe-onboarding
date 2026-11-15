@@ -78,6 +78,8 @@ export function useSession(opts: { status?: StatusOut; meDelayMs?: number } = {}
     // The employee page mounts the tasks and documents panels; tests that care override these.
     http.get("/api/tasks", () => HttpResponse.json([])),
     http.get("/api/documents", () => HttpResponse.json([])),
+    // The admin page opens on People & Progress.
+    http.get("/api/people", () => HttpResponse.json([])),
   );
   return calls;
 }

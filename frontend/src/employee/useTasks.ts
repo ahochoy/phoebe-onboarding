@@ -64,6 +64,8 @@ export function useToggleTask(onError?: (err: unknown) => void) {
         }
       }
       slots.current.delete(id);
+      // The admin People table shows this person's progress too.
+      void client.invalidateQueries({ queryKey: ["people"] });
     },
     [client, mutateAsync],
   );
