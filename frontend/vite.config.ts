@@ -11,6 +11,8 @@ export default defineConfig({
   preview: { proxy: { "/api": apiTarget } },
   test: {
     environment: "jsdom",
+    // e2e/ holds Playwright specs, which vitest must not pick up.
+    include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
     globals: false,
     css: false,

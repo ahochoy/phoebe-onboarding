@@ -88,6 +88,10 @@ describe("DocumentViewer", () => {
 
     const mark = await screen.findByText("PTO is 20 days.", { selector: "mark" });
     expect(mark.textContent).toBe("PTO is 20 days.");
+    // The scrolling body is a tab stop, so keyboard users can scroll it.
+    const body = screen.getByRole("region", { name: "Document text" });
+    expect(body).toContainElement(mark);
+    expect(body).toHaveAttribute("tabindex", "0");
   });
 
   it("highlights a passage that crosses sections in every section", async () => {

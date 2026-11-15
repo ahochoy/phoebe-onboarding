@@ -167,7 +167,14 @@ export function DocumentViewer({
               <X aria-hidden="true" className="size-4" />
             </Dialog.Close>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {/* Scrollable and usually without links, so it takes focus for keyboard scrolling. */}
+          <div
+            role="region"
+            aria-label="Document text"
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scroll container must be focusable (WCAG 2.1.1, axe scrollable-region-focusable)
+            tabIndex={0}
+            className="min-h-0 flex-1 overflow-y-auto p-4"
+          >
             {target ? <ViewerContent docId={target.docId} passage={target.passage} /> : null}
           </div>
         </Dialog.Content>

@@ -82,6 +82,8 @@ describe("Employee page", () => {
     expect(screen.getByRole("region", { name: "Chat" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Documents" })).toBeInTheDocument();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    // The columns are not tab panels, so they are not tab stops either.
+    expect(document.querySelectorAll("[role=presentation][tabindex]")).toHaveLength(0);
   });
 
   it("mobile shows one panel with bottom tabs Tasks | Chat | Docs, Chat selected by default", async () => {

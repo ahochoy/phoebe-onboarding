@@ -28,3 +28,8 @@ services:
       PHOEBE_PASSWORD_HASH: ${PHOEBE_PASSWORD_HASH:-}
       PHOEBE_COOKIE_SECURE: "false"
       PHOEBE_SESSION_BACKEND: memory
+      # Spend-safety caps, at the app defaults. `make stack-e2e` raises them because the
+      # Playwright suite logs in and chats far more often than a person would.
+      PHOEBE_LOGIN_PER_IP_WINDOW: ${PHOEBE_LOGIN_PER_IP_WINDOW:-10}
+      PHOEBE_CHAT_GLOBAL_DAY: ${PHOEBE_CHAT_GLOBAL_DAY:-300}
+      PHOEBE_UPLOADS_GLOBAL_DAY: ${PHOEBE_UPLOADS_GLOBAL_DAY:-50}

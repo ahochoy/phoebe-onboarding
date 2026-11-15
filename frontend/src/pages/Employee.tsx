@@ -42,8 +42,8 @@ export function Employee() {
     <Tabs.Content
       value={id}
       forceMount
-      // At lg+ the panels are plain columns, not tab panels.
-      {...(wide ? { role: "presentation", "aria-labelledby": undefined } : {})}
+      // At lg+ the panels are plain columns, not tab panels: no role, label or tab stop.
+      {...(wide ? { role: "presentation", "aria-labelledby": undefined, tabIndex: undefined } : {})}
       className="flex min-h-0 flex-1 flex-col max-lg:data-[state=inactive]:hidden lg:flex-none"
     >
       {children}

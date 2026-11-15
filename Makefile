@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check fe-install fe-gen fe-dev fe-test fe-lint fe-build
+.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -92,3 +92,13 @@ fe-lint:
 
 fe-build:
 	cd frontend && npm run build
+
+# The stack with the login, chat and upload caps raised for the Playwright suite (it logs
+# in once per test across five browser projects). Plain `make stack` restores the defaults.
+stack-e2e:
+	PHOEBE_LOGIN_PER_IP_WINDOW=100000 PHOEBE_CHAT_GLOBAL_DAY=100000 PHOEBE_UPLOADS_GLOBAL_DAY=100000 \
+		$(MAKE) stack
+
+# Cross-browser end to end against the running stack (`make stack-e2e` first).
+e2e:
+	cd frontend && npm run build && npx playwright test
