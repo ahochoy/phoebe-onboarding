@@ -44,6 +44,18 @@ async function toApiError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, code, reason);
 }
 
+/**
+ * Turns a non-OK response into an ApiError, notifying session listeners on a
+ * 401 `session_expired`. For callers that need raw `fetch` (the chat stream).
+ */
+export async function responseError(res: Response): Promise<ApiError> {
+  const err = await toApiError(res);
+  if (res.status === 401 && err.code === "session_expired") {
+    for (const listener of [...sessionListeners]) listener();
+  }
+  return err;
+}
+
 async function request<T>(
   method: "GET" | Method,
   path: string,
@@ -52,13 +64,7 @@ async function request<T>(
   const headers = new Headers(init.headers);
   if (method !== "GET") headers.set("X-Phoebe-Csrf", "1");
   const res = await fetch(path, { ...init, method, headers, credentials: "same-origin" });
-  if (!res.ok) {
-    const err = await toApiError(res);
-    if (res.status === 401 && err.code === "session_expired") {
-      for (const listener of [...sessionListeners]) listener();
-    }
-    throw err;
-  }
+  if (!res.ok) throw await responseError(res);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
