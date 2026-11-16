@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { delay, http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { CLOSED, GROUPS, ME, OPEN, unauthorized } from "../test/fixtures";
 import { renderApp } from "../test/render";
@@ -43,12 +43,18 @@ describe("Landing", () => {
 
   it('login success navigates to /employee, then shows "Getting Phoebe ready…" while /api/me is pending', async () => {
     let loggedIn = false;
+    // The post-login /api/me response is held until the test releases it, so the
+    // pending state is observable without racing a timer.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     server.use(
       http.get("/api/status", () => HttpResponse.json(OPEN)),
       http.get("/api/groups", () => HttpResponse.json(GROUPS)),
       http.get("/api/me", async () => {
         if (!loggedIn) return unauthorized();
-        await delay(1500);
+        await held;
         return HttpResponse.json(ME);
       }),
       http.post("/api/login", () => {
@@ -59,9 +65,15 @@ describe("Landing", () => {
     const user = userEvent.setup();
     const { router } = renderApp("/");
     await user.type(await screen.findByLabelText(/password/i), "secret{Enter}");
-    expect(await screen.findByText("Getting Phoebe ready…")).toBeInTheDocument();
-    await waitFor(() => expect(router.state.location.pathname).toBe("/employee"));
-    expect(await screen.findByText("Alex Rivera", {}, { timeout: 4000 })).toBeInTheDocument();
+    try {
+      expect(await screen.findByText("Getting Phoebe ready…")).toBeInTheDocument();
+      await waitFor(() => expect(router.state.location.pathname).toBe("/employee"));
+      expect(screen.queryByText("Alex Rivera")).not.toBeInTheDocument();
+    } finally {
+      release();
+    }
+    expect(await screen.findByText("Alex Rivera")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/employee");
   });
 
   it("closed state shows offline copy and no form", async () => {
