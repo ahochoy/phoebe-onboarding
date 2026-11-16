@@ -122,7 +122,7 @@ locals {
           "scheduler:GetSchedule", "scheduler:ListTagsForResource",
           "s3:GetBucket*", "s3:GetEncryptionConfiguration", "s3:GetLifecycleConfiguration",
           "s3:GetAccelerateConfiguration", "s3:GetReplicationConfiguration", "s3:ListBucket",
-          "cloudfront:GetFunction", "cloudfront:DescribeFunction",
+          "cloudfront:GetFunction", "cloudfront:DescribeFunction", "cloudfront:ListTagsForResource",
         ]
         Resource = [
           "${local.arn_prefix.lambda}:function:phoebe-${env}-*",
@@ -337,6 +337,22 @@ locals {
           Action    = ["lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:TagResource", "lambda:UntagResource"]
           Resource  = ["${local.arn_prefix.lambda}:event-source-mapping:*"]
           Condition = { ArnLike = { "lambda:FunctionArn" = "${local.arn_prefix.lambda}:function:phoebe-${env}-*" } }
+        },
+        {
+          # CreateEventSourceMapping with tags also authorizes lambda:TagResource
+          # on event-source-mapping:*, where lambda:FunctionArn is absent. Allow
+          # it only when the request tags the mapping with this env (default_tags),
+          # only with the default_tags keys, and never on a mapping already
+          # tagged for another env (a new mapping has no resource tags yet).
+          Sid      = "TagNewEventSourceMappings"
+          Effect   = "Allow"
+          Action   = ["lambda:TagResource"]
+          Resource = ["${local.arn_prefix.lambda}:event-source-mapping:*"]
+          Condition = {
+            StringEquals                = { "aws:RequestTag/env" = env }
+            StringEqualsIfExists        = { "aws:ResourceTag/env" = env }
+            "ForAllValues:StringEquals" = { "aws:TagKeys" = ["project", "env"] }
+          }
         },
         {
           # Ruling R24: CreateDBCluster/Instance with no subnet group places the

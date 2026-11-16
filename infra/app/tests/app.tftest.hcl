@@ -938,7 +938,7 @@ run "edge" {
 
   assert {
     condition = (
-      aws_cloudfront_distribution.main.ordered_cache_behavior[0].cache_policy_id == "4135ea2d-6df8-47a0-9b3a-6c3fd7bf9d80" &&
+      aws_cloudfront_distribution.main.ordered_cache_behavior[0].cache_policy_id == "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" &&
       aws_cloudfront_distribution.main.ordered_cache_behavior[0].origin_request_policy_id == "b689b0a8-53d0-40ab-baf2-68738e2966ac"
     )
     error_message = "/api/* uses the managed CachingDisabled cache policy and AllViewerExceptHostHeader origin request policy."

@@ -4,9 +4,10 @@
 # Lambda@Edge). The distribution is global; everything else is in us-east-2.
 
 locals {
-  # AWS managed policies, by ID (they are not resources we own).
+  # AWS managed policies, by ID (they are not resources we own). Checked
+  # against ListCachePolicies/ListOriginRequestPolicies (Type=managed) on 2026-11-16.
   cache_policy_caching_optimized = "658327ea-f89d-4fab-a63d-7e88639e58f6"
-  cache_policy_caching_disabled  = "4135ea2d-6df8-47a0-9b3a-6c3fd7bf9d80"
+  cache_policy_caching_disabled  = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
   # Every viewer header, cookie and query string except Host (a function URL
   # needs its own Host). The AWS docs also list the CloudFront-* viewer headers
   # (CloudFront-Viewer-Address, which the API reads for the client IP) as part of it.
