@@ -73,3 +73,17 @@ Do this before Plan 3 ships the chat UI.
 - Raise `maxTokens` to leave room for thinking.
 - Re-tune `answer_max_chars` and the caps, because the newer tokenizer counts about 30% more tokens.
 - Rerun `make live-check` on Haiku 5.5. Then update the spec, Plan 2 and `infra/ai/README.md`, which currently name Haiku 4.5.
+
+## Carry-forward notes from Plan 3 final review
+
+**Plan 4 (Cloud)**
+- Fix before the link is shared publicly. A first-time visitor who opens `/employee` directly sees "Your session ended…", because the backend sends `session_expired` when there is no cookie. Show that copy only when this tab previously had a session (a sessionStorage marker), or add a distinct backend code.
+- The CSP can stay `default-src 'self'`. Confetti already runs without a `blob:` worker, and fonts are self-hosted.
+- Serve the SPA with `/api/*` going to the function URL and every other path falling back to `index.html`. A 200 HTML answer on an `/api` path surfaces as a generic error in the client.
+- E2E needs `make stack-e2e`, which raises the login, chat and upload caps through compose env. A deployed demo keeps the real caps.
+
+**Plan 5 (Evals & polish)**
+- Add Playwright to CI. Recheck the WebKit keyboard test's Alt+Tab workaround on Linux runners. Consider `--repeat-each` on `chat.spec.ts` to catch flakes.
+- Add a live-model e2e (manual trigger) that proves the refusal path renders in a real browser. Offline models almost never refuse, so the offline suite checks only that no out-of-group document is cited.
+- Do the manual passes from spec §9: real iOS Safari (including the on-screen keyboard over the chat composer, since `h-dvh` does not shrink for it), Android Chrome and VoiceOver.
+- Chat history dedupe by id is ineffective: local ids are not server ids. Keep the meta `turn_id` as the local assistant id, so a slow history GET can't show a new turn twice.
