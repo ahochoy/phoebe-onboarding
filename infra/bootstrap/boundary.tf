@@ -94,7 +94,7 @@ locals {
         # Shared, env-agnostic AI resources (models, the guardrail, harnesses).
         Sid      = "SharedAi"
         Effect   = "Allow"
-        Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse", "bedrock:ConverseStream", "bedrock:ApplyGuardrail", "bedrock-agentcore:InvokeHarness"]
+        Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse", "bedrock:ConverseStream", "bedrock:ApplyGuardrail", "bedrock-agentcore:InvokeHarness", "bedrock-agentcore:InvokeAgentRuntime"]
         Resource = "*"
       },
       local.region_deny,

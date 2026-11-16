@@ -526,10 +526,10 @@ run "iam" {
   assert {
     condition = alltrue([
       for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
-      flatten([st.Action]) == ["bedrock-agentcore:InvokeHarness"]
+      flatten([st.Action]) == ["bedrock-agentcore:InvokeHarness", "bedrock-agentcore:InvokeAgentRuntime"]
       if anytrue([for a in flatten([st.Action]) : startswith(a, "bedrock-agentcore:")])
     ])
-    error_message = "The API role gets only bedrock-agentcore:InvokeHarness (the one call the code makes)."
+    error_message = "The API role gets only the two actions InvokeHarness needs: InvokeHarness and InvokeAgentRuntime."
   }
 
   assert {
