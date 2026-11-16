@@ -130,6 +130,23 @@ describe("TasksTab", () => {
     expect(within(company).getByText("Read and sign")).toBeInTheDocument();
     const link = within(company).getByRole("link", { name: /example\.com\/buddy/ });
     expect(link).toHaveAttribute("href", "https://example.com/buddy");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("does not render a task link with an unsafe scheme as a link", async () => {
+    mockList([
+      makeTask("x1", "company", {
+        title: "Sneaky",
+        link: "javascript:alert(1)",
+        group_id: "c1",
+        group_name: "Acme Corp",
+        position: 1,
+      }),
+    ]);
+    renderTab();
+    expect(await screen.findByRole("heading", { name: "Sneaky" })).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
   it("create posts NewTask last in its group and invalidates employee queries", async () => {

@@ -4,6 +4,8 @@ import { useId, useState } from "react";
 import { apiSend } from "../api/client";
 import type { TaskView } from "../api/types";
 import { useTasks } from "../employee/useTasks";
+import { QueryError } from "../components/QueryError";
+import { isWebUrl } from "../lib/links";
 import { messageFor } from "../lib/messages";
 import { TIER_ORDER } from "../lib/tiers";
 import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
@@ -56,13 +58,18 @@ function TaskGroup({
             <div className="min-w-0 flex-1">
               <h4 className="text-sm font-medium">{t.title}</h4>
               {t.description ? <p className="mt-0.5 text-sm text-ink/80">{t.description}</p> : null}
-              {t.link ? (
+              {t.link && isWebUrl(t.link) ? (
                 <a
                   href={t.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="mt-0.5 inline-block text-sm break-all text-accent underline"
                 >
                   {t.link}
+                  <span className="sr-only"> (opens in a new tab)</span>
                 </a>
+              ) : t.link ? (
+                <p className="mt-0.5 text-sm break-all text-ink/80">{t.link}</p>
               ) : null}
             </div>
             <div className="flex gap-1">
@@ -182,11 +189,10 @@ export function TasksTab() {
         <p role="status" className="text-sm text-ink/80">
           Loading tasks…
         </p>
-      ) : error ? (
-        <p role="alert" className="text-sm font-medium text-danger">
-          {messageFor(error)}
-        </p>
-      ) : data.length === 0 ? (
+      ) : (
+        <QueryError error={error} stale={data !== undefined} />
+      )}
+      {!data ? null : data.length === 0 ? (
         <p className="text-sm text-ink/80">No tasks yet.</p>
       ) : (
         <div className="space-y-5">

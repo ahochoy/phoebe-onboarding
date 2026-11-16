@@ -1,5 +1,5 @@
 import type { DocumentOut, GroupKind } from "../api/types";
-import { messageFor } from "../lib/messages";
+import { QueryError } from "../components/QueryError";
 import { groupByTier, TIER_ORDER } from "../lib/tiers";
 import { DocIcon } from "./DocIcon";
 import { useDocuments } from "./useDocuments";
@@ -55,20 +55,20 @@ export function DocumentsPanel() {
       </p>
     );
   }
-  if (error) {
-    return (
-      <p role="alert" className="text-sm font-medium text-danger">
-        {messageFor(error)}
-      </p>
-    );
-  }
+  if (!data) return <QueryError error={error} />;
   if (data.length === 0) {
-    return <p className="text-sm text-ink/80">There are no documents for you yet.</p>;
+    return (
+      <div className="space-y-2">
+        <QueryError error={error} stale />
+        <p className="text-sm text-ink/80">There are no documents for you yet.</p>
+      </div>
+    );
   }
 
   const tiers = groupByTier(data);
   return (
     <div className="space-y-4">
+      <QueryError error={error} stale />
       {TIER_ORDER.filter((k) => tiers[k].length > 0).map((kind) => {
         const docs = tiers[kind];
         const headingId = `docs-tier-${kind}`;

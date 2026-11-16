@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { useCallback, useEffect, useRef } from "react";
 import { apiGet, apiSend } from "../api/client";
 import type { TaskView } from "../api/types";
+import { onDemoReset } from "../state/demoReset";
 
 export type TaskScope = "mine" | "all";
 
@@ -45,11 +46,23 @@ export function useToggleTask(onError?: (err: unknown) => void) {
   });
   const { mutateAsync } = put;
 
+  // A demo reset wipes the sandbox: forget every slot, so a PUT still in flight
+  // neither sends the queued follow-up nor writes its answer over the fresh data.
+  useEffect(
+    () =>
+      onDemoReset(() => {
+        slots.current = new Map();
+      }),
+    [],
+  );
+
   const pump = useCallback(
     async (id: string) => {
-      const slot = slots.current.get(id);
+      const map = slots.current;
+      const slot = map.get(id);
       if (!slot || slot.inFlight) return;
-      while (slot.wanted !== slot.server) {
+      const current = () => slots.current === map;
+      while (current() && slot.wanted !== slot.server) {
         const sending = slot.wanted;
         slot.inFlight = true;
         try {
@@ -57,13 +70,20 @@ export function useToggleTask(onError?: (err: unknown) => void) {
           slot.server = sending;
         } catch (err) {
           slot.wanted = slot.server;
-          setDone(client, id, slot.server);
-          onErrorRef.current?.(err);
+          if (current()) {
+            setDone(client, id, slot.server);
+            onErrorRef.current?.(err);
+          }
         } finally {
           slot.inFlight = false;
         }
       }
-      slots.current.delete(id);
+      if (!current()) return;
+      map.delete(id);
+      // A tasks refetch may have landed while the PUT was out and put the old value
+      // back: write what the server now has, then refetch to agree with it.
+      setDone(client, id, slot.server);
+      void client.invalidateQueries({ queryKey: ["tasks"] });
       // The admin People table shows this person's progress too.
       void client.invalidateQueries({ queryKey: ["people"] });
     },

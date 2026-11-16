@@ -4,7 +4,8 @@ import { useId, useState } from "react";
 import { apiGet, apiSend } from "../api/client";
 import type { DocumentOut } from "../api/types";
 import { formatStart } from "../lib/dates";
-import { messageFor, PAUSED_COPY } from "../lib/messages";
+import { QueryError } from "../components/QueryError";
+import { PAUSED_COPY } from "../lib/messages";
 import { useStatus } from "../state/status";
 import { AddDocumentDialog, type AddMode } from "./AddDocumentDialog";
 import { EditDocumentDialog } from "./EditDocumentDialog";
@@ -122,11 +123,10 @@ export function DocumentsTab() {
         <p role="status" className="text-sm text-ink/80">
           Loading documents…
         </p>
-      ) : error ? (
-        <p role="alert" className="text-sm font-medium text-danger">
-          {messageFor(error)}
-        </p>
-      ) : data.length === 0 ? (
+      ) : (
+        <QueryError error={error} stale={data !== undefined} />
+      )}
+      {!data ? null : data.length === 0 ? (
         <p className="text-sm text-ink/80">No documents yet.</p>
       ) : (
         // The row buttons are focusable, so keyboard users can scroll the table sideways.

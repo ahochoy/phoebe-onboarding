@@ -4,7 +4,7 @@ import { useState } from "react";
 import { apiGet } from "../api/client";
 import type { PersonProgress, TaskView } from "../api/types";
 import { formatStart } from "../lib/dates";
-import { messageFor } from "../lib/messages";
+import { QueryError } from "../components/QueryError";
 import { PersonChecklist } from "./PersonChecklist";
 
 // Both keys start with "people", so invalidating ["people"] refreshes the table and any open checklist.
@@ -32,14 +32,13 @@ function Checklist({ person }: { person: PersonProgress }) {
       </p>
     );
   }
-  if (error) {
-    return (
-      <p role="alert" className="text-sm font-medium text-danger">
-        {messageFor(error)}
-      </p>
-    );
-  }
-  return <PersonChecklist name={person.name} tasks={data} />;
+  if (!data) return <QueryError error={error} />;
+  return (
+    <div className="space-y-2">
+      <QueryError error={error} stale />
+      <PersonChecklist name={person.name} tasks={data} />
+    </div>
+  );
 }
 
 const th = "px-3 py-2 text-left text-sm font-semibold";
@@ -56,13 +55,7 @@ export function PeopleTab() {
       </p>
     );
   }
-  if (error) {
-    return (
-      <p role="alert" className="text-sm font-medium text-danger">
-        {messageFor(error)}
-      </p>
-    );
-  }
+  if (!data) return <QueryError error={error} />;
 
   const selected = data.find((p) => p.person_id === selectedId) ?? null;
 
@@ -71,6 +64,7 @@ export function PeopleTab() {
       <h2 id="people-heading" className="text-lg font-semibold">
         People &amp; Progress
       </h2>
+      <QueryError error={error} stale />
       {data.length === 0 ? (
         <p className="text-sm text-ink/80">No people yet.</p>
       ) : (

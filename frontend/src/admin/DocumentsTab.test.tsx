@@ -3,9 +3,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../api/client";
 import type { DocumentOut, GroupNode } from "../api/types";
 import { useDocuments } from "../documents/useDocuments";
-import { PAUSED_COPY } from "../lib/messages";
+import { messageFor, PAUSED_COPY } from "../lib/messages";
 import { makeDoc, OPEN, useSession } from "../test/fixtures";
 import { makeClient } from "../test/render";
 import { server } from "../test/server";
@@ -169,6 +170,35 @@ describe("DocumentsTab", () => {
 
       await vi.advanceTimersByTimeAsync(12_000);
       expect(calls.all).toBe(3);
+    });
+
+    it("a failed poll keeps the table and shows a small inline note until the next poll succeeds", async () => {
+      let fail = false;
+      server.use(
+        http.get("/api/documents", () =>
+          fail
+            ? HttpResponse.json({ detail: "internal_error" }, { status: 500 })
+            : HttpResponse.json(DOCS),
+        ),
+      );
+      renderTab();
+      expect(await screen.findByText("Processing…")).toBeInTheDocument();
+
+      fail = true;
+      await vi.advanceTimersByTimeAsync(3100);
+      const note = await screen.findByText(/This may be out of date\./);
+      expect(note).toHaveAttribute("role", "status");
+      expect(note).toHaveTextContent(messageFor(new ApiError(500, "internal_error")));
+      expect(screen.getByRole("table", { name: "Documents" })).toBeInTheDocument();
+      expect(screen.getByText("Handbook")).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+      fail = false;
+      await vi.advanceTimersByTimeAsync(3100);
+      await waitFor(() =>
+        expect(screen.queryByText(/This may be out of date\./)).not.toBeInTheDocument(),
+      );
+      expect(screen.getByRole("table", { name: "Documents" })).toBeInTheDocument();
     });
   });
 

@@ -114,12 +114,12 @@ function ViewerContent({ docId, passage }: Target) {
 export function DocumentViewer({
   target,
   onClose,
-  returnFocusTo,
+  restoreFocus,
 }: {
   target: Target | null;
   onClose: () => void;
-  /** The element that opened the viewer. There is no Dialog.Trigger, so focus is returned by hand. */
-  returnFocusTo: { current: HTMLElement | null };
+  /** Returns focus to whatever opened the viewer. There is no Dialog.Trigger, so it is done by hand. */
+  restoreFocus: () => void;
 }) {
   const wide = useMediaQuery(MD_UP);
   const { data } = useDocument(target?.docId ?? null);
@@ -136,7 +136,7 @@ export function DocumentViewer({
           className={wide ? SIDE : SHEET}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
-            returnFocusTo.current?.focus();
+            restoreFocus();
           }}
         >
           <header className="flex items-start gap-3 border-b border-ink/15 p-4">

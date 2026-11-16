@@ -4,7 +4,7 @@ import { useState } from "react";
 import { apiGet, apiSend } from "../api/client";
 import type { DocumentOut, GroupNode, TaskView } from "../api/types";
 import { useTasks } from "../employee/useTasks";
-import { messageFor } from "../lib/messages";
+import { QueryError } from "../components/QueryError";
 import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
 import { useAdminDocuments } from "./DocumentsTab";
 import { iconButton } from "./formParts";
@@ -169,15 +169,18 @@ export function GroupsTab() {
       <h2 id="groups-heading" className="text-lg font-semibold">
         Groups
       </h2>
-      {error ? (
-        <p role="alert" className="text-sm font-medium text-danger">
-          {messageFor(error)}
-        </p>
-      ) : !tree || !allDocs || !allTasks ? (
-        <p role="status" className="text-sm text-ink/80">
-          Loading groups…
-        </p>
+      {!tree || !allDocs || !allTasks ? (
+        error ? (
+          <QueryError error={error} />
+        ) : (
+          <p role="status" className="text-sm text-ink/80">
+            Loading groups…
+          </p>
+        )
       ) : (
+        <QueryError error={error} stale />
+      )}
+      {!tree || !allDocs || !allTasks ? null : (
         <div className="grid items-start gap-4 lg:grid-cols-2">
           <ul aria-label="Groups" className="space-y-1">
             {tree.map((n) => (

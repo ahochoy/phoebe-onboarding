@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { delay, http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +10,7 @@ import { makeClient } from "../test/render";
 import { makeTask, makeTasks } from "../test/fixtures";
 import { server } from "../test/server";
 import { celebrate } from "../lib/celebrate";
+import { emitDemoReset } from "../state/demoReset";
 import { TasksPanel } from "./TasksPanel";
 
 vi.mock("../lib/celebrate", () => ({ celebrate: vi.fn() }));
@@ -123,6 +124,35 @@ describe("TasksPanel", () => {
     await waitFor(() => expect(box).not.toBeChecked());
   });
 
+  it("a refetch that returns the pre-PUT value mid-PUT ends showing the server's final value", async () => {
+    const api = useTasksApi(makeTasks(), { putDelayMs: 80 });
+    const client = renderPanel();
+    const box = await screen.findByRole("checkbox", { name: /Task company-3/ });
+    await userEvent.click(box);
+    await waitFor(() => expect(api.inFlight).toBe(1));
+    // A background refetch starts after the toggle and lands before the PUT commits.
+    await act(() => client.refetchQueries({ queryKey: ["tasks"] }));
+    await waitFor(() => expect(box).not.toBeChecked());
+    expect(api.inFlight).toBe(1);
+
+    await waitFor(() => expect(api.inFlight).toBe(0));
+    await waitFor(() => expect(box).toBeChecked());
+    expect(screen.getByText("7 of 14 done")).toBeInTheDocument();
+    expect(api.tasks.find((t) => t.id === "company-3")?.done).toBe(true);
+  });
+
+  it("a demo reset drops the queued follow-up PUT", async () => {
+    const api = useTasksApi(makeTasks(), { putDelayMs: 60 });
+    renderPanel();
+    const box = await screen.findByRole("checkbox", { name: /Task company-3/ });
+    await userEvent.click(box); // true, goes out
+    await userEvent.click(box); // false, queued
+    act(() => emitDemoReset());
+    await waitFor(() => expect(api.inFlight).toBe(0));
+    await delay(100);
+    expect(api.puts).toEqual([{ id: "company-3", done: true }]);
+  });
+
   it("rolls back a failed toggle and shows messageFor(err)", async () => {
     useTasksApi(makeTasks(), { putStatus: 500 });
     renderPanel();
@@ -172,6 +202,23 @@ describe("TasksPanel", () => {
     renderPanel();
     await screen.findByRole("checkbox", { name: /Task a/ });
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("a failed background refetch keeps the checklist and adds an inline note", async () => {
+    useTasksApi(makeTasks());
+    const client = renderPanel();
+    expect(await screen.findByText("6 of 14 done")).toBeInTheDocument();
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json({ detail: "internal_error" }, { status: 500 }),
+      ),
+    );
+    await act(() => client.refetchQueries({ queryKey: ["tasks"] }));
+    const note = await screen.findByText(/This may be out of date\./);
+    expect(note).toHaveAttribute("role", "status");
+    expect(screen.getByText("6 of 14 done")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Task company-3/ })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows messageFor(err) when tasks fail to load", async () => {

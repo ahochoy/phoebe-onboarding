@@ -2,7 +2,9 @@ import { Accordion, Checkbox, Progress } from "radix-ui";
 import { Check, ChevronDown, ExternalLink, PartyPopper } from "lucide-react";
 import { useState } from "react";
 import type { GroupKind, TaskView } from "../api/types";
+import { QueryError } from "../components/QueryError";
 import { celebrate } from "../lib/celebrate";
+import { isWebUrl } from "../lib/links";
 import { messageFor } from "../lib/messages";
 import { groupByTier, TIER_ORDER } from "../lib/tiers";
 import { useTasks, useToggleTask, type TaskScope } from "./useTasks";
@@ -10,11 +12,6 @@ import { useTasks, useToggleTask, type TaskScope } from "./useTasks";
 function tierTitle(kind: GroupKind, tasks: TaskView[]): string {
   if (kind === "company") return "Company";
   return tasks[0]?.group_name ?? kind;
-}
-
-/** Only plain web links are rendered as links. */
-function isWebUrl(link: string): boolean {
-  return /^https?:\/\//i.test(link);
 }
 
 function TaskRow({ task, onToggle }: { task: TaskView; onToggle: (done: boolean) => void }) {
@@ -68,13 +65,7 @@ export function TasksPanel({ scope = "mine" }: { scope?: TaskScope }) {
       </p>
     );
   }
-  if (error) {
-    return (
-      <p role="alert" className="text-sm font-medium text-danger">
-        {messageFor(error)}
-      </p>
-    );
-  }
+  if (!data) return <QueryError error={error} />;
 
   const tasks = data;
   const total = tasks.length;
@@ -120,6 +111,8 @@ export function TasksPanel({ scope = "mine" }: { scope?: TaskScope }) {
           />
         </Progress.Root>
       </div>
+
+      <QueryError error={error} stale />
 
       {toggleError ? (
         <p role="alert" className="text-sm font-medium text-danger">

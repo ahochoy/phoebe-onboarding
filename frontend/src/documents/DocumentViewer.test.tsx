@@ -210,6 +210,50 @@ describe("DocumentViewer", () => {
     expect(document.querySelector("img")).toBeNull();
   });
 
+  it("does not return focus to a stale opener when the next open had no focused opener", async () => {
+    serve(makeDetail("d1", { title: "Handbook", full_text: "Body" }));
+    function Opener() {
+      const viewer = useViewer();
+      return (
+        <div>
+          <button type="button" onClick={() => viewer.open("d1")}>
+            First
+          </button>
+          {/* Like Safari: a mouse click that does not focus the button. */}
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              (document.activeElement as HTMLElement | null)?.blur();
+              viewer.open("d1");
+            }}
+          >
+            Second
+          </button>
+        </div>
+      );
+    }
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={makeClient()}>
+        <ViewerProvider>
+          <Opener />
+        </ViewerProvider>
+      </QueryClientProvider>,
+    );
+    const first = screen.getByRole("button", { name: "First" });
+    await user.click(first);
+    await screen.findByRole("dialog", { name: "Handbook" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(first).toHaveFocus());
+
+    await user.click(screen.getByRole("button", { name: "Second" }));
+    await screen.findByRole("dialog", { name: "Handbook" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(first).not.toHaveFocus();
+  });
+
   describe.each([
     ["desktop side panel", true, "right-0"],
     ["mobile bottom sheet", false, "bottom-0"],
