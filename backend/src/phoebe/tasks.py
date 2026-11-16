@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from phoebe.db import Database
 from phoebe.groups import GroupKind, effective_group_ids, visible_group_ids
 from phoebe.overlay_sql import EFFECTIVE_GROUPS_SQL, EFFECTIVE_TASKS_SQL
-from phoebe.sandbox import EntityKind, hide, patch
+from phoebe.sandbox import EntityKind, hide, is_uuid, patch
 
 
 def _check_https(value: str | None) -> str | None:
@@ -130,12 +130,14 @@ def create_task(db: Database, session_id: str, task: NewTask) -> str:
 
 def _visible_seed_task(db: Database, session_id: str, task_id: str) -> bool:
     """True if `task_id` is a seed task this session has not hidden."""
+    if not is_uuid(task_id):
+        return False
     rows = db.fetch(
         """
         select 1 from tasks t
         left join overrides o
           on o.session_id = :sid and o.entity_kind = 'task' and o.entity_id = t.id::text
-        where t.id::text = :id and t.session_id is null
+        where t.id = :id::uuid and t.session_id is null
           and not coalesce(o.hidden, false)
         """,
         {"sid": session_id, "id": task_id},
@@ -144,9 +146,11 @@ def _visible_seed_task(db: Database, session_id: str, task_id: str) -> bool:
 
 
 def _owns(db: Database, session_id: str, task_id: str) -> bool:
+    if not is_uuid(task_id):
+        return False
     return bool(
         db.fetch(
-            "select 1 from tasks where id::text = :id and session_id = :sid",
+            "select 1 from tasks where id = :id::uuid and session_id = :sid",
             {"sid": session_id, "id": task_id},
         )
     )
@@ -168,7 +172,7 @@ def update_task(
     if owned:
         sets = ", ".join(f"{name} = :{name}" for name in fields)
         db.execute(
-            f"update tasks set {sets} where id::text = :id and session_id = :sid",
+            f"update tasks set {sets} where id = :id::uuid and session_id = :sid",
             {**fields, "id": task_id, "sid": session_id},
         )
     else:
@@ -179,7 +183,7 @@ def update_task(
 def delete_task(db: Database, session_id: str, task_id: str) -> bool:
     if _owns(db, session_id, task_id):
         db.execute(
-            "delete from tasks where id::text = :id and session_id = :sid",
+            "delete from tasks where id = :id::uuid and session_id = :sid",
             {"id": task_id, "sid": session_id},
         )
         return True

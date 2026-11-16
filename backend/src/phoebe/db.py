@@ -15,6 +15,13 @@ def to_pyformat(sql: str) -> str:
     return _NAMED_PARAM.sub(r"%(\1)s", sql.replace("%", "%%"))
 
 
+class DatabaseUnavailable(Exception):
+    """The store cannot serve the request right now (resuming, unreachable).
+
+    The API maps it to `503 database_unavailable`. Carries no SQL or parameters.
+    """
+
+
 class Database(Protocol):
     def fetch(
         self, sql: str, params: Mapping[str, Any] | None = None
@@ -23,6 +30,10 @@ class Database(Protocol):
     def execute(self, sql: str, params: Mapping[str, Any] | None = None) -> int: ...
 
     def transaction(self) -> AbstractContextManager[Database]: ...
+
+
+class ClosableDatabase(Database, Protocol):
+    def close(self) -> None: ...
 
 
 type _Conn = psycopg.Connection[dict[str, Any]]

@@ -22,6 +22,7 @@ const MESSAGES: Record<string, string> = {
   chat_paused: RATE_LIMIT,
   demo_closed: "The Phoebe demo is temporarily offline. Please check back later.",
   unsupported_type: "That file type is not supported.",
+  database_unavailable: "Phoebe's database is waking up. Try again in a few seconds.",
   internal_error: "Something went wrong on our side. Try again in a moment.",
 };
 

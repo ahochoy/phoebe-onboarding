@@ -2,9 +2,20 @@ import json
 import logging
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from phoebe.db import Database
 from phoebe.sessions import log_id
+
+
+def is_uuid(value: str) -> bool:
+    """Entity ids are compared as uuid in SQL (index-friendly); anything else is
+    simply not found, never an error."""
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
 
 
 class EntityKind(StrEnum):

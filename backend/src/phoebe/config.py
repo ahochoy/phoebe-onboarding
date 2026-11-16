@@ -8,7 +8,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PHOEBE_")
 
-    database_url: str
+    # Required for db_backend="psycopg"; unused with "data_api".
+    database_url: str | None = None
+    db_backend: Literal["psycopg", "data_api"] = "psycopg"
+    db_cluster_arn: str | None = None
+    db_secret_arn: str | None = None
+    db_name: str = "phoebe"
     password_hash: str
     session_backend: Literal["memory", "dynamodb"] = "memory"
     sessions_table: str | None = None

@@ -10,6 +10,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
+import boto3
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -26,7 +27,8 @@ from phoebe.chat.models import (
 )
 from phoebe.config import Settings
 from phoebe.control import ControlStore, InMemoryControlStore, make_control
-from phoebe.db import Database, PsycopgDatabase
+from phoebe.db import ClosableDatabase, Database, DatabaseUnavailable, PsycopgDatabase
+from phoebe.db_data_api import DataApiDatabase
 from phoebe.embed import Embedder, make_embedder
 from phoebe.ingest.pipeline import index_document
 from phoebe.jobs import InlineJobQueue, JobQueue
@@ -100,6 +102,12 @@ def _install_error_handlers(app: FastAPI) -> None:
         if exc.headers:
             resp.headers.update(exc.headers)
         return resp
+
+    @app.exception_handler(DatabaseUnavailable)
+    async def _db_unavailable(request: Request, _: DatabaseUnavailable) -> Response:
+        route = getattr(request.scope.get("route"), "path", None) or "-"
+        _log.warning("database unavailable route=%s", route)
+        return _error(503, "database_unavailable")
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, __: RequestValidationError) -> Response:
@@ -202,9 +210,26 @@ def startup_check_embedder(db: Database, embedder: Embedder) -> None:
         check_embedder(db, embedder)
 
 
+def make_database(settings: Settings) -> ClosableDatabase:
+    if settings.db_backend == "data_api":
+        if not settings.db_cluster_arn:
+            raise RuntimeError("PHOEBE_DB_CLUSTER_ARN is required for data_api")
+        if not settings.db_secret_arn:
+            raise RuntimeError("PHOEBE_DB_SECRET_ARN is required for data_api")
+        return DataApiDatabase(
+            settings.db_cluster_arn,
+            settings.db_secret_arn,
+            settings.db_name,
+            client=boto3.client("rds-data", region_name=settings.aws_region),
+        )
+    if not settings.database_url:
+        raise RuntimeError("PHOEBE_DATABASE_URL is required for psycopg")
+    return PsycopgDatabase(settings.database_url)
+
+
 def create_configured_app() -> FastAPI:
     settings = Settings()  # type: ignore[call-arg]  # values come from PHOEBE_* env
-    db = PsycopgDatabase(settings.database_url)
+    db = make_database(settings)
     try:
         return _configure(settings, db)
     except BaseException:
@@ -212,7 +237,7 @@ def create_configured_app() -> FastAPI:
         raise
 
 
-def _configure(settings: Settings, db: PsycopgDatabase) -> FastAPI:
+def _configure(settings: Settings, db: ClosableDatabase) -> FastAPI:
     sessions: SessionStore
     if settings.session_backend == "dynamodb":
         if not settings.sessions_table:
