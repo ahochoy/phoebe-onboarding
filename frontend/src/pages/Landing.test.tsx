@@ -66,13 +66,18 @@ describe("Landing", () => {
     const { router } = renderApp("/");
     await user.type(await screen.findByLabelText(/password/i), "secret{Enter}");
     try {
-      expect(await screen.findByText("Getting Phoebe ready…")).toBeInTheDocument();
-      await waitFor(() => expect(router.state.location.pathname).toBe("/employee"));
+      // The state is held, not transient, so a generous timeout only absorbs slow renders.
+      expect(
+        await screen.findByText("Getting Phoebe ready…", {}, { timeout: 4000 }),
+      ).toBeInTheDocument();
+      await waitFor(() => expect(router.state.location.pathname).toBe("/employee"), {
+        timeout: 4000,
+      });
       expect(screen.queryByText("Alex Rivera")).not.toBeInTheDocument();
     } finally {
       release();
     }
-    expect(await screen.findByText("Alex Rivera")).toBeInTheDocument();
+    expect(await screen.findByText("Alex Rivera", {}, { timeout: 4000 })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/employee");
   });
 

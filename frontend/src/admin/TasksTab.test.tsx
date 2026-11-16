@@ -1,7 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { delay, http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { GroupNode, TaskView } from "../api/types";
 import { useTasks } from "../employee/useTasks";
@@ -370,18 +370,27 @@ describe("TasksTab", () => {
     it("disables every move control while a swap is in flight", async () => {
       mockList();
       let patches = 0;
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       server.use(
         http.patch("/api/tasks/:id", async () => {
           patches += 1;
-          await delay(150);
+          await held;
           return new HttpResponse(null, { status: 204 });
         }),
       );
       const user = userEvent.setup();
       renderTab();
       await user.click(await screen.findByRole("button", { name: "Move down Set up laptop" }));
-      expect(screen.getByRole("button", { name: "Move down Ship first PR" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "Move up Join on-call" })).toBeDisabled();
+      await waitFor(() => expect(patches).toBeGreaterThan(0));
+      try {
+        expect(screen.getByRole("button", { name: "Move down Ship first PR" })).toBeDisabled();
+        expect(screen.getByRole("button", { name: "Move up Join on-call" })).toBeDisabled();
+      } finally {
+        release();
+      }
       await waitFor(() => expect(patches).toBe(2));
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Move up Join on-call" })).toBeEnabled(),
