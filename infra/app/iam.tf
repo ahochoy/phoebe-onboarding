@@ -156,6 +156,19 @@ locals {
         Action   = ["s3:DeleteObject"]
         Resource = local.uploads_objects
       },
+      {
+        # Ruling R20: reads activity#last / sweep#last_complete to skip the DB
+        # when idle, and writes sweep#last_complete after a sweep. Only those keys.
+        Sid      = "IdleState"
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+        Resource = [aws_dynamodb_table.state.arn]
+        Condition = {
+          "ForAllValues:StringEquals" = {
+            "dynamodb:LeadingKeys" = ["activity#last", "sweep#last_complete"]
+          }
+        }
+      },
     ])
 
     # migrate / seed_if_empty (seeding embeds with Titan) / status.

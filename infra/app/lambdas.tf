@@ -54,14 +54,14 @@ locals {
       handler     = null
       timeout     = 90
       memory      = 1024
-      reserved    = 5
+      reserved    = var.api_reserved_concurrency
       environment = local.api_env
     }
     worker = {
       handler     = "phoebe.lambdas.worker.handler"
       timeout     = local.worker_timeout_s
       memory      = 1024
-      reserved    = 2
+      reserved    = var.worker_reserved_concurrency
       environment = local.app_env
     }
     dlq = {

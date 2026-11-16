@@ -283,7 +283,15 @@ run "lambdas" {
       aws_lambda_function.this["api"].reserved_concurrent_executions == 5 &&
       aws_lambda_function.this["worker"].reserved_concurrent_executions == 2
     )
-    error_message = "API reserved concurrency 5, worker 2."
+    error_message = "API reserved concurrency 5, worker 2 (the R23 variable defaults)."
+  }
+
+  assert {
+    condition = alltrue([
+      for k in ["dlq", "sweeper", "ops", "budget"] :
+      coalesce(aws_lambda_function.this[k].reserved_concurrent_executions, -1) == -1
+    ])
+    error_message = "Only the API and worker reserve concurrency."
   }
 
   assert {
@@ -533,6 +541,30 @@ run "iam" {
     error_message = "db_data_api.py never batches, so no role gets rds-data:BatchExecuteStatement."
   }
 
+  # Ruling R20: the sweeper reads/writes only the two idle-tracking keys.
+  assert {
+    condition = length([
+      for st in jsondecode(aws_iam_role_policy.lambda["sweeper"].policy).Statement : st
+      if anytrue([for a in flatten([st.Action]) : startswith(a, "dynamodb:")])
+      ]) == 1 && anytrue([
+      for st in jsondecode(aws_iam_role_policy.lambda["sweeper"].policy).Statement :
+      st.Sid == "IdleState" &&
+      toset(flatten([st.Action])) == toset(["dynamodb:GetItem", "dynamodb:PutItem"]) &&
+      flatten([st.Resource]) == [aws_dynamodb_table.state.arn] &&
+      toset(st.Condition["ForAllValues:StringEquals"]["dynamodb:LeadingKeys"]) == toset(["activity#last", "sweep#last_complete"])
+    ])
+    error_message = "The sweeper may only GetItem/PutItem activity#last and sweep#last_complete on the state table."
+  }
+
+  assert {
+    condition = anytrue([
+      for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
+      contains(flatten([st.Action]), "dynamodb:PutItem") &&
+      contains(flatten([st.Resource]), aws_dynamodb_table.state.arn)
+    ])
+    error_message = "The API writes activity#last to the state table (R20)."
+  }
+
   assert {
     condition = (
       length(aws_iam_role_policy.lambda) == 6 &&
@@ -726,6 +758,36 @@ run "production" {
     condition     = aws_s3_bucket.uploads.bucket == "phoebe-production-uploads-123456789012" && aws_dynamodb_table.state.name == "phoebe-production-state"
     error_message = "Production names use the production prefix."
   }
+}
+
+# R23: null leaves a function unreserved (for an account with a low quota).
+run "unreserved_concurrency" {
+  command = apply
+
+  variables {
+    api_reserved_concurrency    = null
+    worker_reserved_concurrency = null
+  }
+
+  assert {
+    condition = (
+      # null in config (-1, "unreserved", once AWS fills the default).
+      coalesce(aws_lambda_function.this["api"].reserved_concurrent_executions, -1) == -1 &&
+      coalesce(aws_lambda_function.this["worker"].reserved_concurrent_executions, -1) == -1
+    )
+    error_message = "null reserved concurrency leaves the API and worker unreserved."
+  }
+}
+
+run "rejects_zero_reserved_concurrency" {
+  command = plan
+
+  variables {
+    api_reserved_concurrency    = 0
+    worker_reserved_concurrency = 0
+  }
+
+  expect_failures = [var.api_reserved_concurrency, var.worker_reserved_concurrency]
 }
 
 run "rejects_unknown_env" {

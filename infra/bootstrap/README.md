@@ -171,7 +171,14 @@ source mappings).
 - CloudFront OAC and response-headers policies (`origin-access-control/*`,
   `response-headers-policy/*`): id-only ARNs, no tag condition keys.
 - Event source mappings (`event-source-mapping:*`), scoped by
-  `lambda:FunctionArn` to the env's functions.
+  `lambda:FunctionArn` to the env's functions. `lambda:CreateEventSourceMapping`
+  authorizes on `*` (the mapping has no ARN yet), so it is granted on `*` with
+  the same `lambda:FunctionArn` condition (ruling R24).
+- Five read-only EC2 calls on `*` for the deploy roles (`ec2:DescribeVpcs`,
+  `DescribeSubnets`, `DescribeSecurityGroups`, `DescribeAccountAttributes`,
+  `DescribeAvailabilityZones`): RDS places the cluster in the default VPC with
+  the caller's describes (R24). The CI boundary allows exactly these five, not
+  `ec2:*`. Task 9 simulates the rest of the apply.
 - RDS defaults (`cluster-pg:default.*`, `pg:default.*`, `og:default:*`,
   `subgrp:default`), which CreateDBCluster authorizes on.
 - The RDS-managed master secret (`secret:rds!cluster-*`).

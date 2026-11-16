@@ -322,11 +322,30 @@ locals {
           Resource = ["${local.arn_prefix.lambda}:function:phoebe-${env}-*"]
         },
         {
+          # Ruling R24: CreateEventSourceMapping supports no resource ARN (the
+          # mapping has none yet), so it is granted on "*", still limited to
+          # this env's functions by lambda:FunctionArn.
+          Sid       = "CreateEventSourceMappings"
+          Effect    = "Allow"
+          Action    = ["lambda:CreateEventSourceMapping"]
+          Resource  = "*"
+          Condition = { ArnLike = { "lambda:FunctionArn" = "${local.arn_prefix.lambda}:function:phoebe-${env}-*" } }
+        },
+        {
           Sid       = "EventSourceMappings"
           Effect    = "Allow"
-          Action    = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:TagResource", "lambda:UntagResource"]
+          Action    = ["lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:TagResource", "lambda:UntagResource"]
           Resource  = ["${local.arn_prefix.lambda}:event-source-mapping:*"]
           Condition = { ArnLike = { "lambda:FunctionArn" = "${local.arn_prefix.lambda}:function:phoebe-${env}-*" } }
+        },
+        {
+          # Ruling R24: CreateDBCluster/Instance with no subnet group places the
+          # cluster in the default VPC, which RDS resolves with the caller's ec2
+          # describes. Read-only; EC2 describes support no resource scoping.
+          Sid      = "RdsDefaultVpcReads"
+          Effect   = "Allow"
+          Action   = local.rds_vpc_read_actions
+          Resource = "*"
         },
         {
           Sid      = "InvokeOps"

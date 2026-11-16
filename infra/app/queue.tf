@@ -42,7 +42,7 @@ resource "aws_lambda_event_source_mapping" "worker" {
   function_response_types = ["ReportBatchItemFailures"]
 
   scaling_config {
-    maximum_concurrency = 2 # matches the worker's reserved concurrency
+    maximum_concurrency = 2 # the SQS minimum; matches the default worker_reserved_concurrency
   }
 }
 

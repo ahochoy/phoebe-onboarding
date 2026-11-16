@@ -82,6 +82,33 @@ variable "answer_harness" {
   }
 }
 
+# Ruling R23: reserved concurrency counts against the account's concurrency
+# quota (new accounts can be as low as 10, with 10 always left unreserved).
+# Task 9 checks the quota; the owner requests an increase or sets null.
+variable "api_reserved_concurrency" {
+  description = "Reserved concurrency for the API Lambda (the spend cap on parallel requests). null = unreserved."
+  type        = number
+  default     = 5
+  nullable    = true
+
+  validation {
+    condition     = coalesce(var.api_reserved_concurrency, 1) >= 1
+    error_message = "api_reserved_concurrency must be null or at least 1 (0 would disable the API)."
+  }
+}
+
+variable "worker_reserved_concurrency" {
+  description = "Reserved concurrency for the indexing worker Lambda. null = unreserved (the SQS mapping still caps it at 2)."
+  type        = number
+  default     = 2
+  nullable    = true
+
+  validation {
+    condition     = coalesce(var.worker_reserved_concurrency, 1) >= 1
+    error_message = "worker_reserved_concurrency must be null or at least 1 (0 would stop indexing)."
+  }
+}
+
 variable "log_level" {
   description = "PHOEBE_LOG_LEVEL for every Lambda."
   type        = string

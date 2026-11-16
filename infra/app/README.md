@@ -13,9 +13,9 @@ All names start with `phoebe-<env>`.
 | `data.tf` | Aurora PostgreSQL Serverless v2 cluster `phoebe-<env>` (0–2 ACU, auto-pause 300 s, Data API on, encrypted, managed master-user secret, no public access; deletion protection and a final snapshot in production only). DynamoDB `phoebe-<env>-sessions` and `phoebe-<env>-state` (on demand, `pk` hash key, TTL on `expires_at`). `infra/ai` remote state. |
 | `storage.tf` | S3 `phoebe-<env>-uploads-<account_id>` (all public-access blocks, SSE-S3, objects expire after 2 days) and `phoebe-<env>-site-<account_id>` (all public-access blocks, SSE-S3; bucket policy in `edge.tf`). |
 | `queue.tf` | SQS `phoebe-<env>-jobs` (visibility 720 s) with DLQ `phoebe-<env>-jobs-dlq` (maxReceiveCount 3, 14-day retention). Event source mappings for the worker and the DLQ handler, both `ReportBatchItemFailures`. |
-| `lambdas.tf` | Six arm64 image Lambdas, all from ECR repo `phoebe-api` pinned by digest. `api` runs the `api` image (image CMD: uvicorn behind the Lambda Web Adapter; response-streaming function URL with auth NONE; reserved concurrency 5). `worker` (120 s, reserved 2), `dlq`, `sweeper`, `ops` and `budget` run the `jobs` image (ENTRYPOINT `python -m awslambdaric`, command `phoebe.lambdas.<name>.handler`). Log groups with retention. The origin secret `phoebe-<env>-origin-secret`. |
-| `iam.tf` | One role per Lambda plus the scheduler role, each with the bootstrap permissions boundary and only the actions its code uses. |
-| `schedule.tf` | EventBridge Scheduler `phoebe-<env>-sweeper`, `rate(1 hour)`. |
+| `lambdas.tf` | Six arm64 image Lambdas, all from ECR repo `phoebe-api` pinned by digest. `api` runs the `api` image (image CMD: uvicorn behind the Lambda Web Adapter; response-streaming function URL with auth NONE; reserved concurrency `api_reserved_concurrency`, default 5). `worker` (120 s, reserved `worker_reserved_concurrency`, default 2), `dlq`, `sweeper`, `ops` and `budget` run the `jobs` image (ENTRYPOINT `python -m awslambdaric`, command `phoebe.lambdas.<name>.handler`). Log groups with retention. The origin secret `phoebe-<env>-origin-secret`. |
+| `iam.tf` | One role per Lambda plus the scheduler role, each with the bootstrap permissions boundary and only the actions its code uses. The sweeper's state-table grant is `GetItem`/`PutItem` on the keys `activity#last` and `sweep#last_complete` only (`dynamodb:LeadingKeys`). |
+| `schedule.tf` | EventBridge Scheduler `phoebe-<env>-sweeper`, `rate(1 hour)`. The sweeper skips all database work while the site is idle (ruling R20, below), so the hourly run does not wake a paused Aurora. |
 | `edge.tf` | CloudFront distribution (default `*.cloudfront.net` certificate, `PriceClass_100`, no aliases/ACM/logging). Default behaviour: private site bucket via OAC, managed `CachingOptimized`, CloudFront Function `phoebe-<env>-spa-router` (viewer-request). `/api/*`: API function URL origin sending `X-Phoebe-Origin` (the origin secret), managed `CachingDisabled` and `AllViewerExceptHostHeader`, all methods, `compress = false` (SSE). Response headers policy (CSP, HSTS 1 year, nosniff, strict-origin-when-cross-origin) on both. Site bucket policy: `s3:GetObject` to `cloudfront.amazonaws.com` scoped to this distribution's ARN. |
 | `budget.tf` | Subscribes this env's budget Lambda to its own bootstrap topic `phoebe-budget-<env>` (ruling R16: a staging deploy can't touch production's subscription). |
 
@@ -29,6 +29,18 @@ them once at startup. The origin secret's value is generated here
 (`random_password.origin`) and is in state, because Task 6's CloudFront origin
 header needs it.
 
+Idle cost (spec §5.4, rulings R20/R21). Nothing at Lambda init touches the
+database: the API checks the embedder lazily on its first DB-using request
+(`503 database_unavailable` while Aurora resumes, `503 embedder_mismatch` if the
+stored vectors came from another embedder), `/api/health` and `/api/status` are
+DB-free, and the jobs Lambdas don't check at all (ops `seed_if_empty` does). The
+API writes `activity#last` (epoch seconds, at most once a minute per container)
+to the state table on login and on sandbox use; the sweeper writes
+`sweep#last_complete` after a DB sweep and skips the sweep and stale-doc check
+while `activity#last < sweep#last_complete`. If the state table can't be read,
+it sweeps. The cost: a sandbox that expires during an idle stretch is removed
+at the next sweep after new activity (its session has already ended).
+
 ## Inputs
 
 | Variable | Notes |
@@ -41,6 +53,8 @@ header needs it.
 | `budget_topic_arn` | `arn:aws:sns:us-east-2:<account_id>:phoebe-budget-<env>` (bootstrap; another env's topic is rejected). |
 | `password_hash_secret_arn` | This env's `phoebe-<env>-password-hash` secret, created by the owner (Task 9). Must be the full ARN, including the 6-character random suffix; another env's secret is rejected. |
 | `answer_harness` | `haiku` (default) or `nova`. Use `nova` until the account's Anthropic use-case form is approved (see `infra/ai/README.md`). |
+| `api_reserved_concurrency` | Default `5`; `null` = unreserved. Ruling R23: reserved concurrency counts against the account's Lambda concurrency quota (a new account can be as low as 10, and AWS always keeps 10 unreserved). Task 9 checks the quota; the owner requests an increase or sets `null`. `0` is rejected. |
+| `worker_reserved_concurrency` | Default `2`; `null` = unreserved (the SQS mapping's `maximum_concurrency = 2` still caps it). `0` is rejected. |
 | `log_level` | Default `INFO`. |
 
 ## Outputs
@@ -94,6 +108,36 @@ function URL's `/api/status` is **403** (`/api/health` is exempt from the origin
 guard, so it can't prove this); `/pr-0/` is not a 404/5xx. The
 `CloudFront-Viewer-Address` check is reported as skipped: the API has no echo
 endpoint (deliberately), so Task 9 checks it, and the throttle, by hand.
+
+### Task 9 live checks
+
+Run by hand against staging after the first owner-gated deploy (none of these
+can be checked offline):
+
+1. **Concurrency quota (R23).** Read the account's Lambda concurrent-executions
+   quota. With 5 + 2 reserved, at least 17 is needed; otherwise request an
+   increase or set `api_reserved_concurrency` / `worker_reserved_concurrency`
+   to `null`.
+2. **Deploy-role permissions (R24).** Simulate (or watch the first apply for)
+   `lambda:CreateEventSourceMapping` and the RDS default-VPC `ec2:Describe*`
+   calls as `phoebe-ci-deploy-staging`; simulate the rest of the apply.
+3. **First migrate.** ops `migrate` succeeds on the Data API (the advisory lock
+   now returns an int, not `void`).
+4. **Large non-ASCII document.** Upload a ~100 KB Markdown file that is mostly
+   multi-byte text (e.g. CJK or emoji), wait for `indexed`, open it, and check
+   the full text renders intact (it is read in 15,000-character slices, each
+   under the Data API's 64 KB row limit).
+5. **Near-limit upload.** Upload a file just under 5 MB; it is accepted and
+   indexes (or fails with a clear reason), and a file just over is `413
+   file_too_large`.
+6. **Client IP and throttle.** `CloudFront-Viewer-Address` reaches the API
+   (IPv4 and, if available, IPv6) and the login throttle keys per viewer.
+7. **Idle stays idle (R20).** With no visits for over an hour, the sweeper logs
+   `sweep skipped idle` and the Aurora cluster stays paused (0 ACU); a login
+   then makes the next hourly run sweep.
+8. **Cold start while paused (R21).** With Aurora paused, the first page load
+   shows the "waking up" copy (`503 database_unavailable`) rather than a 502,
+   and `/api/health` stays 200 without resuming the cluster.
 
 ### Release behaviour to know (production)
 

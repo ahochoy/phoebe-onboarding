@@ -549,9 +549,11 @@ run "env_scoped_reads" {
         } : [
         for s in concat(jsondecode(aws_iam_role_policy.ci[k].policy).Statement, jsondecode(aws_iam_policy.ci_reads[env].policy).Statement) : [
           for a in flatten([s.Action]) : (
-            # Nothing CloudFront and no Lambda function reads on "*".
+            # Nothing CloudFront and no Lambda function reads on "*". R24: the
+            # one write there is CreateEventSourceMapping, held to own-env functions.
             !contains(flatten([s.Resource]), "*") ||
-            (!startswith(a, "cloudfront:") && (!startswith(a, "lambda:") || contains(["lambda:GetEventSourceMapping", "lambda:ListEventSourceMappings"], a)))
+            (!startswith(a, "cloudfront:") && (!startswith(a, "lambda:") || contains(["lambda:GetEventSourceMapping", "lambda:ListEventSourceMappings"], a))) ||
+            (a == "lambda:CreateEventSourceMapping" && try(s.Condition.ArnLike["lambda:FunctionArn"], "") == "arn:aws:lambda:us-east-2:123456789012:function:phoebe-${env}-*")
           )
         ]
       ]
@@ -676,6 +678,52 @@ run "deploy_roles" {
       ])
     ])
     error_message = "Each deploy role invokes only its own env's ops function."
+  }
+
+  # R24: CreateEventSourceMapping authorizes on "*" (no mapping ARN exists
+  # yet), so it stands alone with the own-env lambda:FunctionArn condition; the
+  # other mapping actions stay on event-source-mapping:* with the same condition.
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] : anytrue([
+        for s in jsondecode(aws_iam_role_policy.ci["deploy-${env}"].policy).Statement :
+        jsonencode(flatten([s.Action])) == jsonencode(["lambda:CreateEventSourceMapping"]) &&
+        jsonencode(flatten([s.Resource])) == jsonencode(["*"]) &&
+        s.Condition.ArnLike["lambda:FunctionArn"] == "arn:aws:lambda:us-east-2:123456789012:function:phoebe-${env}-*"
+        ]) && alltrue([
+        for s in jsondecode(aws_iam_role_policy.ci["deploy-${env}"].policy).Statement : (
+          !anytrue([for a in flatten([s.Action]) : contains(["lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping"], a)]) || (
+            jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:lambda:us-east-2:123456789012:event-source-mapping:*"]) &&
+            s.Condition.ArnLike["lambda:FunctionArn"] == "arn:aws:lambda:us-east-2:123456789012:function:phoebe-${env}-*"
+          )
+        )
+      ])
+    ])
+    error_message = "CreateEventSourceMapping on * with the own-env FunctionArn condition; update/delete stay scoped to mappings."
+  }
+
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] : anytrue([
+        for s in jsondecode(aws_iam_role_policy.ci["deploy-${env}"].policy).Statement :
+        s.Sid == "RdsDefaultVpcReads" && toset(flatten([s.Action])) == toset([
+          "ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups",
+          "ec2:DescribeAccountAttributes", "ec2:DescribeAvailabilityZones",
+        ])
+      ])
+    ])
+    error_message = "Deploy roles get the five read-only EC2 describes RDS default-VPC placement needs (R24)."
+  }
+
+  assert {
+    condition = !anytrue(flatten([
+      for k in keys(aws_iam_role_policy.ci) : [
+        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement : [
+          for a in flatten([s.Action]) : startswith(a, "ec2:") && !startswith(a, "ec2:Describe")
+        ]
+      ]
+    ]))
+    error_message = "No CI role has an EC2 action other than a Describe."
   }
 
   # R13: production adds release-* tags to promoted digests; staging pushes.
@@ -887,6 +935,21 @@ run "boundary" {
       s.Effect == "Deny" && contains(flatten([try(s.Resource, [])]), "arn:aws:iam::123456789012:role/phoebe-ci-*")
     ])
     error_message = "CI roles cannot modify the CI roles themselves (no self-escalation)."
+  }
+
+  # R24: the CI boundary admits exactly the five EC2 describes, not ec2:*.
+  assert {
+    condition = anytrue([
+      for s in jsondecode(aws_iam_policy.boundary["ci"].policy).Statement :
+      s.Effect == "Allow" && toset(flatten([s.Action])) == toset([
+        "ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups",
+        "ec2:DescribeAccountAttributes", "ec2:DescribeAvailabilityZones",
+      ])
+      ]) && !anytrue([
+      for s in jsondecode(aws_iam_policy.boundary["ci"].policy).Statement :
+      s.Effect == "Allow" && anytrue([for a in flatten([s.Action]) : startswith(a, "ec2:") && !startswith(a, "ec2:Describe")])
+    ])
+    error_message = "The CI boundary allows only the RDS default-VPC EC2 describes."
   }
 
   assert {

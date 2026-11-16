@@ -21,6 +21,12 @@ locals {
   # RDS creates this on the first Aurora cluster in the account.
   rds_slr_arn = "arn:aws:iam::${local.account_id}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
 
+  # Ruling R24: RDS places the cluster in the default VPC using these reads.
+  rds_vpc_read_actions = [
+    "ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups",
+    "ec2:DescribeAccountAttributes", "ec2:DescribeAvailabilityZones",
+  ]
+
   # Every IAM verb that changes something.
   iam_write_actions = [
     "iam:Create*", "iam:Put*", "iam:Attach*", "iam:Delete*", "iam:Detach*",
@@ -113,6 +119,13 @@ locals {
         "ecr", "iam", "kms", "lambda", "logs", "rds", "s3", "scheduler", "secretsmanager",
         "sns", "sqs", "sts",
       ] : "${s}:*"]
+      Resource = "*"
+    },
+    {
+      # Only the five read-only EC2 calls RDS default-VPC placement needs (R24).
+      Sid      = "AllowRdsVpcReads"
+      Effect   = "Allow"
+      Action   = local.rds_vpc_read_actions
       Resource = "*"
     },
     local.region_deny,
