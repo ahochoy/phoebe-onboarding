@@ -3,6 +3,7 @@ import { ExternalLink, X } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { ApiError } from "../api/client";
 import type { DocumentDetailOut } from "../api/types";
+import { isWebUrl } from "../lib/links";
 import { messageFor } from "../lib/messages";
 import { MD_UP, useMediaQuery } from "../lib/useMediaQuery";
 import { docTypeLabel } from "./DocIcon";
@@ -18,10 +19,6 @@ const SIDE =
   "fixed top-0 right-0 z-50 flex h-full w-[min(40rem,100vw)] flex-col bg-white shadow-xl";
 const SHEET =
   "fixed inset-x-0 bottom-0 z-50 flex h-[92dvh] flex-col rounded-t-xl bg-white shadow-xl";
-
-function isWebUrl(link: string): boolean {
-  return /^https?:\/\//i.test(link);
-}
 
 function DocumentBody({ doc, passage }: { doc: DocumentDetailOut; passage: Passage | undefined }) {
   const firstMark = useRef<HTMLElement | null>(null);

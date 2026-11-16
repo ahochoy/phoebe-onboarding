@@ -1,4 +1,5 @@
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { apiGet } from "../api/client";
@@ -42,5 +43,55 @@ describe("session", () => {
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/");
     expect(await screen.findByLabelText(/password/i)).toBeInTheDocument();
+  });
+
+  const ENDED = "Your session ended. Enter the password to start again.";
+
+  it("a first-time visitor deep-linking to /employee sees no session-ended message", async () => {
+    server.use(
+      http.get("/api/me", unauthorized),
+      http.get("/api/status", () => HttpResponse.json(OPEN)),
+    );
+    const { router } = renderApp("/employee");
+    expect(await screen.findByLabelText(/password/i)).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/");
+    expect(screen.queryByText(ENDED)).not.toBeInTheDocument();
+  });
+
+  it("after a login the marker is set and a later 401 shows the session-ended message", async () => {
+    let loggedIn = false;
+    server.use(
+      http.get("/api/me", () => (loggedIn ? HttpResponse.json(ME) : unauthorized())),
+      http.get("/api/status", () => HttpResponse.json(OPEN)),
+      http.get("/api/groups", () => HttpResponse.json(GROUPS)),
+      http.get("/api/tasks", () => (loggedIn ? HttpResponse.json([]) : unauthorized())),
+      http.get("/api/documents", () => HttpResponse.json([])),
+      http.get("/api/chat/history", () => HttpResponse.json([])),
+      http.post("/api/login", () => {
+        loggedIn = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/");
+    await user.type(await screen.findByLabelText(/password/i), "secret{Enter}");
+    expect(await screen.findByText("Alex Rivera", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(window.sessionStorage.getItem("phoebe.hadSession")).not.toBeNull();
+
+    loggedIn = false;
+    await expect(apiGet("/api/tasks")).rejects.toMatchObject({ code: "session_expired" });
+    expect(await screen.findByText(ENDED)).toBeInTheDocument();
+  });
+
+  it("logout clears the marker", async () => {
+    useSession();
+    server.use(http.post("/api/logout", () => new HttpResponse(null, { status: 204 })));
+    const user = userEvent.setup();
+    renderApp("/employee");
+    expect(await screen.findByRole("heading", { name: "Chat" })).toBeInTheDocument();
+    expect(window.sessionStorage.getItem("phoebe.hadSession")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    await waitFor(() => expect(window.sessionStorage.getItem("phoebe.hadSession")).toBeNull());
   });
 });

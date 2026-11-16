@@ -8,8 +8,8 @@ export function makeClient(): QueryClient {
 }
 
 /** Renders the real route table at `path` in a memory router. */
-export function renderApp(path = "/", client: QueryClient = makeClient()) {
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
+export function renderApp(path = "/", client: QueryClient = makeClient(), basename?: string) {
+  const router = createMemoryRouter(routes, { initialEntries: [path], basename });
   const utils = render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
