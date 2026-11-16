@@ -26,7 +26,7 @@ locals {
   db_secret_arn     = aws_rds_cluster.main.master_user_secret[0].secret_arn
   db_name           = "phoebe"
   aurora_engine     = "aurora-postgresql"
-  aurora_engine_ver = "16.6" # min_capacity = 0 needs 16.3+; Task 9 confirms the latest 16.x.
+  aurora_engine_ver = "16.15" # min_capacity = 0 needs 16.3+; 16.15 was the latest non-limitless 16.x in us-east-2 on 2026-11-15 (R27).
 }
 
 # ---- Aurora PostgreSQL Serverless v2, reached only through the Data API -----

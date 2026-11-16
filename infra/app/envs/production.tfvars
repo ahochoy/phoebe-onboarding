@@ -1,5 +1,11 @@
 env = "production"
 
+# The account's Lambda concurrency quota is 10, and Lambda always keeps 10
+# unreserved, so no function can reserve concurrency (owner decision,
+# 2026-11-15). The SQS mapping still caps the worker at 2.
+api_reserved_concurrency    = null
+worker_reserved_concurrency = null
+
 # Account-specific inputs (no secrets; the values are ARNs and names). Fill in
 # with the account id once infra/bootstrap is applied (Task 9), then commit:
 # boundary_policy_arn      = "arn:aws:iam::<account_id>:policy/phoebe-boundary-production"
