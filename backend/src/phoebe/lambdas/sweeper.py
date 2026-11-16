@@ -78,12 +78,16 @@ def should_sweep(
         one interval), so anything it armed may still be unswept;
     (b) more than the session cap (ABSOLUTE_TIMEOUT) has passed since the last
         sweep started (hard cap, whatever the activity);
-    (c) either value is missing (fail toward correctness).
+    (c) either value is missing, or last_started is in the future (a bad
+        clock or value would otherwise suppress sweeps), failing toward
+        correctness.
     Otherwise skip, leaving a paused Aurora paused.
     """
     if last_activity is None or last_started is None:
         return True
     t = now.timestamp()
+    if last_started > t:
+        return True
     if t - last_started > ABSOLUTE_TIMEOUT.total_seconds():
         return True
     window = (ABSOLUTE_TIMEOUT + SWEEP_INTERVAL).total_seconds()
@@ -118,7 +122,7 @@ def handler(event: Any, context: Any) -> dict[str, int | bool]:
     report = sweep(d.db, d.blobs, started)
     try:
         # Only after success, and the start time: rows the sweep's cutoffs
-        # missed are still covered by a deadline later than this.
+        # missed are caught by the next hourly or hard-cap sweep.
         store.write(SWEEP_KEY, int(started.timestamp()))
     except Exception as exc:  # noqa: BLE001 - the next run just sweeps again
         log.warning("sweep mark failed error=%s", type(exc).__name__)

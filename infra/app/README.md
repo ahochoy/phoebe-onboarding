@@ -37,13 +37,14 @@ DB-free, and the jobs Lambdas don't check at all (ops `seed_if_empty` does). The
 API writes `activity#last` (epoch seconds, at most once a minute per container)
 to the state table on login and on every authenticated sandbox request (where
 `last_seen` is bumped). The sweeper stores `sweep#last_started`, the start time
-of its last *completed* DB sweep (written only after success). The last activity
-arms two deadlines: `stale_due = activity + 60 min` (STALE_PROCESSING) and
-`expiry_due = activity + 24 h + 1 h` (ABSOLUTE_TIMEOUT + SWEEP_INTERVAL). An
-hourly run sweeps only when a deadline has passed and `last_started` is before
-it; otherwise it makes no DB call. So one visit costs about two Aurora wakes:
-one after an hour (stale uploads), one after 25 hours (sandbox expiry). A missing
-or unreadable value sweeps (fail toward correctness).
+of its last *completed* DB sweep (written only after success). An hourly run
+(ruling R26) sweeps when (a) at least an hour has passed since `last_started` and
+`activity#last >= last_started - 25 h` (ABSOLUTE_TIMEOUT + SWEEP_INTERVAL), or
+(b) more than 24 h has passed since `last_started` (hard cap), or (c) a value is
+missing, unreadable, or `last_started` is in the future (fail toward
+correctness). Otherwise it makes no DB call. So sweeps run hourly while anyone
+is active, and one visit costs about 26 hourly Aurora wakes before the sweeper
+goes quiet; an idle environment then wakes about once every 25 h.
 
 ## Inputs
 

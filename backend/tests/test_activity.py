@@ -257,13 +257,14 @@ def test_should_sweep_when_a_value_is_missing(
 
 
 def test_should_sweep_boundaries() -> None:
-    last_started = T
     activity = _ts(T - 3 * H)
     # Under one interval since the last sweep: skip.
     assert not sweeper.should_sweep(T + timedelta(minutes=59), activity, _ts(T))
     assert sweeper.should_sweep(T + H, activity, _ts(T))
+    # A last_started in the future (bad clock or value) sweeps.
+    assert sweeper.should_sweep(T, activity, _ts(T + timedelta(seconds=1)))
     # Activity exactly at last_started - 25h still counts, one second older not.
-    edge = _ts(last_started - 25 * H)
+    edge = _ts(T - 25 * H)
     assert sweeper.should_sweep(T + H, edge, _ts(T))
     assert not sweeper.should_sweep(T + H, edge - 1, _ts(T))
     # Hard cap is strictly greater than 24 h.
