@@ -1,15 +1,14 @@
 # One account cost budget, two topics (ruling R16). Each env's budget Lambda
 # subscribes only to its own topic from infra/app, so a staging deploy can
-# never unsubscribe or redirect production's kill switch. The budget notifies
-# both topics.
+# never unsubscribe or redirect production's kill switch. A Budgets
+# notification takes only one SNS subscriber, so there are two identical
+# account-wide budgets, `phoebe-monthly-<env>`, each notifying its own topic.
 #
 # Budgets is a global API that the provider reaches from this us-east-2
 # provider (aws_budgets_budget takes no region), so no us-east-1 provider is
 # needed. Both topics live in us-east-2.
 
 locals {
-  budget_name = "phoebe-monthly"
-
   budget_topic_arns = {
     for env in local.envs : env => "arn:aws:sns:${local.region}:${local.account_id}:phoebe-budget-${env}"
   }
@@ -45,7 +44,9 @@ resource "aws_sns_topic_policy" "budget" {
 }
 
 resource "aws_budgets_budget" "account" {
-  name         = local.budget_name
+  for_each = toset(local.envs)
+
+  name         = "phoebe-monthly-${each.key}"
   budget_type  = "COST"
   limit_amount = tostring(var.monthly_budget_usd)
   limit_unit   = "USD"
@@ -56,7 +57,7 @@ resource "aws_budgets_budget" "account" {
     threshold                 = 80
     threshold_type            = "PERCENTAGE"
     notification_type         = "ACTUAL"
-    subscriber_sns_topic_arns = [for env in local.envs : aws_sns_topic.budget[env].arn]
+    subscriber_sns_topic_arns = [aws_sns_topic.budget[each.key].arn]
   }
 
   depends_on = [aws_sns_topic_policy.budget]

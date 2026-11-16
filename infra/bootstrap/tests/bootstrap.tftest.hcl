@@ -1096,23 +1096,32 @@ run "state_ecr_budget" {
   assert {
     condition = (
       toset([for t in values(aws_sns_topic.budget) : t.name]) == toset(["phoebe-budget-staging", "phoebe-budget-production"]) &&
-      aws_budgets_budget.account.budget_type == "COST" &&
-      aws_budgets_budget.account.time_unit == "MONTHLY" &&
-      tonumber(aws_budgets_budget.account.limit_amount) == 20 &&
-      aws_budgets_budget.account.limit_unit == "USD"
+      toset(keys(aws_budgets_budget.account)) == toset(["staging", "production"]) &&
+      alltrue([
+        for env, b in aws_budgets_budget.account :
+        b.name == "phoebe-monthly-${env}" &&
+        b.budget_type == "COST" &&
+        b.time_unit == "MONTHLY" &&
+        tonumber(b.limit_amount) == 20 &&
+        b.limit_unit == "USD" &&
+        length(b.cost_filter) == 0
+      ])
     )
-    error_message = "One monthly account cost budget at monthly_budget_usd (default 20)."
+    error_message = "One monthly account-wide cost budget per env topic, at monthly_budget_usd (default 20)."
   }
 
   assert {
-    condition = anytrue([
-      for n in aws_budgets_budget.account.notification :
-      n.threshold == 80 && n.threshold_type == "PERCENTAGE" && n.notification_type == "ACTUAL" &&
-      n.comparison_operator == "GREATER_THAN" &&
-      toset(n.subscriber_sns_topic_arns) == toset(["arn:aws:sns:us-east-2:123456789012:phoebe-budget-staging", "arn:aws:sns:us-east-2:123456789012:phoebe-budget-production"]) &&
-      try(length(n.subscriber_email_addresses), 0) == 0
+    condition = alltrue([
+      for env, b in aws_budgets_budget.account :
+      length(b.notification) == 1 && alltrue([
+        for n in b.notification :
+        n.threshold == 80 && n.threshold_type == "PERCENTAGE" && n.notification_type == "ACTUAL" &&
+        n.comparison_operator == "GREATER_THAN" &&
+        toset(n.subscriber_sns_topic_arns) == toset(["arn:aws:sns:us-east-2:123456789012:phoebe-budget-${env}"]) &&
+        try(length(n.subscriber_email_addresses), 0) == 0
+      ])
     ])
-    error_message = "Alert at 80% actual to both env topics only (no email addresses)."
+    error_message = "Each budget alerts at 80% actual to its own env topic only (Budgets allows one SNS subscriber per notification; no email addresses)."
   }
 
   assert {
