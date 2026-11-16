@@ -523,3 +523,44 @@ def test_search_embedding_outage_is_503_chat_paused(
     r = seeded_client.post("/api/search", json={"query": "pto"}, headers=CSRF)
     assert r.status_code == 503
     assert r.json() == {"detail": "chat_paused"}
+
+
+# ---- PATCH null semantics --------------------------------------------------
+
+
+def test_patch_null_on_required_document_field_rejected(
+    seeded_client: TestClient,
+) -> None:
+    d = doc_id_by_title(seeded_client, "Employee Handbook")
+    for field in ("title", "group_id"):
+        r = seeded_client.patch(f"/api/documents/{d}", json={field: None}, headers=CSRF)
+        assert r.status_code == 422, field
+        assert r.json() == {"detail": "invalid_request"}
+
+
+def test_patch_null_clears_document_last_updated(seeded_client: TestClient) -> None:
+    d = doc_id_by_title(seeded_client, "Employee Handbook")
+    r = seeded_client.patch(
+        f"/api/documents/{d}", json={"last_updated": "2026-01-02"}, headers=CSRF
+    )
+    assert r.status_code == 204
+    assert (
+        seeded_client.get(f"/api/documents/{d}").json()["last_updated"] == "2026-01-02"
+    )
+    r = seeded_client.patch(
+        f"/api/documents/{d}", json={"last_updated": None}, headers=CSRF
+    )
+    assert r.status_code == 204
+    assert seeded_client.get(f"/api/documents/{d}").json()["last_updated"] is None
+
+
+def test_patch_document_omitted_field_unchanged(seeded_client: TestClient) -> None:
+    d = doc_id_by_title(seeded_client, "Employee Handbook")
+    before = seeded_client.get(f"/api/documents/{d}").json()
+    r = seeded_client.patch(
+        f"/api/documents/{d}", json={"title": "Renamed"}, headers=CSRF
+    )
+    assert r.status_code == 204
+    after = seeded_client.get(f"/api/documents/{d}").json()
+    assert after["title"] == "Renamed"
+    assert after["last_updated"] == before["last_updated"]

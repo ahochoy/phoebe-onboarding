@@ -18,6 +18,38 @@ make down    # stop the stack
 - The dev password is `larkspur-demo`; override with `PHOEBE_DEV_PASSWORD`. `make stack` writes `.env` with its hash on first run (delete `.env` to regenerate).
 - The stack and the test suite share one Postgres container but use different databases (`phoebe` and `phoebe_test`). The test fixtures drop and recreate the schema of the test database only, so `make test` does not wipe the stack's seed.
 
+## Frontend
+
+The web app lives in `frontend/` (Vite, React, TypeScript). It needs Node 22 (`frontend/.nvmrc`).
+
+```sh
+make fe-install   # npm ci
+make stack        # the API the app talks to
+make fe-dev       # Vite dev server on http://localhost:5173, proxying /api to the stack
+make fe-test      # unit and component tests (Vitest)
+make fe-lint      # tsc, ESLint, Prettier, and a stale-schema check
+make fe-build     # production build into frontend/dist
+```
+
+The dev server and `vite preview` proxy `/api` to `http://localhost:$PHOEBE_PORT` (default 8080). Log in with the dev password (`PHOEBE_DEV_PASSWORD`, default `larkspur-demo`).
+
+### End-to-end tests
+
+The Playwright suite drives the built app against the real local stack, with axe accessibility checks, in five projects: `chromium`, `firefox`, `webkit`, `mobile-safari` (iPhone 15) and `mobile-chrome` (Pixel 8).
+
+```sh
+(cd frontend && npx playwright install chromium firefox webkit)   # once
+make stack-e2e   # the stack with the login, chat and upload caps raised for the suite
+make e2e         # build, serve with `vite preview` on :4173, run every project
+```
+
+- `make stack-e2e` is `make stack` with higher caps: the suite logs in once per test, which the default login throttle (10 per IP per 15 minutes) would block. Run plain `make stack` afterwards to go back to the defaults.
+- Set `PHOEBE_PORT` for both commands if the API is not on 8080. Playwright reads the password from `PHOEBE_DEV_PASSWORD`, which the Makefile exports.
+- The kill-switch tests (`e2e/limits.spec.ts`) run `make pause`, `make kill` and `make open`. They run after the rest, one browser at a time, and always leave the demo `open`.
+- Every test logs in to its own sandbox and wipes it when done. The report lands in `frontend/playwright-report/`.
+- The offline stack (extractive answers, hash embeddings) answers nearly every question with a citation, so an off-topic question is not refused locally. The suite checks that it never cites another team's documents instead; the refusal UI is covered by the component tests.
+- Playwright runs locally for now; it joins CI in Plan 5.
+
 ## Configuration
 
 Settings are `PHOEBE_*` environment variables. Every default works offline: nothing below calls AWS unless you change it. These settings were added for AI chat and spend safety; the base settings (`PHOEBE_DATABASE_URL`, `PHOEBE_PASSWORD_HASH`, sessions, cookies, paths) are unchanged.

@@ -1,10 +1,10 @@
 from datetime import date
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from phoebe.db import Database
-from phoebe.groups import effective_group_ids, visible_group_ids
+from phoebe.groups import GroupKind, effective_group_ids, visible_group_ids
 from phoebe.overlay_sql import EFFECTIVE_GROUPS_SQL, EFFECTIVE_TASKS_SQL
 from phoebe.sandbox import EntityKind, hide, patch
 
@@ -27,6 +27,10 @@ class NewTask(BaseModel):
     _link = field_validator("link")(_check_https)
 
 
+# Explicit null is rejected for these (link is the only nullable column).
+_REQUIRED = ("title", "group_id", "position")
+
+
 class TaskPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
@@ -36,9 +40,20 @@ class TaskPatch(BaseModel):
 
     _link = field_validator("link")(_check_https)
 
+    @model_validator(mode="after")
+    def _no_null_required(self) -> Self:
+        for name in _REQUIRED:
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null")
+        return self
+
     def changes(self) -> dict[str, Any]:
-        """Fields the caller actually set (None means "leave unchanged")."""
-        return self.model_dump(exclude_none=True)
+        """Fields the caller sent. An omitted field is absent; an explicit null
+        clears `link`, and turns a null description into ""."""
+        out = {name: getattr(self, name) for name in self.model_fields_set}
+        if "description" in out and out["description"] is None:
+            out["description"] = ""
+        return out
 
 
 class TaskView(BaseModel):
@@ -48,7 +63,7 @@ class TaskView(BaseModel):
     link: str | None
     group_id: str
     group_name: str
-    group_kind: str
+    group_kind: GroupKind
     position: int
     done: bool
     owned: bool

@@ -309,3 +309,66 @@ def test_foreign_group_404(
     assert gid not in {
         n["id"] for n in _flatten(second_client.get("/api/groups").json())
     }
+
+
+# ---- PATCH null semantics --------------------------------------------------
+
+
+def _task_by_id(c: TestClient, tid: str) -> dict:
+    return next(t for t in tasks(c) if t["id"] == tid)
+
+
+def _new_owned_task(c: TestClient) -> str:
+    r = c.post(
+        "/api/tasks",
+        json={"title": "Mine", "group_id": "platform", "link": "https://example.com/x"},
+        headers=CSRF,
+    )
+    assert r.status_code == 201
+    return r.json()["id"]
+
+
+def _seed_task_with_link(c: TestClient) -> str:
+    return next(t["id"] for t in tasks(c) if not t["owned"] and t["link"])
+
+
+def test_patch_null_clears_task_link(seeded_client: TestClient) -> None:
+    tid = _new_owned_task(seeded_client)
+    r = seeded_client.patch(f"/api/tasks/{tid}", json={"link": None}, headers=CSRF)
+    assert r.status_code == 204
+    assert _task_by_id(seeded_client, tid)["link"] is None
+
+    sid = _seed_task_with_link(seeded_client)
+    r = seeded_client.patch(f"/api/tasks/{sid}", json={"link": None}, headers=CSRF)
+    assert r.status_code == 204
+    assert _task_by_id(seeded_client, sid)["link"] is None
+
+
+def test_patch_omitted_field_unchanged(seeded_client: TestClient) -> None:
+    for tid in (_new_owned_task(seeded_client), _seed_task_with_link(seeded_client)):
+        before = _task_by_id(seeded_client, tid)["link"]
+        r = seeded_client.patch(
+            f"/api/tasks/{tid}", json={"title": "New"}, headers=CSRF
+        )
+        assert r.status_code == 204
+        after = _task_by_id(seeded_client, tid)
+        assert after["title"] == "New" and after["link"] == before
+
+
+def test_patch_null_on_required_task_field_rejected(
+    seeded_client: TestClient,
+) -> None:
+    tid = _new_owned_task(seeded_client)
+    for field in ("title", "group_id", "position"):
+        r = seeded_client.patch(f"/api/tasks/{tid}", json={field: None}, headers=CSRF)
+        assert r.status_code == 422, field
+        assert r.json() == {"detail": "invalid_request"}
+
+
+def test_patch_null_description_becomes_empty(seeded_client: TestClient) -> None:
+    tid = _new_owned_task(seeded_client)
+    r = seeded_client.patch(
+        f"/api/tasks/{tid}", json={"description": None}, headers=CSRF
+    )
+    assert r.status_code == 204
+    assert _task_by_id(seeded_client, tid)["description"] == ""

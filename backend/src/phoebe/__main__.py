@@ -1,4 +1,4 @@
-"""Operational CLI: `python -m phoebe migrate|seed|control`.
+"""Operational CLI: `python -m phoebe migrate|seed|control|openapi`.
 
 migrate and seed read only PHOEBE_DATABASE_URL (and PHOEBE_SEED_DIR for seed);
 control reads only the PHOEBE_CONTROL_* / state-table settings. None needs
@@ -18,6 +18,7 @@ from phoebe.seed import main as seed_main
 USAGE = (
     "usage: python -m phoebe {migrate|seed}"
     " | python -m phoebe control {open|chat_paused|closed|status}"
+    " | python -m phoebe openapi"
 )
 
 
@@ -48,6 +49,11 @@ def _control(action: str) -> None:
 
 
 def main(argv: list[str]) -> int:
+    if argv == ["openapi"]:
+        from phoebe.api.openapi_export import dump_openapi
+
+        sys.stdout.write(dump_openapi())
+        return 0
     if argv[:1] == ["control"]:
         if len(argv) != 2 or argv[1] not in (*STATES, "status"):
             print(USAGE, file=sys.stderr)

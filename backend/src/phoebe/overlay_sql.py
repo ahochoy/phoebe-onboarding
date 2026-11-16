@@ -37,7 +37,8 @@ EFFECTIVE_DOCUMENTS_SQL = """
 select d.id, d.session_id,
        coalesce(o.patch->>'title', d.title) as title,
        coalesce(o.patch->>'purpose', d.purpose) as purpose,
-       coalesce((o.patch->>'last_updated')::date, d.last_updated) as last_updated,
+       case when jsonb_exists(o.patch, 'last_updated')
+            then (o.patch->>'last_updated')::date else d.last_updated end as last_updated,
        d.doc_type,
        coalesce(o.patch->>'group_id', d.group_id) as group_id,
        d.status, d.failure_reason, d.source_uri, d.public_url, false as owned
@@ -55,13 +56,15 @@ where d.session_id = :sid
 """
 
 # This session's effective tasks: seed tasks not hidden by the session with
-# patch fields applied, plus owned tasks. Does not filter by eff_groups.
+# patch fields applied, plus owned tasks. A patch key present with a JSON null
+# overrides the seed value with NULL (link only; description is patched as ""). Does not filter by eff_groups.
 # Columns: id, title, description, link, group_id, position, owned.
 EFFECTIVE_TASKS_SQL = """
 select t.id,
        coalesce(o.patch->>'title', t.title) as title,
        coalesce(o.patch->>'description', t.description) as description,
-       coalesce(o.patch->>'link', t.link) as link,
+       case when jsonb_exists(o.patch, 'link')
+            then o.patch->>'link' else t.link end as link,
        coalesce(o.patch->>'group_id', t.group_id) as group_id,
        coalesce((o.patch->>'position')::int, t.position) as position,
        false as owned

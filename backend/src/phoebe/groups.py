@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -11,6 +11,8 @@ from phoebe.overlay_sql import (
 )
 from phoebe.sandbox import EntityKind, hide, patch
 
+GroupKind = Literal["company", "department", "team"]
+
 
 class GroupInUse(Exception):
     """The group still has child groups, tasks or documents."""
@@ -19,7 +21,7 @@ class GroupInUse(Exception):
 class GroupNode(BaseModel):
     id: str
     name: str
-    kind: str
+    kind: GroupKind
     parent_id: str | None
     owned: bool
     children: list[GroupNode] = []
