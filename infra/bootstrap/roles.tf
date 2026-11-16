@@ -141,6 +141,14 @@ locals {
         Condition = { StringEquals = { "aws:ResourceTag/env" = env } }
       },
       {
+        # Mappings have random ids; the refresh reads their tags. Only this env's.
+        Sid       = "EnvEventSourceMappingTagReads"
+        Effect    = "Allow"
+        Action    = ["lambda:ListTags"]
+        Resource  = ["${local.arn_prefix.lambda}:event-source-mapping:*"]
+        Condition = { StringEquals = { "aws:ResourceTag/env" = env } }
+      },
+      {
         # Id-only ARNs, no tag keys; these hold no secrets.
         Sid      = "EdgePolicyReads"
         Effect   = "Allow"
