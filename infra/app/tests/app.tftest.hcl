@@ -541,7 +541,7 @@ run "iam" {
     error_message = "db_data_api.py never batches, so no role gets rds-data:BatchExecuteStatement."
   }
 
-  # Ruling R20: the sweeper reads/writes only the two idle-tracking keys.
+  # Ruling R26: the sweeper reads/writes only the two idle-tracking keys.
   assert {
     condition = length([
       for st in jsondecode(aws_iam_role_policy.lambda["sweeper"].policy).Statement : st
@@ -562,7 +562,7 @@ run "iam" {
       contains(flatten([st.Action]), "dynamodb:PutItem") &&
       contains(flatten([st.Resource]), aws_dynamodb_table.state.arn)
     ])
-    error_message = "The API writes activity#last to the state table (R20)."
+    error_message = "The API writes activity#last to the state table (R26)."
   }
 
   assert {

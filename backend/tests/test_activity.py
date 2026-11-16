@@ -1,5 +1,6 @@
-"""Idle tracking (R20): the API records activity, the sweeper skips when idle."""
+"""Idle tracking (R26): the API records activity, the sweeper skips when idle."""
 
+import itertools
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -189,50 +190,99 @@ def _armed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Any, SweepD
     return store, sdb
 
 
-def test_one_visit_wakes_the_database_twice(
+H = timedelta(hours=1)
+
+
+def _ts(when: datetime) -> int:
+    return int(when.timestamp())
+
+
+def _simulate(
+    *,
+    activity_at: list[datetime],
+    start: datetime,
+    hours: int,
+    last_started: datetime | None,
+) -> list[datetime]:
+    """Evaluate the pure rule hourly; each run records its own start time."""
+    runs: list[datetime] = []
+    for h in range(hours + 1):
+        now = start + h * H
+        seen = [a for a in activity_at if a <= now]
+        last_activity = _ts(max(seen)) if seen else None
+        started = _ts(last_started) if last_started else None
+        if sweeper.should_sweep(now, last_activity, started):
+            runs.append(now)
+            last_started = now
+    return runs
+
+
+def test_continuous_activity_sweeps_every_hour() -> None:
+    # Activity every 30 min for 48 h must not postpone the sweep (R26).
+    activity = [T + timedelta(minutes=30 * i) for i in range(97)]
+    start = T + H
+    runs = _simulate(
+        activity_at=activity, start=start, hours=47, last_started=T - 2 * H
+    )
+    assert runs == [start + h * H for h in range(48)]
+
+
+def test_single_activity_sweeps_hourly_until_26h_then_stops() -> None:
+    runs = _simulate(activity_at=[T], start=T + H, hours=60, last_started=T - 2 * H)
+    # Last run T+26h (the sweep started at T+25h still covers activity T);
+    # first skip T+27h. Afterwards only the hard cap (>24 h) sweeps: T+51h.
+    assert runs == [T + h * H for h in range(1, 27)] + [T + 51 * H]
+    assert T + 27 * H not in runs
+
+
+def test_idle_for_days_sweeps_only_on_the_hard_cap() -> None:
+    long_ago = T - timedelta(days=30)
+    runs = _simulate(
+        activity_at=[long_ago], start=T, hours=24 * 5, last_started=T - 2 * H
+    )
+    # One sweep per >24 h: hourly evaluation first exceeds the cap 25 h after
+    # each run (the initial last_started is T-2h).
+    assert runs == [T + h * H for h in (23, 48, 73, 98)]
+    assert all(b - a > timedelta(hours=24) for a, b in itertools.pairwise(runs))
+
+
+@pytest.mark.parametrize(
+    ("activity", "started"),
+    [(None, 1_000_000), (1_000_000, None), (None, None)],
+)
+def test_should_sweep_when_a_value_is_missing(
+    activity: int | None, started: int | None
+) -> None:
+    assert sweeper.should_sweep(T, activity, started) is True
+
+
+def test_should_sweep_boundaries() -> None:
+    last_started = T
+    activity = _ts(T - 3 * H)
+    # Under one interval since the last sweep: skip.
+    assert not sweeper.should_sweep(T + timedelta(minutes=59), activity, _ts(T))
+    assert sweeper.should_sweep(T + H, activity, _ts(T))
+    # Activity exactly at last_started - 25h still counts, one second older not.
+    edge = _ts(last_started - 25 * H)
+    assert sweeper.should_sweep(T + H, edge, _ts(T))
+    assert not sweeper.should_sweep(T + H, edge - 1, _ts(T))
+    # Hard cap is strictly greater than 24 h.
+    assert not sweeper.should_sweep(T + 24 * H, edge - 1, _ts(T))
+    assert sweeper.should_sweep(T + 24 * H + timedelta(seconds=1), edge - 1, _ts(T))
+
+
+def test_handler_sweeps_hourly_while_active_and_marks_start(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # R25: stale deadline T+60m, expiry deadline T+24h+1h.
     store, sdb = _armed(monkeypatch, tmp_path)
-    timeline = [
-        (timedelta(minutes=30), False),
-        (timedelta(minutes=61), True),  # stale_due passed
-        (timedelta(hours=2), False),
-        (timedelta(hours=25), True),  # expiry_due passed
-        (timedelta(hours=26), False),
-        (timedelta(hours=60), False),
-    ]
-    for offset, swept in timeline:
-        _at(monkeypatch, T + offset)
-        before = sdb.sweeps
+    for i in range(1, 5):
+        now = T + i * H
+        store.write(ACTIVITY_KEY, _ts(now - timedelta(minutes=10)))  # still active
+        _at(monkeypatch, now)
         out = sweeper.handler({}, None)
-        assert (sdb.sweeps > before) is swept, offset
-        assert ("skipped" not in out) is swept, offset
-        if swept:
-            assert store.read(SWEEP_KEY) == int((T + offset).timestamp())
-
-
-def test_new_activity_re_arms_both_deadlines(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    store, sdb = _armed(monkeypatch, tmp_path)
-    for offset in (timedelta(minutes=61), timedelta(hours=25)):
-        _at(monkeypatch, T + offset)
-        sweeper.handler({}, None)
-    assert sdb.sweeps == 2
-    t2 = T + timedelta(hours=30)
-    store.write(ACTIVITY_KEY, int(t2.timestamp()))
-    expected = [
-        (timedelta(minutes=30), 2),
-        (timedelta(minutes=61), 3),
-        (timedelta(hours=3), 3),
-        (timedelta(hours=25), 4),
-        (timedelta(hours=26), 4),
-    ]
-    for offset, sweeps in expected:
-        _at(monkeypatch, t2 + offset)
-        sweeper.handler({}, None)
-        assert sdb.sweeps == sweeps, offset
+        assert "skipped" not in out
+        assert store.read(SWEEP_KEY) == _ts(now)
+    assert sdb.sweeps == 4
 
 
 def test_idle_skip_makes_no_db_call_and_writes_nothing(
@@ -240,11 +290,11 @@ def test_idle_skip_makes_no_db_call_and_writes_nothing(
 ) -> None:
     store = CountingStore()
     store.write(ACTIVITY_KEY, int(T.timestamp()))
-    store.write(SWEEP_KEY, int((T + timedelta(hours=25)).timestamp()))
+    store.write(SWEEP_KEY, int((T + timedelta(hours=27)).timestamp()))
     store.writes.clear()
     nodb = NoDb()
     _sweeper_deps(monkeypatch, tmp_path, nodb, store)
-    _at(monkeypatch, T + timedelta(days=10))
+    _at(monkeypatch, T + timedelta(hours=27, minutes=30))
     assert sweeper.handler({}, None) == {"skipped": True}
     assert nodb.calls == 0
     assert store.writes == []

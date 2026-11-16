@@ -157,8 +157,8 @@ locals {
         Resource = local.uploads_objects
       },
       {
-        # Rulings R20/R25: reads activity#last / sweep#last_started to skip the
-        # DB when no deadline is due, and writes sweep#last_started after a
+        # Ruling R26: reads activity#last / sweep#last_started to skip the
+        # DB when nothing is owed, and writes sweep#last_started after a
         # completed sweep. Only those keys.
         Sid      = "IdleState"
         Effect   = "Allow"

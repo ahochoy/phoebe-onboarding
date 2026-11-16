@@ -3,8 +3,8 @@
 The API records `activity#last` (epoch seconds) on login and on every
 authenticated sandbox request (where `touch_sandbox` bumps `last_seen`); the
 sweeper records `sweep#last_started` (the start time of its last completed
-database sweep) and only touches the database when a deadline armed by the
-last activity is due (ruling R25, see `lambdas/sweeper.py`). Both keys live in
+database sweep) and only touches the database hourly while there was recent
+activity, plus a daily hard cap (ruling R26, see `lambdas/sweeper.py`). Both keys live in
 the DynamoDB state table, beside sessions, counters and the kill switch. Logs
 carry error types only.
 """

@@ -15,7 +15,7 @@ All names start with `phoebe-<env>`.
 | `queue.tf` | SQS `phoebe-<env>-jobs` (visibility 720 s) with DLQ `phoebe-<env>-jobs-dlq` (maxReceiveCount 3, 14-day retention). Event source mappings for the worker and the DLQ handler, both `ReportBatchItemFailures`. |
 | `lambdas.tf` | Six arm64 image Lambdas, all from ECR repo `phoebe-api` pinned by digest. `api` runs the `api` image (image CMD: uvicorn behind the Lambda Web Adapter; response-streaming function URL with auth NONE; reserved concurrency `api_reserved_concurrency`, default 5). `worker` (120 s, reserved `worker_reserved_concurrency`, default 2), `dlq`, `sweeper`, `ops` and `budget` run the `jobs` image (ENTRYPOINT `python -m awslambdaric`, command `phoebe.lambdas.<name>.handler`). Log groups with retention. The origin secret `phoebe-<env>-origin-secret`. |
 | `iam.tf` | One role per Lambda plus the scheduler role, each with the bootstrap permissions boundary and only the actions its code uses. The sweeper's state-table grant is `GetItem`/`PutItem` on the keys `activity#last` and `sweep#last_started` only (`dynamodb:LeadingKeys`). |
-| `schedule.tf` | EventBridge Scheduler `phoebe-<env>-sweeper`, `rate(1 hour)`. The sweeper skips all database work unless a deadline armed by the last activity is due (rulings R20/R25, below), so the hourly run does not wake a paused Aurora. |
+| `schedule.tf` | EventBridge Scheduler `phoebe-<env>-sweeper`, `rate(1 hour)`. The sweeper sweeps hourly while there was activity within about 25 hours of the last completed sweep, and otherwise skips all database work apart from a daily hard cap (ruling R26, below), so an idle hourly run does not wake a paused Aurora. |
 | `edge.tf` | CloudFront distribution (default `*.cloudfront.net` certificate, `PriceClass_100`, no aliases/ACM/logging). Default behaviour: private site bucket via OAC, managed `CachingOptimized`, CloudFront Function `phoebe-<env>-spa-router` (viewer-request). `/api/*`: API function URL origin sending `X-Phoebe-Origin` (the origin secret), managed `CachingDisabled` and `AllViewerExceptHostHeader`, all methods, `compress = false` (SSE). Response headers policy (CSP, HSTS 1 year, nosniff, strict-origin-when-cross-origin) on both. Site bucket policy: `s3:GetObject` to `cloudfront.amazonaws.com` scoped to this distribution's ARN. |
 | `budget.tf` | Subscribes this env's budget Lambda to its own bootstrap topic `phoebe-budget-<env>` (ruling R16: a staging deploy can't touch production's subscription). |
 
@@ -29,7 +29,7 @@ them once at startup. The origin secret's value is generated here
 (`random_password.origin`) and is in state, because Task 6's CloudFront origin
 header needs it.
 
-Idle cost (spec §5.4, rulings R20/R21/R25). Nothing at Lambda init touches the
+Idle cost (spec §5.4, rulings R21/R26). Nothing at Lambda init touches the
 database: the API checks the embedder lazily on its first DB-using request
 (`503 database_unavailable` while Aurora resumes, `503 embedder_mismatch` if the
 stored vectors came from another embedder), `/api/health` and `/api/status` are
@@ -136,10 +136,12 @@ can be checked offline):
    file_too_large`.
 6. **Client IP and throttle.** `CloudFront-Viewer-Address` reaches the API
    (IPv4 and, if available, IPv6) and the login throttle keys per viewer.
-7. **Idle stays idle (R20/R25).** After a visit, the sweeper runs once about an
-   hour later (stale deadline), then logs `sweep skipped idle` hourly with the
-   Aurora cluster paused (0 ACU), and runs once more about 25 hours after the
-   visit (expiry deadline), removing the expired sandbox.
+7. **Idle stays idle (R26).** While anyone is active the sweeper runs every
+   hour, so expired sandboxes and stuck `processing` documents are cleaned up
+   even under continuous traffic. After the last visit it keeps sweeping hourly
+   for about 25 to 26 hours, then logs `sweep skipped idle` hourly with the
+   Aurora cluster paused (0 ACU). A daily hard cap still runs one sweep per
+   more than 24 hours regardless of activity.
 8. **Cold start while paused (R21).** With Aurora paused, the first page load
    shows the "waking up" copy (`503 database_unavailable`) rather than a 502,
    and `/api/health` stays 200 without resuming the cluster.

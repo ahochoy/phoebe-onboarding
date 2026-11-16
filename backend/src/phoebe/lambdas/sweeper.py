@@ -1,8 +1,8 @@
 """Hourly sweep: expired sandboxes and stuck indexing jobs.
 
-Skipped without touching the database unless the last activity has made a
-stale-document or sandbox-expiry deadline due that no completed sweep has
-covered yet (ruling R25), so a paused Aurora stays paused while idle.
+Skipped without touching the database unless there was activity within about
+25 h of the last completed sweep (hourly while active) or the daily hard cap
+is reached (ruling R26), so a paused Aurora stays paused while idle.
 
 Reuses `reset_session` / `forget_sandbox` so there is one definition of what a
 sandbox owns. Seed rows (session_id is null) are never touched. Logs counts only.
@@ -67,30 +67,41 @@ def sweep(db: Database, blobs: BlobStore, now: datetime) -> SweepReport:
     return SweepReport(len(expired), chunks, deleted_blobs, stale)
 
 
-def sweep_due(store: ActivityStore, now: datetime) -> bool:
-    """Ruling R25: is there DB work that the last completed sweep did not cover?
+def should_sweep(
+    now: datetime, last_activity: int | None, last_started: int | None
+) -> bool:
+    """Ruling R26: run the DB sweep hourly while there was recent activity.
 
-    The last activity (any authenticated request) arms two deadlines: a
-    document can first go stale at `activity + STALE_PROCESSING`, and the
-    newest sandbox can first expire by `activity + ABSOLUTE_TIMEOUT` (plus one
-    sweep interval of slack for the throttled activity write). A deadline is
-    due once it has passed and the last completed sweep started before it.
-    Missing or unreadable values sweep (fail toward correctness).
+    Sweep when any of:
+    (a) a sweep interval has passed since the last completed sweep started and
+        the last activity is no older than that start minus (session cap +
+        one interval), so anything it armed may still be unswept;
+    (b) more than the session cap (ABSOLUTE_TIMEOUT) has passed since the last
+        sweep started (hard cap, whatever the activity);
+    (c) either value is missing (fail toward correctness).
+    Otherwise skip, leaving a paused Aurora paused.
     """
+    if last_activity is None or last_started is None:
+        return True
+    t = now.timestamp()
+    if t - last_started > ABSOLUTE_TIMEOUT.total_seconds():
+        return True
+    window = (ABSOLUTE_TIMEOUT + SWEEP_INTERVAL).total_seconds()
+    return (
+        t - last_started >= SWEEP_INTERVAL.total_seconds()
+        and last_activity >= last_started - window
+    )
+
+
+def sweep_due(store: ActivityStore, now: datetime) -> bool:
+    """Read the two keys and apply `should_sweep`; unreadable values sweep."""
     try:
         last_activity = store.read(ACTIVITY_KEY)
         last_started = store.read(SWEEP_KEY)
     except Exception as exc:  # noqa: BLE001 - fail toward correctness
         log.warning("activity read failed error=%s", type(exc).__name__)
         return True
-    if last_activity is None or last_started is None:
-        return True
-    t = now.timestamp()
-    stale_due = last_activity + STALE_PROCESSING.total_seconds()
-    expiry_due = last_activity + (ABSOLUTE_TIMEOUT + SWEEP_INTERVAL).total_seconds()
-    return (t >= stale_due and last_started < stale_due) or (
-        t >= expiry_due and last_started < expiry_due
-    )
+    return should_sweep(now, last_activity, last_started)
 
 
 def _now() -> datetime:
