@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
+from psycopg.types.numeric import Int8
 
 from conftest import make_seed_doc, make_task, seed_org
 from phoebe.api.app import make_database
@@ -23,6 +24,7 @@ from phoebe.db import (
 from phoebe.db_data_api import TEXT_SLICE_CHARS, DataApiDatabase, encode_params
 from phoebe.documents import (
     DocumentPatch,
+    _fetch_text_sliced,
     delete_document,
     get_document,
     mark_failed,
@@ -451,7 +453,7 @@ def _doc_handler(text: str | None, slices: list[int]) -> Callable[..., Any]:
         assert op == "ExecuteStatement"
         sql = kw["sql"]
         params = {p["name"]: p["value"] for p in kw["parameters"]}
-        if f"substr(full_text, :off, {SLICE})" in sql:
+        if f"substr(full_text, :off::int, {SLICE})" in sql:
             off = params["off"]["longValue"]
             slices.append(off)
             part = None if text is None else text[off - 1 : off - 1 + SLICE]
@@ -496,6 +498,37 @@ def test_missing_document_is_none_on_data_api() -> None:
     fake = FakeRds(records())
     assert get_document(make_db(fake), "s", DOC_ID) is None
     assert len(fake.calls) == 1
+
+
+class Int8Db:
+    """Binds Python ints as `bigint`, as the Data API does (`longValue`)."""
+
+    def __init__(self, inner: Database) -> None:
+        self.inner = inner
+
+    def fetch(
+        self, sql: str, params: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        bound = {
+            k: Int8(v) if isinstance(v, int) and not isinstance(v, bool) else v
+            for k, v in (params or {}).items()
+        }
+        return self.inner.fetch(sql, bound)
+
+    def execute(self, sql: str, params: Mapping[str, Any] | None = None) -> int:
+        raise NotImplementedError
+
+    def transaction(self):
+        raise NotImplementedError
+
+
+def test_sliced_text_query_accepts_bigint_offsets(db: PsycopgDatabase) -> None:
+    # Regression: `substr(text, bigint, integer)` does not exist in Postgres.
+    seed_org(db)
+    doc_id = make_seed_doc(db)
+    text = "y" * (SLICE + 10)
+    mark_indexed(db, doc_id, text, [])
+    assert _fetch_text_sliced(Int8Db(db), doc_id, SLICE) == text
 
 
 def test_psycopg_path_reads_full_text_whole(db: PsycopgDatabase) -> None:
