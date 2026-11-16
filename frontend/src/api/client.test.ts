@@ -145,7 +145,9 @@ describe("api client", () => {
     server.use(
       http.post("/api/up", () =>
         HttpResponse.json(
-          { Message: "Request must be smaller than 6291456 bytes for the InvokeFunction operation" },
+          {
+            Message: "Request must be smaller than 6291456 bytes for the InvokeFunction operation",
+          },
           { status: 413 },
         ),
       ),
