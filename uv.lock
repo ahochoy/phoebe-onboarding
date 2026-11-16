@@ -604,6 +604,10 @@ dynamodb = [
     { name = "docker" },
     { name = "py-partiql-parser" },
 ]
+s3 = [
+    { name = "py-partiql-parser" },
+    { name = "pyyaml" },
+]
 
 [[package]]
 name = "nodeenv"
@@ -657,7 +661,7 @@ dependencies = [
 dev = [
     { name = "botocore", extra = ["crt"] },
     { name = "fpdf2" },
-    { name = "moto", extra = ["dynamodb"] },
+    { name = "moto", extra = ["dynamodb", "s3"] },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -683,7 +687,7 @@ requires-dist = [
 dev = [
     { name = "botocore", extras = ["crt"], specifier = ">=1.44.0" },
     { name = "fpdf2", specifier = ">=2.9.0" },
-    { name = "moto", extras = ["dynamodb"], specifier = ">=5.2.5" },
+    { name = "moto", extras = ["dynamodb", "s3", "secretsmanager", "sqs"], specifier = ">=5.2.5" },
     { name = "pyright", specifier = ">=1.1.414" },
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "ruff", specifier = ">=0.17.4" },

@@ -4,6 +4,10 @@ from collections.abc import Callable
 from typing import Protocol
 
 
+class JobUnavailable(Exception):
+    """The job queue could not accept the job; never carries details."""
+
+
 class JobQueue(Protocol):
     def enqueue(self, document_id: str) -> None: ...
 

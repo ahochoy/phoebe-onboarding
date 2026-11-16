@@ -45,7 +45,8 @@ def _settings(request: Request) -> Settings:
 
 def throttle_login(request: Request) -> None:
     s = _settings(request)
-    ip = client_ip(request, s.client_ip_header)
+    # The header is only trustworthy behind the origin guard (CloudFront).
+    ip = client_ip(request, s.client_ip_header if s.origin_secret else None)
     try:
         ok = _deps(request).counters.hit(
             f"login#{ip}", s.login_per_ip_window, s.login_window_seconds

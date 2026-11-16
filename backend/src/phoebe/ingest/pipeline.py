@@ -235,6 +235,9 @@ def index_document(
                 type(mark_exc).__name__,
             )
         raise
+    if not stored:
+        log.info("skipped document=%s reason=deleted", document_id)
+        return
     log.info(
         "indexed document=%s stored=%s chunks=%d ms=%d",
         document_id,

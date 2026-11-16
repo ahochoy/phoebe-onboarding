@@ -254,6 +254,13 @@ def make_models(settings: Settings) -> tuple[AnswerModel, Rewriter, Guardrail]:
         raise RuntimeError(
             "PHOEBE_GUARDRAIL_ID and PHOEBE_GUARDRAIL_VERSION must be set together"
         )
+    if settings.answer_backend == "harness" and not (
+        settings.guardrail_id and settings.guardrail_version
+    ):
+        raise RuntimeError(
+            "PHOEBE_GUARDRAIL_ID and PHOEBE_GUARDRAIL_VERSION are required"
+            " for the harness backend"
+        )
     if settings.guardrail_id and settings.guardrail_version:
         guardrail = BedrockGuardrail(
             settings.guardrail_id, settings.guardrail_version, settings.aws_region

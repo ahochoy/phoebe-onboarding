@@ -56,7 +56,7 @@ def login(body: LoginBody, request: Request) -> Response:
     if not _scrypt_slots.acquire(blocking=False):
         raise HTTPException(429, "too_many_attempts")
     try:
-        ok = verify_password(body.password, deps.settings.password_hash)
+        ok = verify_password(body.password, deps.settings.password_hash or "")
     finally:
         _scrypt_slots.release()
     if not ok:

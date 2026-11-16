@@ -105,15 +105,21 @@ def test_login_ignores_x_forwarded_for_by_default(db, tmp_path):
 
 
 def test_client_ip_header_used_when_configured(db, tmp_path):
-    c = make_client(db, tmp_path, client_ip_header="cloudfront-viewer-address")
+    c = make_client(
+        db,
+        tmp_path,
+        client_ip_header="cloudfront-viewer-address",
+        origin_secret="s3cr3t",
+    )
     h = "cloudfront-viewer-address"
+    o = {"X-Phoebe-Origin": "s3cr3t"}
     for _ in range(3):
-        assert login(c, "wrong", {h: "203.0.113.5:443"}).status_code == 401
-    assert login(c, "wrong", {h: "203.0.113.5:999"}).status_code == 429
+        assert login(c, "wrong", {**o, h: "203.0.113.5:443"}).status_code == 401
+    assert login(c, "wrong", {**o, h: "203.0.113.5:999"}).status_code == 429
     for _ in range(3):
-        assert login(c, "wrong", {h: "[2001:db8::1]:443"}).status_code == 401
-    assert login(c, "wrong", {h: "[2001:db8::1]:1"}).status_code == 429
-    assert login(c, PW, {h: "198.51.100.1:1"}).status_code == 204
+        assert login(c, "wrong", {**o, h: "[2001:db8::1]:443"}).status_code == 401
+    assert login(c, "wrong", {**o, h: "[2001:db8::1]:1"}).status_code == 429
+    assert login(c, PW, {**o, h: "198.51.100.1:1"}).status_code == 204
 
 
 def test_client_ip_parsing_and_fallback():
