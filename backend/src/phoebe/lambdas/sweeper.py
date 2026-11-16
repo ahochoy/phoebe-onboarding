@@ -1,7 +1,8 @@
 """Hourly sweep: expired sandboxes and stuck indexing jobs.
 
-Skipped without touching the database while the site is idle (no activity
-since the last completed sweep), so a paused Aurora stays paused.
+Skipped without touching the database unless the last activity has made a
+stale-document or sandbox-expiry deadline due that no completed sweep has
+covered yet (ruling R25), so a paused Aurora stays paused while idle.
 
 Reuses `reset_session` / `forget_sandbox` so there is one definition of what a
 sandbox owns. Seed rows (session_id is null) are never touched. Logs counts only.
@@ -15,7 +16,7 @@ from typing import Any
 from phoebe.activity import ACTIVITY_KEY, SWEEP_KEY, ActivityStore
 from phoebe.db import Database
 from phoebe.lambdas import runtime
-from phoebe.lambdas.timings import STALE_PROCESSING
+from phoebe.lambdas.timings import STALE_PROCESSING, SWEEP_INTERVAL
 from phoebe.sandbox import forget_sandbox, reset_session
 from phoebe.sessions import ABSOLUTE_TIMEOUT
 from phoebe.storage import BlobStore, BlobUnavailable
@@ -66,30 +67,47 @@ def sweep(db: Database, blobs: BlobStore, now: datetime) -> SweepReport:
     return SweepReport(len(expired), chunks, deleted_blobs, stale)
 
 
-def is_idle(store: ActivityStore) -> bool:
-    """True when nothing has happened since the last completed sweep, so the DB
-    (which may be paused) has no work. An unreadable store is not idle: sweep."""
+def sweep_due(store: ActivityStore, now: datetime) -> bool:
+    """Ruling R25: is there DB work that the last completed sweep did not cover?
+
+    The last activity (any authenticated request) arms two deadlines: a
+    document can first go stale at `activity + STALE_PROCESSING`, and the
+    newest sandbox can first expire by `activity + ABSOLUTE_TIMEOUT` (plus one
+    sweep interval of slack for the throttled activity write). A deadline is
+    due once it has passed and the last completed sweep started before it.
+    Missing or unreadable values sweep (fail toward correctness).
+    """
     try:
         last_activity = store.read(ACTIVITY_KEY)
-        last_complete = store.read(SWEEP_KEY)
+        last_started = store.read(SWEEP_KEY)
     except Exception as exc:  # noqa: BLE001 - fail toward correctness
         log.warning("activity read failed error=%s", type(exc).__name__)
-        return False
-    if last_complete is None:
-        return False
-    return last_activity is None or last_activity < last_complete
+        return True
+    if last_activity is None or last_started is None:
+        return True
+    t = now.timestamp()
+    stale_due = last_activity + STALE_PROCESSING.total_seconds()
+    expiry_due = last_activity + (ABSOLUTE_TIMEOUT + SWEEP_INTERVAL).total_seconds()
+    return (t >= stale_due and last_started < stale_due) or (
+        t >= expiry_due and last_started < expiry_due
+    )
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 def handler(event: Any, context: Any) -> dict[str, int | bool]:
     d = runtime.deps()
     store = d.activity.store
-    if is_idle(store):
+    started = _now()
+    if not sweep_due(store, started):
         log.info("sweep skipped idle")
         return {"skipped": True}
-    started = datetime.now(UTC)
     report = sweep(d.db, d.blobs, started)
     try:
-        # The start time: activity during the sweep still triggers the next one.
+        # Only after success, and the start time: rows the sweep's cutoffs
+        # missed are still covered by a deadline later than this.
         store.write(SWEEP_KEY, int(started.timestamp()))
     except Exception as exc:  # noqa: BLE001 - the next run just sweeps again
         log.warning("sweep mark failed error=%s", type(exc).__name__)

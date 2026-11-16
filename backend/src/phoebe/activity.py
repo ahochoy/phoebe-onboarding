@@ -1,10 +1,12 @@
 """Idle tracking, so the hourly sweeper can leave a sleeping database asleep.
 
-The API records `activity#last` (epoch seconds) on login and when a sandbox is
-used; the sweeper records `sweep#last_complete` after a successful database
-sweep and skips all database work while no activity has happened since. Both
-keys live in the DynamoDB state table, beside sessions, counters and the kill
-switch. Logs carry error types only.
+The API records `activity#last` (epoch seconds) on login and on every
+authenticated sandbox request (where `touch_sandbox` bumps `last_seen`); the
+sweeper records `sweep#last_started` (the start time of its last completed
+database sweep) and only touches the database when a deadline armed by the
+last activity is due (ruling R25, see `lambdas/sweeper.py`). Both keys live in
+the DynamoDB state table, beside sessions, counters and the kill switch. Logs
+carry error types only.
 """
 
 import logging
@@ -19,7 +21,7 @@ from phoebe.config import Settings
 from phoebe.limits import LimitsUnavailable, state_table
 
 ACTIVITY_KEY = "activity#last"
-SWEEP_KEY = "sweep#last_complete"
+SWEEP_KEY = "sweep#last_started"
 ACTIVITY_INTERVAL_S = 60.0
 
 _log = logging.getLogger(__name__)

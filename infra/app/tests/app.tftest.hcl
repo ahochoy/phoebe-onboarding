@@ -551,9 +551,9 @@ run "iam" {
       st.Sid == "IdleState" &&
       toset(flatten([st.Action])) == toset(["dynamodb:GetItem", "dynamodb:PutItem"]) &&
       flatten([st.Resource]) == [aws_dynamodb_table.state.arn] &&
-      toset(st.Condition["ForAllValues:StringEquals"]["dynamodb:LeadingKeys"]) == toset(["activity#last", "sweep#last_complete"])
+      toset(st.Condition["ForAllValues:StringEquals"]["dynamodb:LeadingKeys"]) == toset(["activity#last", "sweep#last_started"])
     ])
-    error_message = "The sweeper may only GetItem/PutItem activity#last and sweep#last_complete on the state table."
+    error_message = "The sweeper may only GetItem/PutItem activity#last and sweep#last_started on the state table."
   }
 
   assert {

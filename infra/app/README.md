@@ -14,8 +14,8 @@ All names start with `phoebe-<env>`.
 | `storage.tf` | S3 `phoebe-<env>-uploads-<account_id>` (all public-access blocks, SSE-S3, objects expire after 2 days) and `phoebe-<env>-site-<account_id>` (all public-access blocks, SSE-S3; bucket policy in `edge.tf`). |
 | `queue.tf` | SQS `phoebe-<env>-jobs` (visibility 720 s) with DLQ `phoebe-<env>-jobs-dlq` (maxReceiveCount 3, 14-day retention). Event source mappings for the worker and the DLQ handler, both `ReportBatchItemFailures`. |
 | `lambdas.tf` | Six arm64 image Lambdas, all from ECR repo `phoebe-api` pinned by digest. `api` runs the `api` image (image CMD: uvicorn behind the Lambda Web Adapter; response-streaming function URL with auth NONE; reserved concurrency `api_reserved_concurrency`, default 5). `worker` (120 s, reserved `worker_reserved_concurrency`, default 2), `dlq`, `sweeper`, `ops` and `budget` run the `jobs` image (ENTRYPOINT `python -m awslambdaric`, command `phoebe.lambdas.<name>.handler`). Log groups with retention. The origin secret `phoebe-<env>-origin-secret`. |
-| `iam.tf` | One role per Lambda plus the scheduler role, each with the bootstrap permissions boundary and only the actions its code uses. The sweeper's state-table grant is `GetItem`/`PutItem` on the keys `activity#last` and `sweep#last_complete` only (`dynamodb:LeadingKeys`). |
-| `schedule.tf` | EventBridge Scheduler `phoebe-<env>-sweeper`, `rate(1 hour)`. The sweeper skips all database work while the site is idle (ruling R20, below), so the hourly run does not wake a paused Aurora. |
+| `iam.tf` | One role per Lambda plus the scheduler role, each with the bootstrap permissions boundary and only the actions its code uses. The sweeper's state-table grant is `GetItem`/`PutItem` on the keys `activity#last` and `sweep#last_started` only (`dynamodb:LeadingKeys`). |
+| `schedule.tf` | EventBridge Scheduler `phoebe-<env>-sweeper`, `rate(1 hour)`. The sweeper skips all database work unless a deadline armed by the last activity is due (rulings R20/R25, below), so the hourly run does not wake a paused Aurora. |
 | `edge.tf` | CloudFront distribution (default `*.cloudfront.net` certificate, `PriceClass_100`, no aliases/ACM/logging). Default behaviour: private site bucket via OAC, managed `CachingOptimized`, CloudFront Function `phoebe-<env>-spa-router` (viewer-request). `/api/*`: API function URL origin sending `X-Phoebe-Origin` (the origin secret), managed `CachingDisabled` and `AllViewerExceptHostHeader`, all methods, `compress = false` (SSE). Response headers policy (CSP, HSTS 1 year, nosniff, strict-origin-when-cross-origin) on both. Site bucket policy: `s3:GetObject` to `cloudfront.amazonaws.com` scoped to this distribution's ARN. |
 | `budget.tf` | Subscribes this env's budget Lambda to its own bootstrap topic `phoebe-budget-<env>` (ruling R16: a staging deploy can't touch production's subscription). |
 
@@ -29,17 +29,21 @@ them once at startup. The origin secret's value is generated here
 (`random_password.origin`) and is in state, because Task 6's CloudFront origin
 header needs it.
 
-Idle cost (spec §5.4, rulings R20/R21). Nothing at Lambda init touches the
+Idle cost (spec §5.4, rulings R20/R21/R25). Nothing at Lambda init touches the
 database: the API checks the embedder lazily on its first DB-using request
 (`503 database_unavailable` while Aurora resumes, `503 embedder_mismatch` if the
 stored vectors came from another embedder), `/api/health` and `/api/status` are
 DB-free, and the jobs Lambdas don't check at all (ops `seed_if_empty` does). The
 API writes `activity#last` (epoch seconds, at most once a minute per container)
-to the state table on login and on sandbox use; the sweeper writes
-`sweep#last_complete` after a DB sweep and skips the sweep and stale-doc check
-while `activity#last < sweep#last_complete`. If the state table can't be read,
-it sweeps. The cost: a sandbox that expires during an idle stretch is removed
-at the next sweep after new activity (its session has already ended).
+to the state table on login and on every authenticated sandbox request (where
+`last_seen` is bumped). The sweeper stores `sweep#last_started`, the start time
+of its last *completed* DB sweep (written only after success). The last activity
+arms two deadlines: `stale_due = activity + 60 min` (STALE_PROCESSING) and
+`expiry_due = activity + 24 h + 1 h` (ABSOLUTE_TIMEOUT + SWEEP_INTERVAL). An
+hourly run sweeps only when a deadline has passed and `last_started` is before
+it; otherwise it makes no DB call. So one visit costs about two Aurora wakes:
+one after an hour (stale uploads), one after 25 hours (sandbox expiry). A missing
+or unreadable value sweeps (fail toward correctness).
 
 ## Inputs
 
@@ -132,9 +136,10 @@ can be checked offline):
    file_too_large`.
 6. **Client IP and throttle.** `CloudFront-Viewer-Address` reaches the API
    (IPv4 and, if available, IPv6) and the login throttle keys per viewer.
-7. **Idle stays idle (R20).** With no visits for over an hour, the sweeper logs
-   `sweep skipped idle` and the Aurora cluster stays paused (0 ACU); a login
-   then makes the next hourly run sweep.
+7. **Idle stays idle (R20/R25).** After a visit, the sweeper runs once about an
+   hour later (stale deadline), then logs `sweep skipped idle` hourly with the
+   Aurora cluster paused (0 ACU), and runs once more about 25 hours after the
+   visit (expiry deadline), removing the expired sandbox.
 8. **Cold start while paused (R21).** With Aurora paused, the first page load
    shows the "waking up" copy (`503 database_unavailable`) rather than a 502,
    and `/api/health` stays 200 without resuming the cluster.

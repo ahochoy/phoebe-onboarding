@@ -1,6 +1,7 @@
 """Idle tracking (R20): the API records activity, the sweeper skips when idle."""
 
 import logging
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from phoebe.activity import (
 )
 from phoebe.api.app import Deps, build_deps
 from phoebe.config import Settings
+from phoebe.db import DatabaseUnavailable
 from phoebe.embed import HashEmbedder
 from phoebe.jobs import InlineJobQueue
 from phoebe.lambdas import ops, runtime, sweeper
@@ -151,52 +153,139 @@ def _sweeper_deps(
     return d
 
 
-def test_idle_sweeper_makes_no_db_call(
+class SweepDb:
+    """Counts sweeps: no expired sandboxes, no stale docs. `fail` raises."""
+
+    def __init__(self) -> None:
+        self.sweeps = 0
+        self.fail = False
+
+    def fetch(self, sql: str, params: Any = None) -> list[dict[str, Any]]:
+        if self.fail:
+            raise DatabaseUnavailable("resuming")
+        self.sweeps += 1  # each sweep starts with the expired-sandbox query
+        return []
+
+    def execute(self, sql: str, params: Any = None) -> int:
+        return 0
+
+    def transaction(self) -> Any:
+        raise AssertionError("no transaction without expired sandboxes")
+
+
+T = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
+
+
+def _at(monkeypatch: pytest.MonkeyPatch, when: datetime) -> None:
+    monkeypatch.setattr(sweeper, "_now", lambda: when)
+
+
+def _armed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Any, SweepDb]:
+    """Activity at T; the last completed sweep started well before it."""
+    store, sdb = CountingStore(), SweepDb()
+    store.write(ACTIVITY_KEY, int(T.timestamp()))
+    store.write(SWEEP_KEY, int((T - timedelta(hours=5)).timestamp()))
+    _sweeper_deps(monkeypatch, tmp_path, sdb, store)
+    return store, sdb
+
+
+def test_one_visit_wakes_the_database_twice(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    store, nodb = CountingStore(), NoDb()
-    store.write(ACTIVITY_KEY, 100)
-    store.write(SWEEP_KEY, 200)
+    # R25: stale deadline T+60m, expiry deadline T+24h+1h.
+    store, sdb = _armed(monkeypatch, tmp_path)
+    timeline = [
+        (timedelta(minutes=30), False),
+        (timedelta(minutes=61), True),  # stale_due passed
+        (timedelta(hours=2), False),
+        (timedelta(hours=25), True),  # expiry_due passed
+        (timedelta(hours=26), False),
+        (timedelta(hours=60), False),
+    ]
+    for offset, swept in timeline:
+        _at(monkeypatch, T + offset)
+        before = sdb.sweeps
+        out = sweeper.handler({}, None)
+        assert (sdb.sweeps > before) is swept, offset
+        assert ("skipped" not in out) is swept, offset
+        if swept:
+            assert store.read(SWEEP_KEY) == int((T + offset).timestamp())
+
+
+def test_new_activity_re_arms_both_deadlines(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store, sdb = _armed(monkeypatch, tmp_path)
+    for offset in (timedelta(minutes=61), timedelta(hours=25)):
+        _at(monkeypatch, T + offset)
+        sweeper.handler({}, None)
+    assert sdb.sweeps == 2
+    t2 = T + timedelta(hours=30)
+    store.write(ACTIVITY_KEY, int(t2.timestamp()))
+    expected = [
+        (timedelta(minutes=30), 2),
+        (timedelta(minutes=61), 3),
+        (timedelta(hours=3), 3),
+        (timedelta(hours=25), 4),
+        (timedelta(hours=26), 4),
+    ]
+    for offset, sweeps in expected:
+        _at(monkeypatch, t2 + offset)
+        sweeper.handler({}, None)
+        assert sdb.sweeps == sweeps, offset
+
+
+def test_idle_skip_makes_no_db_call_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = CountingStore()
+    store.write(ACTIVITY_KEY, int(T.timestamp()))
+    store.write(SWEEP_KEY, int((T + timedelta(hours=25)).timestamp()))
     store.writes.clear()
+    nodb = NoDb()
     _sweeper_deps(monkeypatch, tmp_path, nodb, store)
+    _at(monkeypatch, T + timedelta(days=10))
     assert sweeper.handler({}, None) == {"skipped": True}
     assert nodb.calls == 0
     assert store.writes == []
 
 
-def test_never_any_activity_after_a_sweep_is_idle(
+@pytest.mark.parametrize("missing", [ACTIVITY_KEY, SWEEP_KEY])
+def test_missing_values_sweep(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, missing: str
+) -> None:
+    store, sdb = CountingStore(), SweepDb()
+    present = SWEEP_KEY if missing == ACTIVITY_KEY else ACTIVITY_KEY
+    store.write(present, int(T.timestamp()))
+    _sweeper_deps(monkeypatch, tmp_path, sdb, store)
+    _at(monkeypatch, T + timedelta(minutes=1))
+    assert "sandboxes" in sweeper.handler({}, None)
+    assert sdb.sweeps == 1
+
+
+def test_a_failed_sweep_does_not_advance_last_started(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    store, nodb = CountingStore(), NoDb()
-    store.write(SWEEP_KEY, 200)
-    _sweeper_deps(monkeypatch, tmp_path, nodb, store)
-    assert sweeper.handler({}, None) == {"skipped": True}
-    assert nodb.calls == 0
+    store, sdb = _armed(monkeypatch, tmp_path)
+    before = store.read(SWEEP_KEY)
+    sdb.fail = True
+    _at(monkeypatch, T + timedelta(minutes=61))
+    with pytest.raises(DatabaseUnavailable):
+        sweeper.handler({}, None)
+    assert store.read(SWEEP_KEY) == before
+    sdb.fail = False
+    assert "sandboxes" in sweeper.handler({}, None)  # still due: retried
+    assert store.read(SWEEP_KEY) == int((T + timedelta(minutes=61)).timestamp())
 
 
-def test_activity_after_last_sweep_sweeps_and_marks_complete(
+def test_real_sweep_runs_against_postgres_when_due(
     db: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     store = CountingStore()
-    store.write(SWEEP_KEY, 100)
-    store.write(ACTIVITY_KEY, 150)
-    store.writes.clear()
     _sweeper_deps(monkeypatch, tmp_path, db, store)
     out = sweeper.handler({}, None)
     assert out == {"sandboxes": 0, "chunks": 0, "blobs": 0, "stale_docs": 0}
     assert [k for k, _ in store.writes] == [SWEEP_KEY]
-    assert (store.read(SWEEP_KEY) or 0) > 150
-    # Nothing new since: the next run is idle.
-    assert sweeper.handler({}, None) == {"skipped": True}
-
-
-def test_first_sweep_runs_without_a_completion_mark(
-    db: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    store = CountingStore()
-    _sweeper_deps(monkeypatch, tmp_path, db, store)
-    assert "sandboxes" in sweeper.handler({}, None)
-    assert store.read(SWEEP_KEY) is not None
 
 
 def test_unreadable_state_table_sweeps_anyway(

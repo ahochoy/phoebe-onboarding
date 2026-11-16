@@ -157,15 +157,16 @@ locals {
         Resource = local.uploads_objects
       },
       {
-        # Ruling R20: reads activity#last / sweep#last_complete to skip the DB
-        # when idle, and writes sweep#last_complete after a sweep. Only those keys.
+        # Rulings R20/R25: reads activity#last / sweep#last_started to skip the
+        # DB when no deadline is due, and writes sweep#last_started after a
+        # completed sweep. Only those keys.
         Sid      = "IdleState"
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem", "dynamodb:PutItem"]
         Resource = [aws_dynamodb_table.state.arn]
         Condition = {
           "ForAllValues:StringEquals" = {
-            "dynamodb:LeadingKeys" = ["activity#last", "sweep#last_complete"]
+            "dynamodb:LeadingKeys" = ["activity#last", "sweep#last_started"]
           }
         }
       },
