@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
+import { resetWake } from "../lib/wake";
 import { server } from "./server";
 
 // Node's fetch rejects relative URLs; resolve them against the jsdom origin,
@@ -40,6 +41,7 @@ window.matchMedia ??= ((query: string) => ({
 
 beforeEach(() => {
   window.sessionStorage.clear();
+  resetWake();
 });
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));

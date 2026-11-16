@@ -5,6 +5,8 @@ import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Citation, DoneEvent, StatusOut, TurnOut } from "../api/types";
+import { WAKING_COPY } from "../lib/messages";
+import { WAKING_AFTER_MS } from "../lib/wake";
 import { emitDemoReset } from "../state/demoReset";
 import { OPEN, PAUSED } from "../test/fixtures";
 import { makeClient } from "../test/render";
@@ -293,6 +295,42 @@ describe("ChatPanel", () => {
     expect(screen.queryByRole("button", { name: /Old policy/ })).not.toBeInTheDocument();
     expect(screen.getAllByText(/source removed/).length).toBeGreaterThan(0);
   });
+
+  it("focusing the composer nudges the database awake", async () => {
+    useBackground();
+    let wakes = 0;
+    server.use(
+      http.post("/api/wake", () => {
+        wakes += 1;
+        return HttpResponse.json({ database: "waking" }, { status: 202 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    const input = await screen.findByRole("textbox", { name: "Ask Phoebe a question" });
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.click(input);
+    await waitFor(() => expect(wakes).toBe(1));
+  });
+
+  it("a long wait before the first words says Phoebe may be waking up", async () => {
+    useBackground();
+    const chat = useChatStream();
+    const user = userEvent.setup();
+    renderPanel();
+
+    await ask(user, "First week?");
+    expect(await convo().findByText("Phoebe is thinking…")).toBeInTheDocument();
+    expect(
+      await convo().findByText(WAKING_COPY, {}, { timeout: WAKING_AFTER_MS + 2_000 }),
+    ).toBeInTheDocument();
+
+    chat.push("delta", { text: "Day one" });
+    expect(await convo().findByText("Day one")).toBeInTheDocument();
+    expect(convo().queryByText(WAKING_COPY)).not.toBeInTheDocument();
+    chat.push("done", done({ text: "Day one." }));
+    chat.close();
+  }, 15_000);
 
   it("send is disabled while an answer is streaming", async () => {
     useBackground();

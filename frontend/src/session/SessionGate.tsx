@@ -7,6 +7,7 @@ import { Header } from "../components/Header";
 import { Mascot } from "../components/Mascot";
 import { WelcomeSplash } from "../components/WelcomeSplash";
 import { messageFor } from "../lib/messages";
+import { nudgeWake } from "../lib/wake";
 import { forgetSession, useMe } from "./useMe";
 
 /** Renders its child routes only while there is a live session. */
@@ -24,6 +25,12 @@ export function SessionGate() {
       }),
     [navigate, queryClient],
   );
+
+  // Signed in: start a paused database resuming before the first question.
+  const signedIn = me.isSuccess;
+  useEffect(() => {
+    if (signedIn) nudgeWake();
+  }, [signedIn]);
 
   if (me.isPending) {
     return (

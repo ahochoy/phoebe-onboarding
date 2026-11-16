@@ -1240,6 +1240,23 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WakeOut": {
+        "properties": {
+          "database": {
+            "enum": [
+              "awake",
+              "waking"
+            ],
+            "title": "Database",
+            "type": "string"
+          }
+        },
+        "required": [
+          "database"
+        ],
+        "title": "WakeOut",
+        "type": "object"
       }
     }
   },
@@ -2089,6 +2106,35 @@
           }
         },
         "summary": "Put Completion"
+      }
+    },
+    "/api/wake": {
+      "post": {
+        "description": "Signed-in only, so crawlers on the public landing page never wake the\ndatabase. Uses the session (not the sandbox, whose registration writes to the\ndatabase and would wait out the resume) and returns at once either way.",
+        "operationId": "wake_api_wake_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WakeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WakeOut"
+                }
+              }
+            },
+            "description": "The database is resuming."
+          }
+        },
+        "summary": "Wake"
       }
     }
   }

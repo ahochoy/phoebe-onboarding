@@ -33,6 +33,9 @@ const GENERIC = "Something went wrong. Try again in a moment.";
 export const PAUSED_COPY =
   "You can still browse Phoebe and explore the UX. Chat and document upload are paused until limits reset.";
 
+/** Shown while an answer has been silent for a while (see lib/wake.ts). */
+export const WAKING_COPY = "Phoebe is waking up. This can take up to 30 seconds.";
+
 /** Replaces an answer the visitor stopped. Not an error. */
 export const STOPPED_COPY = "You stopped this answer.";
 

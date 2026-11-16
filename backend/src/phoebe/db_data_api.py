@@ -220,6 +220,25 @@ class DataApiDatabase(Database):
             "execute_statement", retry_timeouts=_is_read_only(sql), **kwargs
         )
 
+    def wake(self) -> bool:
+        """One `select 1` that never waits: True if the cluster answered, False
+        if it is resuming. Calling a paused cluster is what starts the resume."""
+        try:
+            self._client.execute_statement(**self._target, sql="select 1")
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code == _RESUMING:
+                _log.info("database resuming op=wake")
+                return False
+            if code in _OUTAGE:
+                _log.warning("database unavailable op=wake code=%s", code)
+                raise DatabaseUnavailable(code) from None
+            raise
+        except BotoCoreError as exc:
+            _log.warning("database unreachable op=wake %s", type(exc).__name__)
+            raise DatabaseUnavailable(type(exc).__name__) from None
+        return True
+
     def fetch(
         self, sql: str, params: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
