@@ -113,9 +113,11 @@ locals {
         Resource = [local.guardrail_arn]
       },
       {
-        Sid      = "AnswerHarness"
-        Effect   = "Allow"
-        Action   = ["bedrock-agentcore:InvokeHarness"] # botocore bedrock-agentcore: operation InvokeHarness
+        Sid    = "AnswerHarness"
+        Effect = "Allow"
+        # InvokeHarness runs on the harness's AgentCore runtime, so the caller
+        # needs InvokeAgentRuntime on the harness ARN as well (AWS docs).
+        Action   = ["bedrock-agentcore:InvokeHarness", "bedrock-agentcore:InvokeAgentRuntime"]
         Resource = [local.harness_arn]
       },
     ])
