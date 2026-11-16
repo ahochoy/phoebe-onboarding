@@ -6,12 +6,11 @@ env = "production"
 api_reserved_concurrency    = null
 worker_reserved_concurrency = null
 
-# Account-specific inputs (no secrets; the values are ARNs and names). Fill in
-# with the account id once infra/bootstrap is applied (Task 9), then commit:
-# boundary_policy_arn      = "arn:aws:iam::<account_id>:policy/phoebe-boundary-production"
-# ai_state_bucket          = "phoebe-tfstate-<account_id>"
-# budget_topic_arn         = "arn:aws:sns:us-east-2:<account_id>:phoebe-budget-production"
-# password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:<account_id>:secret:phoebe-production-password-hash-<suffix>"
+# Account-specific inputs (no secrets; the values are ARNs and names).
+boundary_policy_arn      = "arn:aws:iam::927161114143:policy/phoebe-boundary-production"
+ai_state_bucket          = "phoebe-tfstate-927161114143"
+budget_topic_arn         = "arn:aws:sns:us-east-2:927161114143:phoebe-budget-production"
+password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:927161114143:secret:phoebe-production-password-hash-motrOw"
 
 # Image digests are passed per deploy:
 #   -var api_image_digest=sha256:... -var jobs_image_digest=sha256:...
