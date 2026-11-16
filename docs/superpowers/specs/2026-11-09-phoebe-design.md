@@ -25,7 +25,8 @@ The app runs entirely on AWS, because that is closest to what a client would use
 - A complete onboarding experience: tiered tasks, progress tracking, document library, metadata, delight moments.
 - Responsive (phone and desktop), cross-browser (Windows/Chrome/Edge/Firefox, macOS/iOS Safari, Android Chrome), and accessible (WCAG 2.2 AA).
 - Secure, with spend capped at every layer, and a kill switch the owner can pull at any time.
-- A custom domain for a polished, shareable link, set up end to end in AWS as part of the infrastructure demo (see §5.3).
+- A shareable link. *(Amended 2026-11-16: no custom domain in AWS. The site uses its CloudFront address, and the owner points a convenience redirect from `phoebe-onboarding.hochoy.dev` at it. See §5.3.)*
+- Automated delivery: PR previews, staging on every merge to `main`, and production on a tagged release (see §5.5).
 - Lowest possible standing cost. Target about $5–10 per month at demo usage, nearly $0 when idle.
 
 **Non-goals**
@@ -115,7 +116,7 @@ Admin changes show up in employee mode right away (tasks, docs list). Document c
 Browser (React SPA)
    │ HTTPS
    ▼
-Route 53 (custom domain) → CloudFront (ACM cert, us-east-1) ── S3 (static SPA)
+CloudFront (*.cloudfront.net) ── S3 (static SPA, plus PR previews under /pr-<n>/)
    │ /api/*
    ▼
 Lambda function URL (response streaming) — FastAPI in container (Lambda Web Adapter)
@@ -145,13 +146,42 @@ Bedrock: Titan Text Embeddings v2; Claude Haiku 4.5 via AgentCore Harness; Guard
 ### 5.2 Why no VPC
 The owner chose cost and simplicity over network isolation. A Lambda inside a VPC needs a NAT gateway (about $32/month standing) or several VPC endpoints to reach Bedrock. The Data API lets Lambda reach Aurora over HTTPS with IAM, so Lambda stays outside a VPC. Aurora still lives in AWS-managed private networking and is not publicly accessible.
 
-### 5.3 Custom domain (owner-decided)
+### 5.3 Custom domain (superseded 2026-11-16)
+
+**Decision (owner, 2026-11-16):** no custom domain, Route 53 zone or ACM certificate in AWS. Each environment uses its CloudFront default address. For sharing, the owner sets up an HTTP redirect, not a CNAME, from `phoebe-onboarding.hochoy.dev` to the production CloudFront address outside AWS. A CNAME would fail, because CloudFront would serve neither a certificate nor an alternate domain name for it. The text below records the original plan and is no longer built.
 - The owner will register a domain through **Route 53 Domains**. The domain name is not chosen yet, so Terraform takes it as a variable.
 - Terraform manages the Route 53 hosted zone, the DNS records (A/AAAA alias to CloudFront), and an **ACM certificate in us-east-1** validated by DNS and attached to the CloudFront distribution. HTTPS only; HTTP redirects to HTTPS.
 - The site lives at the apex domain or a subdomain such as `phoebe.<domain>`. The builder decides.
 - **Until the domain exists,** everything works on the default `*.cloudfront.net` address. The domain pieces sit behind a Terraform toggle (`domain_name = null` means off), so they can be added later without reworking anything.
 - **Must verify before building this part:** CloudFront requires its ACM certificate to be in us-east-1. The project rules allow CloudFront, WAF, and CloudWatch Logs in us-east-1, but they don't explicitly mention ACM. First check that an ACM certificate can be requested in us-east-1 under this project's SCPs. If it can't, ask the owner before choosing a workaround.
 - Cost: a hosted zone is $0.50/month, plus the yearly registration fee (about $13–15 for a `.com`). Public ACM certificates are free.
+
+### 5.5 Environments and delivery (owner-decided 2026-11-16)
+
+**Environments**
+- **Staging:** deploys automatically on every merge to `main`.
+- **Production:** deploys when the owner pushes a `v*` tag (normally by publishing a GitHub Release), after the owner approves the plan. The release promotes the container image already built and tested on staging, by digest; it never rebuilds.
+- **PR previews:** frontend only, served from the staging distribution at `https://<staging>.cloudfront.net/pr-<n>/` and pointed at the staging API. They share the staging backend, so each preview visitor still gets their own sandbox. A preview is deleted when its PR closes.
+- Staging and production are separate copies of the same Terraform configuration, each with its own state, database, tables, buckets and Lambdas. The Bedrock Guardrail and Harnesses (`infra/ai`) are shared, because they have no idle cost and no per-environment data.
+
+**Where things run**
+- GitHub Actions runs tests and lint on every PR and on `main`, including the Playwright suite. It holds no AWS credentials.
+- AWS runs every Terraform command and deploy: CodeBuild in us-east-2, connected to GitHub through an AWS CodeConnections GitHub App connection that the owner authorizes once in the console. No AWS keys are stored in GitHub. *Why:* the project's managed SCP denies `iam:CreateOpenIDConnectProvider`, so GitHub's keyless sign-in is not available (checked 2026-11-16).
+- **Triggers:**
+  - CodeBuild webhooks for PR events (previews and a read-only `terraform plan`) and for pushes to `main` (staging).
+  - A CodePipeline for `v*` tags (production), with a manual approval stage. The owner is the only approver.
+  - Every webhook filters on the owner's GitHub account, so a pull request from a fork never runs a build. This is required because the repo is public and a build runs the PR's own code with a deploy role.
+- **Terraform state** lives in an S3 bucket in us-east-2, versioned and encrypted, with S3-native locking. A small bootstrap configuration holds what deploys the deployer:
+  - the state bucket;
+  - the shared ECR repository;
+  - the connection;
+  - the CodeBuild projects and the CodePipeline;
+  - their roles.
+
+  The owner applies it locally. Everything else goes through CodeBuild.
+- **Deploy roles** can manage only `phoebe-*` resources. Every IAM role they create carries a fixed permissions boundary, so a deploy can never mint a role broader than the boundary.
+
+**Not wanted:** tag-protection rules, branch-ancestry checks on release tags, or a separate production branch. The owner is the only person with access, and the approval stage is the manual step.
 
 ### 5.4 Cost (checked 2026-11-09, us-east-2 list prices)
 - Aurora Serverless v2: $0.12 per ACU-hour, $0.10 per GB-month of storage, $0.20 per million I/O requests. At 0 ACU when paused, idle costs only storage (well under $1). Light demo use costs about $4–7 per month. The trade-off is a resume delay of roughly 15 seconds after a pause, which the warm-up call on login hides.
@@ -231,7 +261,7 @@ A fictional company (working name "Acme"; the builder may pick something better)
 
 - Streaming behavior as described in §7: live tokens, with the answer replaced if the check fails.
 - Nova Micro fallback is a **manual config switch**, not automatic. It uses a second harness definition. Evals run per model before switching.
-- CI is GitHub Actions: tests, lint, and Playwright on every PR, with no Bedrock calls. Evals that call Bedrock run only by manual trigger, through a GitHub OIDC role scoped to the two models, plus a CI-specific token cap. Deploys use local `terraform apply`, as in phineas. The faithfulness judge doesn't block merges until it's calibrated.
+- CI is GitHub Actions: tests, lint, and Playwright on every PR, with no Bedrock calls. Evals that call Bedrock run only by manual trigger, plus a CI-specific token cap. *(Amended 2026-11-16: GitHub OIDC is blocked by the project SCP, so Bedrock evals run as a manually started CodeBuild job with a role scoped to the two models. Deploys run in CodeBuild, not as local `terraform apply`. See §5.5.)* The faithfulness judge doesn't block merges until it's calibrated.
 - Free plan check: Aurora, Bedrock (including Guardrails), AgentCore, Lambda, CloudFront, DynamoDB, SQS, S3, EventBridge, Secrets Manager, and Budgets are all on the Free-tier supported list. The plan includes a dated reminder before 2027-03-30 to decide whether to upgrade or tear down.
 
 ## 11. Left to the builder
