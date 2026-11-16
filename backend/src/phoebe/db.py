@@ -51,6 +51,17 @@ class Database(Protocol):
     def transaction(self) -> AbstractContextManager[Database]: ...
 
 
+def wake_database(db: Database) -> bool:
+    """Nudge the store awake without waiting: True if it answered, False if it is
+    still resuming. A backend that can pause (the Data API) declares `wake()`;
+    any other backend is always awake, so a trivial query is enough."""
+    wake = getattr(db, "wake", None)
+    if callable(wake):
+        return bool(wake())
+    db.fetch("select 1")
+    return True
+
+
 class ClosableDatabase(Database, Protocol):
     def close(self) -> None: ...
 

@@ -1,16 +1,19 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from phoebe.api.limits import DAY, HOUR
-from phoebe.api.security import COOKIE_NAME
+from phoebe.api.security import COOKIE_NAME, require_csrf, require_session
 from phoebe.control import KillState
+from phoebe.db import wake_database
 from phoebe.limits import LimitsUnavailable
-from phoebe.sessions import sandbox_id
+from phoebe.sessions import Session, sandbox_id
 
 router = APIRouter(prefix="/api")
-routers = (router,)
+post_router = APIRouter(prefix="/api", dependencies=[Depends(require_csrf)])
+routers = (router, post_router)
 
 
 StatusReason = Literal[
@@ -80,3 +83,25 @@ def status(request: Request) -> StatusOut:
         upload_available=not upload,
         reasons=[*chat, *upload],
     )
+
+
+class WakeOut(BaseModel):
+    database: Literal["awake", "waking"]
+
+
+@post_router.post(
+    "/wake",
+    response_model=WakeOut,
+    responses={202: {"model": WakeOut, "description": "The database is resuming."}},
+)
+def wake(
+    request: Request, _session: Annotated[Session, Depends(require_session)]
+) -> JSONResponse:
+    """Signed-in only, so crawlers on the public landing page never wake the
+    database. Uses the session (not the sandbox, whose registration writes to the
+    database and would wait out the resume) and returns at once either way."""
+    deps = request.app.state.deps
+    deps.activity.touch()  # a visitor is here: the sweeper should expect work
+    if wake_database(deps.db):
+        return JSONResponse(WakeOut(database="awake").model_dump(), status_code=200)
+    return JSONResponse(WakeOut(database="waking").model_dump(), status_code=202)

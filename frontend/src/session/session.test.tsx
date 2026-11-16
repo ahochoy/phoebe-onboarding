@@ -16,6 +16,35 @@ describe("session", () => {
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
   });
 
+  it("the signed-in app nudges the database awake once on arrival", async () => {
+    useSession();
+    let wakes = 0;
+    server.use(
+      http.post("/api/wake", () => {
+        wakes += 1;
+        return HttpResponse.json({ database: "waking" }, { status: 202 });
+      }),
+    );
+    renderApp("/employee");
+    expect(await screen.findByRole("heading", { name: "Chat" })).toBeInTheDocument();
+    await waitFor(() => expect(wakes).toBe(1));
+  });
+
+  it("the public landing page never wakes the database", async () => {
+    let wakes = 0;
+    server.use(
+      http.get("/api/me", unauthorized),
+      http.get("/api/status", () => HttpResponse.json(OPEN)),
+      http.post("/api/wake", () => {
+        wakes += 1;
+        return HttpResponse.json({ database: "awake" });
+      }),
+    );
+    renderApp("/");
+    expect(await screen.findByLabelText(/password/i)).toBeInTheDocument();
+    expect(wakes).toBe(0);
+  });
+
   it("redirects /admin to /admin/people", async () => {
     useSession();
     const { router } = renderApp("/admin");

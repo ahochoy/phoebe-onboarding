@@ -20,6 +20,7 @@ from phoebe.db import (
     PsycopgDatabase,
     json_column,
     utc_datetime,
+    wake_database,
 )
 from phoebe.db_data_api import TEXT_SLICE_CHARS, DataApiDatabase, encode_params
 from phoebe.documents import (
@@ -407,6 +408,30 @@ def test_other_outage_codes_are_unavailable_without_retry(code: str) -> None:
     with pytest.raises(DatabaseUnavailable):
         make_db(fake).fetch("select 1")
     assert len(fake.calls) == 1
+
+
+def test_wake_answers_from_an_awake_cluster() -> None:
+    fake, sleeps = FakeRds(), []
+    assert make_db(fake, sleeps).wake() is True
+    assert [kw["sql"] for _, kw in fake.calls] == ["select 1"]
+    assert sleeps == []
+
+
+def test_wake_does_not_wait_for_a_resuming_cluster() -> None:
+    fake, sleeps = FakeRds(client_error("DatabaseResumingException")), []
+    assert make_db(fake, sleeps).wake() is False
+    assert len(fake.calls) == 1
+    assert sleeps == []
+
+
+def test_wake_during_an_outage_is_unavailable() -> None:
+    fake = FakeRds(client_error("DatabaseUnavailableException"))
+    with pytest.raises(DatabaseUnavailable):
+        make_db(fake).wake()
+
+
+def test_wake_database_falls_back_to_a_query(db: PsycopgDatabase) -> None:
+    assert wake_database(db) is True
 
 
 def test_sql_errors_pass_through_unchanged() -> None:

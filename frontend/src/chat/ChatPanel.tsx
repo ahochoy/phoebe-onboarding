@@ -1,9 +1,10 @@
 import { ComposerPrimitive, MessagePrimitive, ThreadPrimitive } from "@assistant-ui/react";
 import { AlertCircle, Info, SendHorizontal } from "lucide-react";
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { Mascot } from "../components/Mascot";
 import { useViewer } from "../documents/ViewerProvider";
-import { PAUSED_COPY } from "../lib/messages";
+import { PAUSED_COPY, WAKING_COPY } from "../lib/messages";
+import { nudgeWake, WAKING_AFTER_MS } from "../lib/wake";
 import { useChat } from "./ChatRuntimeProvider";
 import { CitedText } from "./CitedText";
 import type { ChatMessage } from "./reducer";
@@ -40,8 +41,24 @@ function Greeting() {
   );
 }
 
+/** True once `active` has stayed true for `ms`; resets when it turns false. */
+function useStillWaiting(active: boolean, ms: number): boolean {
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setTimeout(() => setLate(true), ms);
+    return () => {
+      clearTimeout(timer);
+      setLate(false);
+    };
+  }, [active, ms]);
+  return active && late;
+}
+
 function AssistantBody({ message }: { message: ChatMessage }) {
   const viewer = useViewer();
+  const silent = message.status === "streaming" && message.text === "";
+  const waking = useStillWaiting(silent, WAKING_AFTER_MS);
   if (message.status === "error") {
     return (
       <p className="flex items-start gap-1.5 text-danger">
@@ -50,8 +67,12 @@ function AssistantBody({ message }: { message: ChatMessage }) {
       </p>
     );
   }
-  if (message.status === "streaming" && message.text === "") {
-    return <p className="text-ink/70 motion-safe:animate-pulse">Phoebe is thinking…</p>;
+  if (silent) {
+    return (
+      <p className="text-ink/70 motion-safe:animate-pulse">
+        {waking ? WAKING_COPY : "Phoebe is thinking…"}
+      </p>
+    );
   }
   const settled = message.status === "done";
   return (
@@ -116,6 +137,9 @@ function Composer() {
           cancelOnEscape={false}
           rows={1}
           disabled={!chatAvailable}
+          // Someone about to ask: make sure a paused database is resuming.
+          onFocus={() => nudgeWake()}
+          onInput={() => nudgeWake()}
           className="min-h-10 flex-1 resize-none rounded-lg border border-ink/20 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-ink/5"
         />
         <ComposerPrimitive.Send
