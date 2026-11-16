@@ -6,4 +6,4 @@ github_repo     = "ahochoy/phoebe-onboarding"
 github_connection_ready = true
 
 # Staging CloudFront id, set after the first staging deploy (README.md, step 7).
-staging_distribution_id = ""
+staging_distribution_id = "E211BZRUJX3U4M"
