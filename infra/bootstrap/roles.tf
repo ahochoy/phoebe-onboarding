@@ -122,7 +122,7 @@ locals {
           "scheduler:GetSchedule", "scheduler:ListTagsForResource",
           "s3:GetBucket*", "s3:GetEncryptionConfiguration", "s3:GetLifecycleConfiguration",
           "s3:GetAccelerateConfiguration", "s3:GetReplicationConfiguration", "s3:ListBucket",
-          "cloudfront:GetFunction", "cloudfront:DescribeFunction",
+          "cloudfront:GetFunction", "cloudfront:DescribeFunction", "cloudfront:ListTagsForResource",
         ]
         Resource = [
           "${local.arn_prefix.lambda}:function:phoebe-${env}-*",
