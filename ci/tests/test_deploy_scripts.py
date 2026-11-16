@@ -30,7 +30,7 @@ DIST = "E2EXAMPLE123"
 BUCKET = "phoebe-staging-site-123456789012"
 OPS = "phoebe-staging-ops"
 
-STUBBED = ("aws", "terraform", "docker", "npm", "curl")
+STUBBED = ("aws", "terraform", "docker", "npm", "curl", "git")
 
 STUB = r"""#!{python}
 import json, os, sys
@@ -254,13 +254,16 @@ def test_deploy_stops_on_ops_function_error(h: Harness) -> None:
         "aws",
         match=["lambda", "invoke", "migrate"],
         write_last=True,
-        content='{"errorMessage": "boom"}',
+        content='{"errorType": "OperationalError", "errorMessage": "password=hunter2"}',
         stdout='{"StatusCode": 200, "FunctionError": "Unhandled"}',
     )
     deploy_ok(h)
     r = h.run("deploy.sh", "staging", API, JOBS)
     assert r.returncode != 0
     assert "migrate" in r.stderr
+    # Only the error type is logged, never the payload text.
+    assert "OperationalError" in r.stderr
+    assert "hunter2" not in r.stdout + r.stderr
     assert not any(a[:2] == ["s3", "sync"] for a in h.argvs("aws"))
     assert not any("seed_if_empty" in " ".join(a) for a in h.argvs("aws"))
 
@@ -369,12 +372,36 @@ def test_deploy_production_applies_saved_plan(h: Harness, tmp_path: Path) -> Non
     assert not any(a[0] == "plan" for a in h.argvs("terraform"))
 
 
+XTRACE = re.compile(r"^[^#\n]*\bset\s+(-[a-zA-Z]*x|-o\s+xtrace)\b", re.MULTILINE)
+
+
+@pytest.mark.parametrize(
+    ("line", "hit"),
+    [
+        ("set -x", True),
+        ("  set -eux", True),
+        ("set -o xtrace", True),
+        ("foo; set -o  xtrace", True),
+        ("# never set -x here", False),
+        ("set -euo pipefail", False),
+        ("set +x", False),
+    ],
+)
+def test_xtrace_pattern(line: str, hit: bool) -> None:
+    assert bool(XTRACE.search(line)) is hit
+
+
 def test_deploy_never_sets_xtrace() -> None:
-    for script in CI.glob("*.sh"):
-        text = script.read_text()
-        assert not re.search(r"^[^#\n]*\bset\s+-[a-z]*x", text, re.MULTILINE), (
-            f"{script.name} enables xtrace"
-        )
+    for script in [*CI.glob("*.sh"), *CI.glob("buildspec-*.yml")]:
+        assert not XTRACE.search(script.read_text()), f"{script.name} enables xtrace"
+
+
+def test_deploy_production_requires_a_saved_plan(h: Harness) -> None:
+    deploy_ok(h, "production")
+    r = h.run("deploy.sh", "production", API, JOBS)
+    assert r.returncode != 0
+    assert "saved plan" in r.stderr
+    assert not any(a[0] == "apply" for a in h.argvs("terraform"))
 
 
 # ---- smoke.sh --------------------------------------------------------------------
@@ -506,16 +533,26 @@ def test_staging_rejects_bad_commit(h: Harness) -> None:
 
 # ---- release-plan.sh -------------------------------------------------------------
 
-TAGS_URL = "https://api.github.com/repos/owner/repo/tags?per_page=100&page=1"
 
-
-def release_tags(h: Harness, tags: list[tuple[str, str]]) -> None:
-    body = json.dumps([{"name": n, "commit": {"sha": s}} for n, s in tags])
-    h.rule("curl", url=TAGS_URL, stdout=body)
+def release_tags(
+    h: Harness, tags: list[str], *, shallow: bool = False, head: str = COMMIT
+) -> None:
+    """Stub git for the CODEBUILD_CLONE_REF clone: HEAD, shallowness, tags on HEAD."""
+    h.rule("git", match=["rev-parse", "HEAD"], stdout=head + "\n")
+    h.rule(
+        "git",
+        match=["rev-parse", "--is-shallow-repository"],
+        stdout="true\n" if shallow else "false\n",
+    )
+    h.rule(
+        "git",
+        match=["tag", "--points-at", COMMIT],
+        stdout="".join(t + "\n" for t in tags),
+    )
 
 
 def plan_env(**extra: str) -> dict[str, str]:
-    return {"RELEASE_COMMIT": COMMIT, "PHOEBE_GITHUB_REPO": "owner/repo", **extra}
+    return {"RELEASE_COMMIT": COMMIT, **extra}
 
 
 def images_present(h: Harness) -> None:
@@ -527,7 +564,7 @@ def test_release_plan_fails_clearly_when_image_missing(
     h: Harness, tmp_path: Path
 ) -> None:
     h.rule("aws", match=["describe-images"], stderr=NOT_FOUND, exit=254)
-    release_tags(h, [("v1.2.3", COMMIT)])
+    release_tags(h, ["v1.2.3"])
     r = h.run("release-plan.sh", str(tmp_path / "out"), env=plan_env())
     assert r.returncode != 0
     assert f"phoebe-api:{COMMIT}" in r.stderr
@@ -543,7 +580,7 @@ def test_release_plan_fails_when_jobs_image_missing(h: Harness, tmp_path: Path) 
         exit=254,
     )
     h.rule("aws", match=["describe-images", f"imageTag={COMMIT} "], stdout=API)
-    release_tags(h, [("v1.2.3", COMMIT)])
+    release_tags(h, ["v1.2.3"])
     r = h.run("release-plan.sh", str(tmp_path / "out"), env=plan_env())
     assert r.returncode != 0
     assert f"phoebe-api:{COMMIT}-jobs" in r.stderr
@@ -560,7 +597,7 @@ def test_release_plan_surfaces_other_ecr_errors(h: Harness, tmp_path: Path) -> N
 
 def test_release_plan_saves_plan_and_digests(h: Harness, tmp_path: Path) -> None:
     images_present(h)
-    release_tags(h, [("v0.9.0", "d" * 40), ("v1.2.3", COMMIT)])
+    release_tags(h, ["v1.2.3"])
     out = tmp_path / "out"
     r = h.run("release-plan.sh", str(out), env=plan_env())
     assert r.returncode == 0, r.stdout + r.stderr
@@ -589,10 +626,87 @@ def test_release_plan_fails_without_a_tag_for_the_commit(
     h: Harness, tmp_path: Path
 ) -> None:
     images_present(h)
-    release_tags(h, [("v0.9.0", "d" * 40)])
+    release_tags(h, [])
     r = h.run("release-plan.sh", str(tmp_path / "out"), env=plan_env())
     assert r.returncode != 0
-    assert "tag" in r.stderr
+    assert "no v* git tag" in r.stderr
+    assert not any(a[0] == "plan" for a in h.argvs("terraform"))
+
+
+def release_env(out: Path) -> dict[str, str]:
+    lines = (out / "release.env").read_text().splitlines()
+    return dict(line.split("=", 1) for line in lines)
+
+
+def test_release_plan_reads_the_tag_with_git_not_the_github_api(
+    h: Harness, tmp_path: Path
+) -> None:
+    images_present(h)
+    release_tags(h, ["v1.2.3"])
+    out = tmp_path / "out"
+    r = h.run("release-plan.sh", str(out), env=plan_env())
+    assert r.returncode == 0, r.stdout + r.stderr
+    tag = next(a for a in h.argvs("git") if "tag" in a)
+    assert tag[-4:] == ["--points-at", COMMIT, "--list", "v*"]
+    assert all(c["argv"][:2] == ["-C", str(REPO)] for c in h.calls("git"))
+    assert h.calls("curl") == []
+    assert not any("fetch" in a for a in h.argvs("git"))
+    assert release_env(out)["RELEASE_TAG"] == "v1.2.3"
+
+
+def test_release_plan_picks_the_highest_of_several_tags(
+    h: Harness, tmp_path: Path
+) -> None:
+    images_present(h)
+    release_tags(h, ["v1.9.2", "v1.10.0", "v1.2.3"])
+    out = tmp_path / "out"
+    r = h.run("release-plan.sh", str(out), env=plan_env())
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert release_env(out)["RELEASE_TAG"] == "v1.10.0"
+    assert "using the highest" in r.stdout
+
+
+def test_release_plan_ignores_non_release_tags(h: Harness, tmp_path: Path) -> None:
+    images_present(h)
+    # git's `v*` glob still lets these through; only v<digit>... is a release tag.
+    release_tags(h, ["v1.2.3", "vnext", "version-bump", "v2;rm"])
+    out = tmp_path / "out"
+    r = h.run("release-plan.sh", str(out), env=plan_env())
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert release_env(out)["RELEASE_TAG"] == "v1.2.3"
+
+
+def test_release_plan_dies_when_only_non_release_tags(
+    h: Harness, tmp_path: Path
+) -> None:
+    images_present(h)
+    release_tags(h, ["vnext", "latest"])
+    r = h.run("release-plan.sh", str(tmp_path / "out"), env=plan_env())
+    assert r.returncode != 0
+    assert "no v* git tag" in r.stderr
+    assert not any(a[0] == "plan" for a in h.argvs("terraform"))
+
+
+def test_release_plan_fetches_tags_in_a_shallow_clone(
+    h: Harness, tmp_path: Path
+) -> None:
+    images_present(h)
+    release_tags(h, ["v1.2.3"], shallow=True)
+    r = h.run("release-plan.sh", str(tmp_path / "out"), env=plan_env())
+    assert r.returncode == 0, r.stdout + r.stderr
+    fetch = h.index("git", "fetch")
+    assert "--tags" in h.calls()[fetch]["argv"]
+    assert fetch < h.index("git", "--points-at")
+
+
+def test_release_plan_refuses_a_clone_at_another_commit(
+    h: Harness, tmp_path: Path
+) -> None:
+    images_present(h)
+    release_tags(h, ["v1.2.3"], head="e" * 40)
+    r = h.run("release-plan.sh", str(tmp_path / "out"), env=plan_env())
+    assert r.returncode != 0
+    assert "not the release commit" in r.stderr
     assert not any(a[0] == "plan" for a in h.argvs("terraform"))
 
 

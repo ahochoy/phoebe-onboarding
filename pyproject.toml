@@ -44,6 +44,7 @@ dev = [
     "moto[dynamodb,s3,secretsmanager,sqs]>=5.2.5",
     "pyright>=1.1.414",
     "pytest>=9.2.0",
+    "pyyaml>=6.0.3",
     "ruff>=0.17.4",
     "types-pyyaml>=6.0.12.20261111",
 ]

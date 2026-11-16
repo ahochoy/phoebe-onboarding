@@ -319,6 +319,20 @@ run "builds" {
     error_message = "The PR spec validates N, builds the preview under /pr-$N/ and plans without a lock."
   }
 
+  # R11: the preview follows the site caching contract.
+  assert {
+    condition = (
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "P=\"s3://$SITE_BUCKET/previews/pr-$N\"") &&
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec,
+      "aws s3 sync dist/assets/ \"$P/assets/\" --only-show-errors --cache-control \"public, max-age=31536000, immutable\"") &&
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec,
+      "aws s3 sync dist/ \"$P/\" --only-show-errors --exclude \"assets/*\" --cache-control \"no-cache\"") &&
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec,
+      "aws s3 sync dist/ \"$P/\" --only-show-errors --delete --size-only")
+    )
+    error_message = "R11: preview assets/ are immutable for a year, root files are no-cache, and the prune only deletes."
+  }
+
   assert {
     condition = alltrue([
       for k in ["pr", "pr-cleanup", "staging"] :
@@ -445,11 +459,33 @@ run "project_roles" {
           can(regex("^[a-z0-9-]+:(Get|List|Describe|BatchGet)[A-Za-z]*\\*?$", a)) ||
           (a == "s3:PutObject" && jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:s3:::phoebe-pipeline-artifacts-123456789012/*"])) ||
           (contains(["logs:CreateLogStream", "logs:PutLogEvents"], a) &&
-          jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:logs:us-east-2:123456789012:log-group:/aws/codebuild/phoebe-release-plan:*"]))
+          jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:logs:us-east-2:123456789012:log-group:/aws/codebuild/phoebe-release-plan:*"])) ||
+          (contains(["codeconnections:UseConnection", "codestar-connections:UseConnection"], a) &&
+            alltrue([for r in flatten([s.Resource]) :
+          can(regex("^arn:aws:(codeconnections|codestar-connections):us-east-2:123456789012:connection/", r))]))
         )
       ] if s.Effect == "Allow"
     ]))
-    error_message = "phoebe-ci-plan-production writes nothing but the saved plan artifact and its build logs."
+    error_message = "phoebe-ci-plan-production writes nothing but the saved plan artifact and its build logs (plus the connection, to clone)."
+  }
+
+  # R17: both release roles can use the connection for the CODEBUILD_CLONE_REF
+  # source, with exactly the documented actions, on the phoebe-github connection only.
+  assert {
+    condition = alltrue([
+      for k in ["plan-production", "deploy-production"] : anytrue([
+        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement :
+        s.Sid == "CloneReleaseSource" && s.Effect == "Allow" &&
+        jsonencode(sort(flatten([s.Action]))) == jsonencode(sort([
+          "codeconnections:UseConnection", "codeconnections:GetConnectionToken", "codestar-connections:UseConnection",
+        ])) &&
+        jsonencode(sort(flatten([s.Resource]))) == jsonencode(sort([
+          "arn:aws:codeconnections:us-east-2:123456789012:connection/00000000-0000-0000-0000-000000000000",
+          "arn:aws:codestar-connections:us-east-2:123456789012:connection/00000000-0000-0000-0000-000000000000",
+        ]))
+      ])
+    ])
+    error_message = "Release roles hold CloneReleaseSource (UseConnection, GetConnectionToken) on the phoebe-github connection only."
   }
 
   assert {
@@ -889,6 +925,11 @@ run "pipeline" {
       aws_codepipeline.release.stage[0].action[0].configuration["FullRepositoryId"] == "ahochoy/phoebe-onboarding"
     )
     error_message = "Source reads the repo through the phoebe-github connection."
+  }
+
+  assert {
+    condition     = aws_codepipeline.release.stage[0].action[0].configuration["OutputArtifactFormat"] == "CODEBUILD_CLONE_REF"
+    error_message = "R17: Source hands CodeBuild a git clone (CODEBUILD_CLONE_REF) so release-plan reads the tag with git."
   }
 
   assert {

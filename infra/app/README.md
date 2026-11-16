@@ -78,7 +78,7 @@ Applies run only in CodeBuild (Task 8) or under the Task 9 owner gate.
 | CodeBuild project | Buildspec | Script | What it does |
 |---|---|---|---|
 | `phoebe-staging` (push to main) | `ci/buildspec-staging.yml` | `ci/staging.sh` | `docker buildx build --platform linux/arm64 --target api\|jobs -f backend/Dockerfile .`, pushed as `phoebe-api:<sha>` and `<sha>-jobs` (a retried build reuses already-pushed tags), digests read back from ECR, then `ci/deploy.sh staging <api> <jobs>`. |
-| `phoebe-release-plan` (tag `v*`) | `ci/buildspec-release-plan.yml` | `ci/release-plan.sh` | Resolves `phoebe-api:<tag sha>` and `<tag sha>-jobs`; stops with "never reached staging" if either is missing. Finds the commit's single `v*` tag (GitHub public API). `terraform plan -lock=false` for production; saves `production.tfplan` and `release.env` (commit, tag, both digests) as the `plan` artifact. |
+| `phoebe-release-plan` (tag `v*`) | `ci/buildspec-release-plan.yml` | `ci/release-plan.sh` | Resolves `phoebe-api:<tag sha>` and `<tag sha>-jobs`; stops with "never reached staging" if either is missing. Reads the commit's `v*` tag with `git tag --points-at` in the `CODEBUILD_CLONE_REF` clone (R17; highest by `sort -V` if several, none stops the release). `terraform plan -lock=false` for production; saves `production.tfplan` and `release.env` (commit, tag, both digests) as the `plan` artifact. |
 | `phoebe-release-apply` (after approval) | `ci/buildspec-release-apply.yml` | `ci/release-apply.sh` | Checks `release-<tag>` / `release-<tag>-jobs`: an existing tag must already point at the promoted digest, or the release stops before any change. Runs `ci/deploy.sh production` on **the saved plan** (no re-plan), then adds the missing release tags (BatchGetImage + PutImage). |
 
 `ci/deploy.sh <env> <api_digest> <jobs_digest>`: `terraform init`/`apply` here
@@ -94,6 +94,30 @@ function URL's `/api/status` is **403** (`/api/health` is exempt from the origin
 guard, so it can't prove this); `/pr-0/` is not a 404/5xx. The
 `CloudFront-Viewer-Address` check is reported as skipped: the API has no echo
 endpoint (deliberately), so Task 9 checks it, and the throttle, by hand.
+
+### Release behaviour to know (production)
+
+- **Partial deploy recovery: re-run the pipeline from Plan.** If
+  `phoebe-release-apply` fails after the apply started (a migration, the seed,
+  the SPA sync or the smoke test), do not retry Apply: the saved plan is stale
+  against the changed state, and Terraform refuses it. Start a new execution
+  for the same commit so that Plan re-plans from the current state and the
+  owner approves again. Push another `v*` tag on that commit, e.g.
+  `v1.2.3.1`; release-plan takes the highest by `sort -V`. Don't use "Release
+  change" in the console, because it runs Source at main's HEAD, which may be
+  a different commit. Release tags are only added after a successful deploy,
+  so a failed run leaves none behind.
+- **Migrations must be expand/contract compatible.** `terraform apply` updates
+  the Lambda code (new image digests) *before* ops `migrate` runs, so for a
+  short window the new code runs against the old schema (and, if migrate
+  fails, until the next release). Ship schema changes in two releases: first
+  add (new columns/tables, nullable or defaulted) with code that works with
+  both schemas, then remove the old shape once nothing reads it.
+- **The SPA is rebuilt at the tag commit; images are promoted by digest.** The
+  backend images in production are the exact bytes staging ran (resolved from
+  `phoebe-api:<sha>` and `<sha>-jobs`). The frontend is not promoted: Apply runs
+  `npm ci` + `npm run build` from the tag's checkout, so it is the same source
+  as staging's build but a fresh build (`package-lock.json` pins dependencies).
 
 `make deploy-check` runs these scripts offline against stubbed `aws`,
 `terraform`, `docker`, `npm` and `curl` (`ci/tests/`).

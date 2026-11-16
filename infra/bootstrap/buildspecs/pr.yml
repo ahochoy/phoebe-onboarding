@@ -65,14 +65,19 @@ phases:
   build:
     on-failure: ABORT
     commands:
-      # Preview at /pr-<n>/ (Vite base), synced under previews/pr-<n>/.
+      # Preview at /pr-<n>/ (Vite base), synced under previews/pr-<n>/ with the
+      # R11 caching contract (infra/app/README.md): hashed assets/ immutable,
+      # index.html and other root files no-cache, then a delete-only prune.
       - |
         (
           set -e
           cd frontend
           npm ci
           PHOEBE_BASE="/pr-$N/" npm run build
-          aws s3 sync dist/ "s3://$SITE_BUCKET/previews/pr-$N/" --delete
+          P="s3://$SITE_BUCKET/previews/pr-$N"
+          aws s3 sync dist/assets/ "$P/assets/" --only-show-errors --cache-control "public, max-age=31536000, immutable"
+          aws s3 sync dist/ "$P/" --only-show-errors --exclude "assets/*" --cache-control "no-cache"
+          aws s3 sync dist/ "$P/" --only-show-errors --delete --size-only
         )
       - |
         if [ -n "$DISTRIBUTION_ID" ]; then

@@ -78,6 +78,13 @@ Terraform:
 - **Release actions get `RELEASE_COMMIT`** (`#{SourceVariables.CommitId}`).
   Apply receives `source` (primary) and `plan` (secondary,
   `CODEBUILD_SRC_DIR_plan`).
+- **The release source is a git clone (R17).** The Source action sets
+  `OutputArtifactFormat = CODEBUILD_CLONE_REF`, so both release builds get a
+  clone through `phoebe-github`. Their roles hold `CloneReleaseSource`
+  (`codeconnections:UseConnection`, `codeconnections:GetConnectionToken`,
+  `codestar-connections:UseConnection`) on that connection only. Release-plan
+  reads the tag with `git tag --points-at`; nothing in the release path calls
+  the GitHub API.
 - **Apply (`phoebe-ci-deploy-production`) adds release tags** to the promoted
   digests: `release-<git tag>` and `release-<git tag>-jobs`, via
   `ecr:BatchGetImage` for the manifest and `ecr:PutImage` with the new tag.

@@ -53,18 +53,26 @@ DISTRIBUTION_ID="$(tf_out distribution_id)"
 log "site $SITE_URL bucket $SITE_BUCKET distribution $DISTRIBUTION_ID"
 
 # ---- 2. ops tasks ------------------------------------------------------------------
-# The results are metadata (migration names, seed counts), safe to log.
+# Successful results are metadata (migration names, seed counts), safe to log.
+# A function error's message or trace can quote config, so only its
+# errorType is logged; the full error is in the ops Lambda's own log group.
 invoke_ops() {
-  local task="$1" out meta
+  local task="$1" out meta kind
   out="$(mktemp)"
   meta="$(aws lambda invoke --function-name "$OPS_FUNCTION" \
     --cli-binary-format raw-in-base64-out --cli-read-timeout 900 \
     --payload "{\"task\":\"$task\"}" "$out")" || die "ops $task: invoke failed"
   if grep -q FunctionError <<<"$meta"; then
-    die "ops $task: function error: $(head -c 500 "$out")"
+    kind="$(jq -r '.errorType // "unknown"' "$out" 2>/dev/null || echo unknown)"
+    kind="${kind//[^A-Za-z0-9_.]/}"
+    rm -f "$out"
+    die "ops $task: function error ($kind); see /aws/lambda/$OPS_FUNCTION"
   fi
   if grep -q '"error"' "$out"; then
-    die "ops $task: $(head -c 500 "$out")"
+    kind="$(jq -r '.error' "$out" 2>/dev/null || echo unknown)"
+    kind="${kind//[^A-Za-z0-9_.]/}"
+    rm -f "$out"
+    die "ops $task: returned error '$kind'"
   fi
   log "ops $task: $(head -c 500 "$out")"
   rm -f "$out"

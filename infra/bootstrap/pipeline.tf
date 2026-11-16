@@ -38,6 +38,9 @@ resource "aws_codepipeline" "release" {
         ConnectionArn    = aws_codeconnections_connection.github.arn
         FullRepositoryId = var.github_repo
         BranchName       = "main"
+        # R17: a git clone (not a zip) so release-plan reads the v* tag with
+        # `git tag --points-at`; the release roles hold CloneReleaseSource.
+        OutputArtifactFormat = "CODEBUILD_CLONE_REF"
       }
     }
   }

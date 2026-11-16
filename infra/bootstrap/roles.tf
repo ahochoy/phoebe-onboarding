@@ -38,6 +38,24 @@ locals {
     ]
   }
 
+  # Ruling R17: the release Source action hands CodeBuild a CODEBUILD_CLONE_REF
+  # (a git clone through the connection), so release-plan can read the tag
+  # with git. Only the documented actions: codeconnections UseConnection and
+  # GetConnectionToken, plus codestar-connections:UseConnection (CodePipeline
+  # "full clone" tutorial).
+  release_clone_statement = {
+    Sid    = "CloneReleaseSource"
+    Effect = "Allow"
+    Action = [
+      "codeconnections:UseConnection", "codeconnections:GetConnectionToken",
+      "codestar-connections:UseConnection",
+    ]
+    Resource = [
+      aws_codeconnections_connection.github.arn,
+      replace(aws_codeconnections_connection.github.arn, ":codeconnections:", ":codestar-connections:"),
+    ]
+  }
+
   build_logs_statement = {
     for role, projects in {
       "plan"              = ["pr"]
@@ -205,6 +223,7 @@ locals {
 
   plan_production_statements = [
     local.build_logs_statement["plan-production"],
+    local.release_clone_statement,
     {
       # Plans run with -lock=false; the saved plan is only applied after approval.
       Sid      = "StateRead"
@@ -437,6 +456,7 @@ locals {
       },
     ]
     production = [
+      local.release_clone_statement,
       {
         # Approved saved plan and source in; nothing written back.
         Sid      = "PipelineArtifacts"

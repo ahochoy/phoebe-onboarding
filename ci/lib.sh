@@ -33,7 +33,7 @@ require_commit() {
 }
 
 require_git_tag() {
-  [[ "$1" =~ ^v[0-9A-Za-z._-]+$ ]] || die "release tag must match v[0-9A-Za-z._-]+, got '$1'"
+  [[ "$1" =~ ^v[0-9][0-9A-Za-z._-]*$ ]] || die "release tag must match v<digit>[0-9A-Za-z._-]*, got '$1'"
 }
 
 # The account id, from the CodeBuild build ARN when there is one.

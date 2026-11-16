@@ -121,5 +121,7 @@ e2e:
 # the pytest suite that drives them with stubbed aws/terraform/docker/npm/curl.
 deploy-check:
 	@for f in ci/*.sh; do bash -n "$$f" || exit 1; done
-	@if command -v shellcheck >/dev/null; then shellcheck -x ci/*.sh; else echo "shellcheck not installed; skipping"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -x ci/*.sh; \
+	elif [ -n "$$CI" ]; then echo "shellcheck is required in CI" >&2; exit 1; \
+	else echo "warning: shellcheck not installed; skipping (required in CI)" >&2; fi
 	uv run pytest ci/tests -q
