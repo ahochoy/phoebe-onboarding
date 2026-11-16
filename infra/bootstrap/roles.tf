@@ -341,12 +341,18 @@ locals {
         {
           # CreateEventSourceMapping with tags also authorizes lambda:TagResource
           # on event-source-mapping:*, where lambda:FunctionArn is absent. Allow
-          # it only when the request tags the mapping with this env (default_tags).
-          Sid       = "TagNewEventSourceMappings"
-          Effect    = "Allow"
-          Action    = ["lambda:TagResource"]
-          Resource  = ["${local.arn_prefix.lambda}:event-source-mapping:*"]
-          Condition = { StringEquals = { "aws:RequestTag/env" = env } }
+          # it only when the request tags the mapping with this env (default_tags),
+          # only with the default_tags keys, and never on a mapping already
+          # tagged for another env (a new mapping has no resource tags yet).
+          Sid      = "TagNewEventSourceMappings"
+          Effect   = "Allow"
+          Action   = ["lambda:TagResource"]
+          Resource = ["${local.arn_prefix.lambda}:event-source-mapping:*"]
+          Condition = {
+            StringEquals                = { "aws:RequestTag/env" = env }
+            StringEqualsIfExists        = { "aws:ResourceTag/env" = env }
+            "ForAllValues:StringEquals" = { "aws:TagKeys" = ["project", "env"] }
+          }
         },
         {
           # Ruling R24: CreateDBCluster/Instance with no subnet group places the
