@@ -94,7 +94,7 @@ fe-build:
 	cd frontend && npm run build
 
 # Offline Terraform checks: no backend, no AWS calls (tests use mock providers).
-TF_ROOTS := infra/ai infra/app
+TF_ROOTS := infra/ai infra/app infra/bootstrap
 tf-check:
 	terraform fmt -check -recursive infra
 	@set -e; for root in $(TF_ROOTS); do \

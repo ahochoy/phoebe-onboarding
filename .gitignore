@@ -12,6 +12,9 @@ __pycache__/
 *.tfvars
 # Per-env app inputs are ARNs and names only (no secrets), so they are committed.
 !infra/app/envs/*.tfvars
+!infra/bootstrap/terraform.tfvars
+# Local-only overrides (e.g. the bootstrap first-apply local backend).
+*_override.tf
 frontend/node_modules
 frontend/dist
 frontend/test-results
