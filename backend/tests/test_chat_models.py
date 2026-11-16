@@ -138,6 +138,50 @@ def test_harness_aws_error_is_clean() -> None:
     assert "private details" not in str(info.value)
 
 
+def test_harness_aws_error_logs_code_not_message(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = Mock()
+    client.invoke_harness.side_effect = ClientError(
+        {"Error": {"Code": "AccessDeniedException", "Message": "private details"}},
+        "InvokeHarness",
+    )
+    model = HarnessAnswerModel("arn:x", "us-east-2", client=client, max_tokens=10)
+    with pytest.raises(ModelUnavailable):
+        list(model.stream(MSGS))
+    assert "AccessDeniedException" in caplog.text
+    assert "private details" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("events", "logged"),
+    [
+        ([{"validationException": {"message": "secret"}}], "validationException"),
+        ([{"messageStop": {"stopReason": "max_tokens"}}], "max_tokens"),
+    ],
+)
+def test_harness_stream_failures_log_their_kind(
+    caplog: pytest.LogCaptureFixture, events: list[dict], logged: str
+) -> None:
+    model, _, _ = harness(events)
+    with pytest.raises(ModelUnavailable):
+        list(model.stream(MSGS))
+    assert logged in caplog.text
+    assert "secret" not in caplog.text
+
+
+def test_guardrail_error_logs_code(caplog: pytest.LogCaptureFixture) -> None:
+    client = Mock()
+    client.apply_guardrail.side_effect = ClientError(
+        {"Error": {"Code": "ThrottlingException", "Message": "user text"}},
+        "ApplyGuardrail",
+    )
+    with pytest.raises(ModelUnavailable):
+        BedrockGuardrail("g", "1", "us-east-2", client=client).check("t", "INPUT")
+    assert "ThrottlingException" in caplog.text
+    assert "user text" not in caplog.text
+
+
 def test_harness_malformed_response_raises() -> None:
     client = Mock()
     client.invoke_harness.return_value = {}
