@@ -3,9 +3,9 @@ output "state_bucket" {
   value       = aws_s3_bucket.state.bucket
 }
 
-output "boundary_policy_arn" {
-  description = "phoebe-boundary ARN (infra/app boundary_policy_arn)."
-  value       = aws_iam_policy.boundary.arn
+output "boundary_policy_arns" {
+  description = "Env boundaries for infra/app boundary_policy_arn (phoebe-boundary-staging / -production), plus the CI boundary."
+  value       = { for k, p in aws_iam_policy.boundary : k => p.arn }
 }
 
 output "budget_topic_arn" {

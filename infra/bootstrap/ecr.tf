@@ -1,6 +1,6 @@
 # One shared repo for both envs. Each commit pushes two images (ruling R9):
 # <sha> (api target) and <sha>-jobs (jobs target). Production promotes the
-# digest staging pushed; it never builds.
+# digest staging pushed; it never builds, it only adds release-<git tag> tags.
 
 resource "aws_ecr_repository" "api" {
   name                 = "phoebe-api"
@@ -18,18 +18,35 @@ resource "aws_ecr_repository" "api" {
 resource "aws_ecr_lifecycle_policy" "api" {
   repository = aws_ecr_repository.api.name
 
-  # 60 images = the last 30 commits (api + jobs each).
+  # Ruling R13. ECR can only expire, so rule 1 "keeps" release images by
+  # selecting them with a count they will never reach. ECR documents that an
+  # image matched by a higher-priority rule is not expired by a lower one, so
+  # rule 2 (tagStatus any, which must be last) skips them. Rule 2 then expires
+  # everything else beyond the newest 60 (30 commits x api + jobs).
   policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep the last 60 images (30 commits x api + jobs)"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 60
-      }
-      action = { type = "expire" }
-    }]
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Never expire release images (release-<git tag>, release-<git tag>-jobs)"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["release-"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 10000
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 2
+        description  = "Expire all other images beyond the newest 60"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 60
+        }
+        action = { type = "expire" }
+      },
+    ]
   })
 }
 

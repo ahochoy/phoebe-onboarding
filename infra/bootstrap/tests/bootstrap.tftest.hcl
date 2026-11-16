@@ -8,6 +8,12 @@ mock_provider "aws" {
     }
   }
 
+  mock_resource "aws_iam_policy" {
+    defaults = {
+      arn = "arn:aws:iam::123456789012:policy/phoebe-mock"
+    }
+  }
+
   mock_resource "aws_s3_bucket" {
     defaults = {
       arn = "arn:aws:s3:::phoebe-mock"
@@ -41,9 +47,23 @@ mock_provider "aws" {
 }
 
 override_resource {
-  target = aws_iam_policy.boundary
+  target = aws_iam_policy.boundary["staging"]
   values = {
-    arn = "arn:aws:iam::123456789012:policy/phoebe-boundary"
+    arn = "arn:aws:iam::123456789012:policy/phoebe-boundary-staging"
+  }
+}
+
+override_resource {
+  target = aws_iam_policy.boundary["production"]
+  values = {
+    arn = "arn:aws:iam::123456789012:policy/phoebe-boundary-production"
+  }
+}
+
+override_resource {
+  target = aws_iam_policy.boundary["ci"]
+  values = {
+    arn = "arn:aws:iam::123456789012:policy/phoebe-boundary-ci"
   }
 }
 
@@ -71,9 +91,23 @@ override_resource {
 }
 
 override_resource {
+  target = aws_iam_role.ci["pr-cleanup"]
+  values = {
+    arn = "arn:aws:iam::123456789012:role/phoebe-ci-pr-cleanup"
+  }
+}
+
+override_resource {
   target = aws_iam_role.ci["deploy-staging"]
   values = {
     arn = "arn:aws:iam::123456789012:role/phoebe-ci-deploy-staging"
+  }
+}
+
+override_resource {
+  target = aws_iam_role.ci["plan-production"]
+  values = {
+    arn = "arn:aws:iam::123456789012:role/phoebe-ci-plan-production"
   }
 }
 
@@ -195,6 +229,7 @@ run "committed_owner_id" {
   }
 }
 
+
 # ---- Connection, projects and builds ----------------------------------------
 
 run "builds" {
@@ -239,14 +274,42 @@ run "builds" {
   assert {
     condition = alltrue([
       for k, f in {
-        "pr"            = "ci/buildspec-pr.yml"
-        "pr-cleanup"    = "ci/buildspec-pr-cleanup.yml"
         "staging"       = "ci/buildspec-staging.yml"
         "release-plan"  = "ci/buildspec-release-plan.yml"
         "release-apply" = "ci/buildspec-release-apply.yml"
       } : aws_codebuild_project.this[k].source[0].buildspec == f
     ])
-    error_message = "Each project points at its buildspec path."
+    error_message = "Staging and release projects point at their repo buildspec paths (Task 8)."
+  }
+
+  # R15: PR builds never take their steps from the PR checkout.
+  assert {
+    condition = alltrue([
+      for k in ["pr", "pr-cleanup"] :
+      startswith(aws_codebuild_project.this[k].source[0].buildspec, "version: 0.2") &&
+      !strcontains(aws_codebuild_project.this[k].source[0].buildspec, "ci/buildspec")
+    ])
+    error_message = "phoebe-pr and phoebe-pr-cleanup use inline buildspecs from infra/bootstrap."
+  }
+
+  assert {
+    condition = (
+      strcontains(aws_codebuild_project.this["pr-cleanup"].source[0].buildspec, "*[!0-9]*") &&
+      strcontains(aws_codebuild_project.this["pr-cleanup"].source[0].buildspec, "s3://$SITE_BUCKET/previews/pr-$N/") &&
+      strcontains(aws_codebuild_project.this["pr-cleanup"].source[0].buildspec, "SITE_BUCKET: \"phoebe-staging-site-123456789012\"") &&
+      !strcontains(aws_codebuild_project.this["pr-cleanup"].source[0].buildspec, "npm") &&
+      !strcontains(aws_codebuild_project.this["pr-cleanup"].source[0].buildspec, "terraform ")
+    )
+    error_message = "The cleanup spec only validates N as digits and removes previews/pr-$N/ from the staging site bucket; it runs no repo code."
+  }
+
+  assert {
+    condition = (
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "*[!0-9]*") &&
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "PHOEBE_BASE=\"/pr-$N/\"") &&
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "-lock=false")
+    )
+    error_message = "The PR spec validates N, builds the preview under /pr-$N/ and plans without a lock."
   }
 
   assert {
@@ -257,7 +320,7 @@ run "builds" {
       aws_codebuild_project.this[k].source[0].auth[0].type == "CODECONNECTIONS" &&
       aws_codebuild_project.this[k].source[0].auth[0].resource == aws_codeconnections_connection.github.arn
     ])
-    error_message = "Webhook projects read GitHub through the phoebe-github connection."
+    error_message = "Webhook projects read GitHub through the phoebe-github connection (a webhook needs a GitHub source, so cleanup cannot be NO_SOURCE)."
   }
 
   assert {
@@ -278,6 +341,22 @@ run "builds" {
   }
 }
 
+run "distribution_id_reaches_specs" {
+  command = plan
+
+  variables {
+    staging_distribution_id = "E2ABCDEF123456"
+  }
+
+  assert {
+    condition = alltrue([
+      for k in ["pr", "pr-cleanup"] :
+      strcontains(aws_codebuild_project.this[k].source[0].buildspec, "DISTRIBUTION_ID: \"E2ABCDEF123456\"")
+    ])
+    error_message = "staging_distribution_id is templated into the inline specs."
+  }
+}
+
 # ---- Project roles ------------------------------------------------------------
 
 run "project_roles" {
@@ -286,20 +365,20 @@ run "project_roles" {
   assert {
     condition = alltrue([
       aws_codebuild_project.this["pr"].service_role == "arn:aws:iam::123456789012:role/phoebe-ci-plan",
-      aws_codebuild_project.this["pr-cleanup"].service_role == "arn:aws:iam::123456789012:role/phoebe-ci-plan",
+      aws_codebuild_project.this["pr-cleanup"].service_role == "arn:aws:iam::123456789012:role/phoebe-ci-pr-cleanup",
       aws_codebuild_project.this["staging"].service_role == "arn:aws:iam::123456789012:role/phoebe-ci-deploy-staging",
-      aws_codebuild_project.this["release-plan"].service_role == "arn:aws:iam::123456789012:role/phoebe-ci-deploy-production",
+      aws_codebuild_project.this["release-plan"].service_role == "arn:aws:iam::123456789012:role/phoebe-ci-plan-production",
       aws_codebuild_project.this["release-apply"].service_role == "arn:aws:iam::123456789012:role/phoebe-ci-deploy-production",
     ])
-    error_message = "pr/pr-cleanup use phoebe-ci-plan; staging and release use their own deploy roles."
+    error_message = "pr: plan; cleanup: pr-cleanup; staging: deploy-staging; release-plan: plan-production (read-only, before approval); release-apply: deploy-production."
   }
 
   assert {
     condition = alltrue([
       for k, r in aws_iam_role.ci :
-      r.name == "phoebe-ci-${k}" && r.permissions_boundary == "arn:aws:iam::123456789012:policy/phoebe-boundary"
+      r.name == "phoebe-ci-${k}" && r.permissions_boundary == "arn:aws:iam::123456789012:policy/phoebe-boundary-ci"
     ])
-    error_message = "CI roles are phoebe-ci-<name> and carry the boundary themselves."
+    error_message = "CI roles are phoebe-ci-<name> and carry phoebe-boundary-ci."
   }
 
   # phoebe-ci-plan: only Get/List/Describe, plus exactly the preview writes,
@@ -315,15 +394,14 @@ run "project_roles" {
             jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:cloudfront::123456789012:distribution/*"]) &&
           try(s.Condition.StringEquals["aws:ResourceTag/env"], "") == "staging") ||
           (contains(["logs:CreateLogStream", "logs:PutLogEvents"], a) &&
-            alltrue([for r in flatten([s.Resource]) :
-          startswith(r, "arn:aws:logs:us-east-2:123456789012:log-group:/aws/codebuild/phoebe-pr")])) ||
+          jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:logs:us-east-2:123456789012:log-group:/aws/codebuild/phoebe-pr:*"])) ||
           (contains(["codeconnections:UseConnection", "codestar-connections:UseConnection"], a) &&
             alltrue([for r in flatten([s.Resource]) :
           can(regex("^arn:aws:(codeconnections|codestar-connections):us-east-2:123456789012:connection/", r))]))
         )
       ] if s.Effect == "Allow"
     ]))
-    error_message = "phoebe-ci-plan has no Create/Put/Delete/Update (or other write) actions beyond the preview objects, the staging invalidation, its build logs and the connection."
+    error_message = "phoebe-ci-plan has no write actions beyond the preview objects, the staging invalidation, its build logs and the connection."
   }
 
   assert {
@@ -334,13 +412,56 @@ run "project_roles" {
     error_message = "phoebe-ci-plan can publish and remove previews."
   }
 
+  # R15: cleanup runs no repo code and needs no state or secrets.
   assert {
     condition = alltrue(flatten([
-      for s in jsondecode(aws_iam_role_policy.ci["plan"].policy).Statement : [
-        for a in flatten([s.Action]) : a != "*" && !endswith(a, ":*")
+      for s in jsondecode(aws_iam_role_policy.ci["pr-cleanup"].policy).Statement : [
+        for a in flatten([s.Action]) : (
+          (a == "s3:DeleteObject" && jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:s3:::phoebe-staging-site-123456789012/previews/*"])) ||
+          (a == "s3:ListBucket" && jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:s3:::phoebe-staging-site-123456789012"]) &&
+          jsonencode(try(s.Condition.StringLike["s3:prefix"], [])) == jsonencode(["previews/pr-*"])) ||
+          (a == "cloudfront:CreateInvalidation" && try(s.Condition.StringEquals["aws:ResourceTag/env"], "") == "staging") ||
+          (contains(["logs:CreateLogStream", "logs:PutLogEvents"], a) &&
+          jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:logs:us-east-2:123456789012:log-group:/aws/codebuild/phoebe-pr-cleanup:*"])) ||
+          (startswith(a, "codeconnections:") || startswith(a, "codestar-connections:"))
+        )
       ]
     ]))
-    error_message = "No service-wide wildcards on the plan role."
+    error_message = "phoebe-ci-pr-cleanup can only list and delete previews/pr-*, invalidate staging, write its logs and clone (no state, no secrets)."
+  }
+
+  # R14: release-plan runs before approval, so its role is read-only.
+  assert {
+    condition = alltrue(flatten([
+      for s in jsondecode(aws_iam_role_policy.ci["plan-production"].policy).Statement : [
+        for a in flatten([s.Action]) : (
+          can(regex("^[a-z0-9-]+:(Get|List|Describe|BatchGet)[A-Za-z]*\\*?$", a)) ||
+          (a == "s3:PutObject" && jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:s3:::phoebe-pipeline-artifacts-123456789012/*"])) ||
+          (contains(["logs:CreateLogStream", "logs:PutLogEvents"], a) &&
+          jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:logs:us-east-2:123456789012:log-group:/aws/codebuild/phoebe-release-plan:*"]))
+        )
+      ] if s.Effect == "Allow"
+    ]))
+    error_message = "phoebe-ci-plan-production writes nothing but the saved plan artifact and its build logs."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for k in keys(aws_iam_role_policy.ci) : [
+        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement : [
+          for a in flatten([s.Action]) : a != "*" && !endswith(a, ":*")
+        ]
+      ]
+    ]))
+    error_message = "No CI role gets * or service:* actions."
+  }
+
+  assert {
+    condition = alltrue([
+      for k, p in aws_iam_role_policy.ci :
+      length(distinct([for s in jsondecode(p.policy).Statement : s.Sid])) == length(jsondecode(p.policy).Statement)
+    ])
+    error_message = "Statement Sids are unique within each policy (IAM rejects duplicates)."
   }
 
   assert {
@@ -351,6 +472,105 @@ run "project_roles" {
   }
 }
 
+# ---- Env-scoped reads (R14: no cross-env CloudFront or Lambda config) ---------
+
+run "env_scoped_reads" {
+  command = apply
+
+  # Roles and the env whose config they may read.
+  assert {
+    condition = alltrue(flatten([
+      for k, env in {
+        "plan"              = "staging"
+        "deploy-staging"    = "staging"
+        "plan-production"   = "production"
+        "deploy-production" = "production"
+        } : [
+        for s in concat(jsondecode(aws_iam_role_policy.ci[k].policy).Statement, jsondecode(aws_iam_policy.ci_reads[env].policy).Statement) : (
+          !anytrue([for a in flatten([s.Action]) : startswith(a, "cloudfront:GetDistribution")]) ||
+          (try(s.Condition.StringEquals["aws:ResourceTag/env"], "") == env &&
+          jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:cloudfront::123456789012:distribution/*"]))
+        )
+      ]
+    ]))
+    error_message = "GetDistribution/GetDistributionConfig only on distributions tagged with the role's own env."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for k, env in {
+        "plan"              = "staging"
+        "deploy-staging"    = "staging"
+        "plan-production"   = "production"
+        "deploy-production" = "production"
+        } : [
+        for s in concat(jsondecode(aws_iam_role_policy.ci[k].policy).Statement, jsondecode(aws_iam_policy.ci_reads[env].policy).Statement) : [
+          for a in flatten([s.Action]) : (
+            # Nothing CloudFront and no Lambda function reads on "*".
+            !contains(flatten([s.Resource]), "*") ||
+            (!startswith(a, "cloudfront:") && (!startswith(a, "lambda:") || contains(["lambda:GetEventSourceMapping", "lambda:ListEventSourceMappings"], a)))
+          )
+        ]
+      ]
+    ]))
+    error_message = "No CloudFront or Lambda function config reads on Resource * (they carry the origin secret and env vars)."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for k, env in {
+        "plan"              = "staging"
+        "deploy-staging"    = "staging"
+        "plan-production"   = "production"
+        "deploy-production" = "production"
+        } : [
+        for s in concat(jsondecode(aws_iam_role_policy.ci[k].policy).Statement, jsondecode(aws_iam_policy.ci_reads[env].policy).Statement) : [
+          for r in flatten([s.Resource]) : !strcontains(r, env == "staging" ? "phoebe-production-" : "phoebe-staging-")
+        ]
+      ]
+    ]))
+    error_message = "No env role names the other env's resources."
+  }
+
+  assert {
+    condition = (
+      jsonencode({ for k, a in aws_iam_role_policy_attachment.ci_reads : k => a.policy_arn }) ==
+      jsonencode({
+        "deploy-production" = aws_iam_policy.ci_reads["production"].arn
+        "deploy-staging"    = aws_iam_policy.ci_reads["staging"].arn
+        "plan"              = aws_iam_policy.ci_reads["staging"].arn
+        "plan-production"   = aws_iam_policy.ci_reads["production"].arn
+      })
+    )
+    error_message = "Staging roles get phoebe-ci-reads-staging, production roles phoebe-ci-reads-production; cleanup and pipeline get none."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for env in ["staging", "production"] : [
+        for s in jsondecode(aws_iam_policy.ci_reads[env].policy).Statement : [
+          for a in flatten([s.Action]) : s.Effect == "Allow" && can(regex("^[a-z0-9-]+:(Get|List|Describe|BatchGet)[A-Za-z]*\\*?$", a))
+        ]
+      ]
+    ]))
+    error_message = "phoebe-ci-reads-<env> is read-only."
+  }
+
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] :
+      aws_iam_policy.ci_reads[env].name == "phoebe-ci-reads-${env}" &&
+      length(aws_iam_policy.ci_reads[env].policy) <= 6144 &&
+      anytrue([
+        for s in jsondecode(aws_iam_policy.ci_reads[env].policy).Statement :
+        jsonencode(flatten([s.Action])) == jsonencode(["s3:GetObject"]) &&
+        jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:s3:::phoebe-tfstate-123456789012/ai.tfstate"])
+      ])
+    ])
+    error_message = "Each reads policy fits 6,144 chars and grants the ai.tfstate read terraform_remote_state needs."
+  }
+}
+
 # ---- Deploy roles ---------------------------------------------------------------
 
 run "deploy_roles" {
@@ -358,14 +578,14 @@ run "deploy_roles" {
 
   assert {
     condition = alltrue(flatten([
-      for k in ["deploy-staging", "deploy-production"] : [
-        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement : (
+      for env in ["staging", "production"] : [
+        for s in jsondecode(aws_iam_role_policy.ci["deploy-${env}"].policy).Statement : (
           !contains(flatten([s.Action]), "iam:CreateRole") ||
-          try(s.Condition.StringEquals["iam:PermissionsBoundary"], "") == "arn:aws:iam::123456789012:policy/phoebe-boundary"
+          try(s.Condition.StringEquals["iam:PermissionsBoundary"], "") == "arn:aws:iam::123456789012:policy/phoebe-boundary-${env}"
         )
       ]
     ]))
-    error_message = "Deploy roles may create roles only with iam:PermissionsBoundary = the boundary ARN."
+    error_message = "Each deploy role may create roles only with its own env's boundary."
   }
 
   assert {
@@ -379,13 +599,12 @@ run "deploy_roles" {
 
   assert {
     condition = alltrue(flatten([
-      for k in keys(aws_iam_role_policy.ci) : [
-        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement : [
-          for a in flatten([s.Action]) : a != "*" && !endswith(a, ":*") && !startswith(a, "iam:*")
-        ]
+      for k in ["plan", "pr-cleanup", "plan-production", "pipeline"] : [
+        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement :
+        !anytrue([for a in flatten([s.Action]) : startswith(a, "iam:") && !can(regex("^iam:(Get|List)", a))])
       ]
     ]))
-    error_message = "No CI role gets * or service:* actions."
+    error_message = "Only deploy roles have IAM write actions."
   }
 
   # Each deploy role manages only its own env's phoebe-<env>-* IAM roles.
@@ -396,13 +615,12 @@ run "deploy_roles" {
           for r in flatten([s.Resource]) : (
             !startswith(r, "arn:aws:iam::") ||
             r == "arn:aws:iam::123456789012:role/phoebe-${env}-*" ||
-            r == "arn:aws:iam::123456789012:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS" ||
-            (env == "staging" && r == "arn:aws:iam::123456789012:role/PhoebeAgentCoreHarnessExecutionRole")
+            r == "arn:aws:iam::123456789012:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
           )
         ] if s.Effect == "Allow"
       ]
     ]))
-    error_message = "Deploy roles touch only role/phoebe-<own env>-* (plus the RDS service-linked role, and infra/ai's harness role read by staging)."
+    error_message = "Deploy roles touch only role/phoebe-<own env>-* (plus the RDS service-linked role)."
   }
 
   assert {
@@ -416,12 +634,62 @@ run "deploy_roles" {
     error_message = "Each deploy role invokes only its own env's ops function."
   }
 
+  # R13: production adds release-* tags to promoted digests; staging pushes.
   assert {
     condition = (
-      anytrue([for s in jsondecode(aws_iam_role_policy.ci["deploy-staging"].policy).Statement : contains(flatten([s.Action]), "ecr:PutImage")]) &&
-      !anytrue([for s in jsondecode(aws_iam_role_policy.ci["deploy-production"].policy).Statement : contains(flatten([s.Action]), "ecr:PutImage")])
+      alltrue([
+        for s in jsondecode(aws_iam_role_policy.ci["deploy-production"].policy).Statement :
+        !contains(flatten([s.Action]), "ecr:PutImage") ||
+        jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:ecr:us-east-2:123456789012:repository/phoebe-api"])
+      ]) &&
+      anytrue([for s in jsondecode(aws_iam_role_policy.ci["deploy-production"].policy).Statement : contains(flatten([s.Action]), "ecr:PutImage")]) &&
+      anytrue([for s in jsondecode(aws_iam_role_policy.ci["deploy-production"].policy).Statement : contains(flatten([s.Action]), "ecr:BatchGetImage")]) &&
+      !anytrue([for s in jsondecode(aws_iam_role_policy.ci["deploy-production"].policy).Statement : contains(flatten([s.Action]), "ecr:InitiateLayerUpload")])
     )
-    error_message = "Staging pushes images; production only pulls and describes (promotes by digest)."
+    error_message = "Production gets BatchGetImage + PutImage on phoebe-api only (retagging, no layer uploads)."
+  }
+
+  assert {
+    condition = alltrue([
+      for a in ["ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage"] : anytrue([
+        for s in jsondecode(aws_iam_role_policy.ci["deploy-staging"].policy).Statement :
+        contains(flatten([s.Action]), a) && jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:ecr:us-east-2:123456789012:repository/phoebe-api"])
+      ])
+    ])
+    error_message = "Staging keeps push on phoebe-api."
+  }
+
+  assert {
+    condition = !anytrue(flatten([
+      for k in ["plan", "pr-cleanup", "plan-production", "pipeline"] : [
+        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement : contains(flatten([s.Action]), "ecr:PutImage")
+      ]
+    ]))
+    error_message = "Only the staging and production deploy roles can put images."
+  }
+
+  # R12: infra/ai is owner-applied; CI only reads ai.tfstate.
+  assert {
+    condition = alltrue(flatten([
+      for k in keys(aws_iam_role_policy.ci) : [
+        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement : [
+          for a in flatten([s.Action]) : !startswith(a, "bedrock")
+        ]
+      ]
+    ]))
+    error_message = "No CI role has Bedrock or AgentCore actions (infra/ai is owner-applied)."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for k in keys(aws_iam_role_policy.ci) : [
+        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement : (
+          !anytrue([for r in flatten([s.Resource]) : strcontains(r, "ai.tfstate")]) ||
+          jsonencode(flatten([s.Action])) == jsonencode(["s3:GetObject"])
+        )
+      ]
+    ]))
+    error_message = "ai.tfstate is read-only for every CI role."
   }
 
   # State: each role writes only its own keys; nobody in CI touches bootstrap.tfstate.
@@ -435,96 +703,150 @@ run "deploy_roles" {
     ]))
     error_message = "No CI role can read or write bootstrap.tfstate or the whole state bucket."
   }
-
-  assert {
-    condition = (
-      !anytrue([
-        for s in jsondecode(aws_iam_role_policy.ci["deploy-production"].policy).Statement :
-        contains(flatten([s.Action]), "s3:PutObject") && contains(flatten([s.Resource]), "arn:aws:s3:::phoebe-tfstate-123456789012/app/staging.tfstate")
-      ]) &&
-      !anytrue([
-        for s in jsondecode(aws_iam_role_policy.ci["deploy-staging"].policy).Statement :
-        contains(flatten([s.Action]), "s3:PutObject") && contains(flatten([s.Resource]), "arn:aws:s3:::phoebe-tfstate-123456789012/app/production.tfstate")
-      ])
-    )
-    error_message = "A deploy role cannot write the other env's state."
-  }
 }
 
-# ---- Boundary ---------------------------------------------------------------------
+# ---- Boundaries ---------------------------------------------------------------------
 
 run "boundary" {
   command = apply
 
   assert {
-    condition     = aws_iam_policy.boundary.name == "phoebe-boundary"
-    error_message = "Boundary policy name is phoebe-boundary (infra/app validates the ARN)."
-  }
-
-  assert {
-    condition = anytrue([
-      for s in jsondecode(aws_iam_policy.boundary.policy).Statement :
-      s.Effect == "Deny" &&
-      length(setsubtract(["iam:Create*", "iam:Put*", "iam:Attach*", "iam:Delete*"], flatten([s.Action]))) == 0 &&
-      contains(flatten([try(s.NotResource, [])]), "arn:aws:iam::123456789012:role/phoebe-*") &&
-      alltrue([
-        for r in flatten([try(s.NotResource, [])]) : contains([
-          "arn:aws:iam::123456789012:role/phoebe-*",
-          "arn:aws:iam::123456789012:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS",
-        ], r)
-      ])
-    ])
-    error_message = "The boundary denies iam:Create*/Put*/Attach*/Delete* unless the target is role/phoebe-* (or the RDS service-linked role)."
-  }
-
-  assert {
-    condition = anytrue([
-      for s in jsondecode(aws_iam_policy.boundary.policy).Statement :
-      s.Effect == "Deny" &&
-      toset(flatten([try(s.NotAction, [])])) == toset(["cloudfront:*", "iam:*", "sts:*", "budgets:*"]) &&
-      jsonencode(flatten([try(s.Condition.StringNotEquals["aws:RequestedRegion"], [])])) == jsonencode(["us-east-2"])
-    ])
-    error_message = "The boundary denies every action outside us-east-2 except CloudFront, IAM, STS and Budgets."
+    condition     = toset([for p in values(aws_iam_policy.boundary) : p.name]) == toset(["phoebe-boundary-staging", "phoebe-boundary-production", "phoebe-boundary-ci"])
+    error_message = "Per-env boundaries for infra/app roles plus one CI boundary (R14)."
   }
 
   assert {
     condition = alltrue([
-      for svc in ["organizations:*", "account:*"] : anytrue([
-        for s in jsondecode(aws_iam_policy.boundary.policy).Statement :
-        s.Effect == "Deny" && contains(flatten([try(s.Action, [])]), svc)
+      for k in keys(aws_iam_policy.boundary) : anytrue([
+        for s in jsondecode(aws_iam_policy.boundary[k].policy).Statement :
+        s.Effect == "Deny" &&
+        length(setsubtract(["iam:Create*", "iam:Put*", "iam:Attach*", "iam:Delete*"], flatten([s.Action]))) == 0 &&
+        length(flatten([try(s.NotResource, [])])) > 0 &&
+        alltrue([
+          for r in flatten([try(s.NotResource, [])]) : contains(
+            k == "ci" ? [
+              "arn:aws:iam::123456789012:role/phoebe-staging-*",
+              "arn:aws:iam::123456789012:role/phoebe-production-*",
+              "arn:aws:iam::123456789012:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS",
+            ] : ["arn:aws:iam::123456789012:role/phoebe-${k}-*"],
+          r)
+        ])
       ])
     ])
-    error_message = "The boundary denies organizations:* and account:*."
+    error_message = "Every boundary denies iam:Create*/Put*/Attach*/Delete* unless the target is a phoebe-<env>-* role (env boundaries: only their own env)."
   }
 
   assert {
-    condition = anytrue([
-      for s in jsondecode(aws_iam_policy.boundary.policy).Statement :
-      s.Effect == "Deny" && contains(flatten([try(s.Action, [])]), "iam:DeleteRolePermissionsBoundary")
+    condition = alltrue([
+      for k in keys(aws_iam_policy.boundary) : anytrue([
+        for s in jsondecode(aws_iam_policy.boundary[k].policy).Statement :
+        s.Effect == "Deny" &&
+        toset(flatten([try(s.NotAction, [])])) == toset(["cloudfront:*", "iam:*", "sts:*", "budgets:*"]) &&
+        jsonencode(flatten([try(s.Condition.StringNotEquals["aws:RequestedRegion"], [])])) == jsonencode(["us-east-2"])
+      ])
     ])
-    error_message = "Nobody under the boundary may strip a role's boundary."
+    error_message = "Every boundary denies actions outside us-east-2 except CloudFront, IAM, STS and Budgets."
   }
 
   assert {
+    condition = alltrue(flatten([
+      for k in keys(aws_iam_policy.boundary) : [
+        for svc in ["organizations:*", "account:*"] : anytrue([
+          for s in jsondecode(aws_iam_policy.boundary[k].policy).Statement :
+          s.Effect == "Deny" && contains(flatten([try(s.Action, [])]), svc)
+        ])
+      ]
+    ]))
+    error_message = "Every boundary denies organizations:* and account:*."
+  }
+
+  # Env boundaries: nothing of the other env, no CI services.
+  assert {
+    condition = alltrue(flatten([
+      for env in ["staging", "production"] : [
+        for s in jsondecode(aws_iam_policy.boundary[env].policy).Statement : [
+          for r in flatten([try(s.Resource, []), try(s.NotResource, [])]) :
+          !strcontains(r, env == "staging" ? "phoebe-production" : "phoebe-staging")
+        ]
+      ]
+    ]))
+    error_message = "No env boundary statement names the other env's resources."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for env in ["staging", "production"] : [
+        for s in jsondecode(aws_iam_policy.boundary[env].policy).Statement : (
+          s.Effect != "Allow" ||
+          s.Sid == "SharedAi" ||
+          alltrue([
+            for r in flatten([s.Resource]) :
+            strcontains(r, "phoebe-${env}") || startswith(r, "arn:aws:secretsmanager:us-east-2:123456789012:secret:rds!cluster-")
+          ])
+        )
+      ]
+    ]))
+    error_message = "Env boundaries allow only phoebe-<env> resources (plus the shared AI resources and the RDS master secret)."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for env in ["staging", "production"] : [
+        for s in jsondecode(aws_iam_policy.boundary[env].policy).Statement : [
+          for a in flatten([try(s.Action, [])]) : !(s.Effect == "Allow" && (
+            startswith(a, "codebuild:") || startswith(a, "ecr:") || startswith(a, "iam:") ||
+            startswith(a, "codeconnections:") || startswith(a, "cloudfront:") || startswith(a, "sts:")
+          ))
+        ]
+      ]
+    ]))
+    error_message = "App-role boundaries allow no CodeBuild, ECR, IAM, connection, CloudFront or STS actions."
+  }
+
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] : anytrue([
+        for s in jsondecode(aws_iam_policy.boundary[env].policy).Statement :
+        s.Sid == "SharedAi" && alltrue([for a in flatten([s.Action]) : startswith(a, "bedrock")])
+      ])
+    ])
+    error_message = "The only env-agnostic allow is the shared Bedrock/AgentCore invoke set."
+  }
+
+  # CI boundary.
+  assert {
     condition = anytrue([
-      for s in jsondecode(aws_iam_policy.boundary.policy).Statement :
+      for s in jsondecode(aws_iam_policy.boundary["ci"].policy).Statement :
       s.Effect == "Deny" &&
       contains(flatten([try(s.Action, [])]), "iam:CreateRole") &&
-      try(s.Condition.StringNotEquals["iam:PermissionsBoundary"], "") == "arn:aws:iam::123456789012:policy/phoebe-boundary"
+      toset(flatten([try(s.Condition.StringNotEquals["iam:PermissionsBoundary"], [])])) == toset([
+        "arn:aws:iam::123456789012:policy/phoebe-boundary-staging",
+        "arn:aws:iam::123456789012:policy/phoebe-boundary-production",
+      ])
     ])
-    error_message = "The boundary itself refuses role creation without the boundary attached."
+    error_message = "CI may only create roles that carry an env boundary."
+  }
+
+  assert {
+    condition = alltrue([
+      for a in ["iam:DeleteRolePermissionsBoundary", "sts:AssumeRole"] : anytrue([
+        for s in jsondecode(aws_iam_policy.boundary["ci"].policy).Statement :
+        s.Effect == "Deny" && contains(flatten([try(s.Action, [])]), a)
+      ])
+    ])
+    error_message = "CI cannot strip a boundary or hop roles."
   }
 
   assert {
     condition = anytrue([
-      for s in jsondecode(aws_iam_policy.boundary.policy).Statement :
+      for s in jsondecode(aws_iam_policy.boundary["ci"].policy).Statement :
       s.Effect == "Deny" && contains(flatten([try(s.Resource, [])]), "arn:aws:iam::123456789012:role/phoebe-ci-*")
     ])
-    error_message = "Bounded principals cannot modify the CI roles themselves (no self-escalation)."
+    error_message = "CI roles cannot modify the CI roles themselves (no self-escalation)."
   }
 
   assert {
-    condition     = length(replace(aws_iam_policy.boundary.policy, "/\\s/", "")) <= 6144
+    condition     = alltrue([for p in values(aws_iam_policy.boundary) : length(replace(p.policy, "/\\s/", "")) <= 6144])
     error_message = "Managed policies must fit IAM's 6,144-character limit."
   }
 }
@@ -636,12 +958,27 @@ run "state_ecr_budget" {
     error_message = "ECR phoebe-api: immutable tags, scan on push."
   }
 
+  # R13: release images are matched first (and so never expired by rule 2).
   assert {
     condition = (
+      length(jsondecode(aws_ecr_lifecycle_policy.api.policy).rules) == 2 &&
+      jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[0].rulePriority == 1 &&
+      jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[0].selection.tagStatus == "tagged" &&
+      jsonencode(jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[0].selection.tagPrefixList) == jsonencode(["release-"]) &&
       jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[0].selection.countType == "imageCountMoreThan" &&
-      jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[0].selection.countNumber == 60
+      jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[0].selection.countNumber >= 10000
     )
-    error_message = "Lifecycle keeps the last 60 images (30 commits x api + jobs, ruling R9)."
+    error_message = "Rule 1 (highest priority) selects release-* tags with an unreachable count, so they are never expired."
+  }
+
+  assert {
+    condition = (
+      jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[1].rulePriority == 2 &&
+      jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[1].selection.tagStatus == "any" &&
+      jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[1].selection.countType == "imageCountMoreThan" &&
+      jsondecode(aws_ecr_lifecycle_policy.api.policy).rules[1].selection.countNumber == 60
+    )
+    error_message = "Rule 2 (last; tagStatus any must be last) expires everything else beyond the newest 60."
   }
 
   assert {

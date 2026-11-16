@@ -1,14 +1,23 @@
-# phoebe-boundary: the permissions boundary on every role CI creates or runs as
-# (the CI roles here and every infra/app role). Effective permissions are the
-# intersection of a role's own policy and this one, so it caps what a deploy
-# role, or a role a deploy role creates, can ever do.
+# Permissions boundaries (ruling R14). Effective permissions are the
+# intersection of a role's own policy and its boundary.
+#
+#   phoebe-boundary-staging     every infra/app role in staging
+#   phoebe-boundary-production  every infra/app role in production
+#   phoebe-boundary-ci          the phoebe-ci-* roles
+#
+# An env boundary allows only that env's phoebe-<env>-* data-plane resources,
+# so a role a staging deploy creates can never reach production, whatever
+# inline policy it is given. Each deploy role may create roles only with its
+# own env's boundary.
 
 locals {
-  boundary_name = "phoebe-boundary"
-  boundary_arn  = "arn:aws:iam::${local.account_id}:policy/${local.boundary_name}"
+  envs = ["staging", "production"]
 
-  phoebe_roles_arn = "arn:aws:iam::${local.account_id}:role/phoebe-*"
-  ci_roles_arn     = "arn:aws:iam::${local.account_id}:role/phoebe-ci-*"
+  boundary_arns = {
+    for k in ["staging", "production", "ci"] : k => "arn:aws:iam::${local.account_id}:policy/phoebe-boundary-${k}"
+  }
+
+  ci_roles_arn = "arn:aws:iam::${local.account_id}:role/phoebe-ci-*"
   # RDS creates this on the first Aurora cluster in the account.
   rds_slr_arn = "arn:aws:iam::${local.account_id}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
 
@@ -20,46 +29,104 @@ locals {
     "iam:Reset*", "iam:Resync*", "iam:PassRole",
   ]
 
-  # Services the app's Lambdas and the CI roles use. Anything else is out.
-  boundary_services = [
-    "bedrock", "bedrock-agentcore", "cloudfront", "codebuild", "codeconnections",
-    "codestar-connections", "dynamodb", "ecr", "iam", "kms", "lambda", "logs",
-    "rds", "rds-data", "s3", "scheduler", "secretsmanager", "sns", "sqs", "sts",
-  ]
+  # Global services are exempt. A `us.` inference profile called in us-east-2
+  # also authorizes the routed foundation model in the destination Region;
+  # bedrock:InferenceProfileArn is set only for that evaluation, so it exempts
+  # the routing and nothing else (the profile call itself carries us-east-2).
+  region_deny = {
+    Sid       = "DenyOtherRegions"
+    Effect    = "Deny"
+    NotAction = ["cloudfront:*", "iam:*", "sts:*", "budgets:*"]
+    Resource  = "*"
+    Condition = {
+      StringNotEquals = { "aws:RequestedRegion" = ["us-east-2"] }
+      ArnNotLike      = { "bedrock:InferenceProfileArn" = "arn:aws:bedrock:us-east-2:${local.account_id}:inference-profile/us.*" }
+    }
+  }
 
-  boundary_statements = [
+  org_deny = {
+    Sid      = "DenyOrgAndAccount"
+    Effect   = "Deny"
+    Action   = ["organizations:*", "account:*"]
+    Resource = "*"
+  }
+
+  # ---- phoebe-boundary-<env>: app roles (Lambdas, scheduler) -------------------
+
+  env_boundary_statements = {
+    for env in local.envs : env => [
+      {
+        Sid    = "EnvData"
+        Effect = "Allow"
+        Action = ["s3:*", "dynamodb:*", "sqs:*", "rds-data:*", "lambda:InvokeFunction", "logs:CreateLogStream", "logs:PutLogEvents", "secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+        Resource = [
+          "arn:aws:s3:::phoebe-${env}-*-${local.account_id}",
+          "arn:aws:s3:::phoebe-${env}-*-${local.account_id}/*",
+          "arn:aws:dynamodb:${local.region}:${local.account_id}:table/phoebe-${env}-*",
+          "arn:aws:sqs:${local.region}:${local.account_id}:phoebe-${env}-*",
+          "arn:aws:rds:${local.region}:${local.account_id}:cluster:phoebe-${env}",
+          "arn:aws:lambda:${local.region}:${local.account_id}:function:phoebe-${env}-*",
+          "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/phoebe-${env}-*",
+          "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:phoebe-${env}-*",
+        ]
+      },
+      {
+        # The Aurora master secret's name is rds!cluster-<uuid>.
+        Sid      = "EnvDbSecret"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = ["arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:rds!cluster-*"]
+      },
+      {
+        # Fail-open scoping: if RDS tags the secret with its cluster (as it
+        # documents for managed secrets), another env's secret is refused.
+        Sid      = "DenyOtherClusterSecret"
+        Effect   = "Deny"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = ["arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:rds!cluster-*"]
+        Condition = {
+          Null            = { "aws:ResourceTag/aws:rds:primaryDBClusterArn" = "false" }
+          StringNotEquals = { "aws:ResourceTag/aws:rds:primaryDBClusterArn" = "arn:aws:rds:${local.region}:${local.account_id}:cluster:phoebe-${env}" }
+        }
+      },
+      {
+        # Shared, env-agnostic AI resources (models, the guardrail, harnesses).
+        Sid      = "SharedAi"
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse", "bedrock:ConverseStream", "bedrock:ApplyGuardrail", "bedrock-agentcore:InvokeHarness"]
+        Resource = "*"
+      },
+      local.region_deny,
+      local.org_deny,
+      {
+        Sid         = "DenyIamOutsideEnvRoles"
+        Effect      = "Deny"
+        Action      = local.iam_write_actions
+        NotResource = ["arn:aws:iam::${local.account_id}:role/phoebe-${env}-*"]
+      },
+    ]
+  }
+
+  # ---- phoebe-boundary-ci: the CI roles ---------------------------------------
+
+  ci_boundary_statements = [
     {
-      Sid      = "AllowPhoebeServices"
-      Effect   = "Allow"
-      Action   = [for s in local.boundary_services : "${s}:*"]
+      Sid    = "AllowCiServices"
+      Effect = "Allow"
+      Action = [for s in [
+        "cloudfront", "codebuild", "codeconnections", "codestar-connections", "dynamodb",
+        "ecr", "iam", "kms", "lambda", "logs", "rds", "s3", "scheduler", "secretsmanager",
+        "sns", "sqs", "sts",
+      ] : "${s}:*"]
       Resource = "*"
     },
+    local.region_deny,
+    local.org_deny,
     {
-      # Global services are exempt. A `us.` inference profile called in
-      # us-east-2 also authorizes the routed foundation model in the
-      # destination Region; bedrock:InferenceProfileArn is set only for that
-      # evaluation, so it exempts the routing and nothing else (the profile
-      # call itself still carries us-east-2).
-      Sid       = "DenyOtherRegions"
-      Effect    = "Deny"
-      NotAction = ["cloudfront:*", "iam:*", "sts:*", "budgets:*"]
-      Resource  = "*"
-      Condition = {
-        StringNotEquals = { "aws:RequestedRegion" = ["us-east-2"] }
-        ArnNotLike      = { "bedrock:InferenceProfileArn" = "arn:aws:bedrock:us-east-2:${local.account_id}:inference-profile/us.*" }
-      }
-    },
-    {
-      Sid      = "DenyOrgAndAccount"
-      Effect   = "Deny"
-      Action   = ["organizations:*", "account:*"]
-      Resource = "*"
-    },
-    {
-      Sid         = "DenyIamOutsidePhoebeRoles"
+      Sid         = "DenyIamOutsideAppRoles"
       Effect      = "Deny"
       Action      = local.iam_write_actions
-      NotResource = [local.phoebe_roles_arn, local.rds_slr_arn]
+      NotResource = concat([for env in local.envs : "arn:aws:iam::${local.account_id}:role/phoebe-${env}-*"], [local.rds_slr_arn])
     },
     {
       Sid      = "DenyCiRoleChanges"
@@ -68,6 +135,7 @@ locals {
       Resource = [local.ci_roles_arn]
     },
     {
+      # A role CI creates or edits must carry one of the env boundaries.
       Sid    = "DenyUnboundedRoles"
       Effect = "Deny"
       Action = [
@@ -75,7 +143,7 @@ locals {
         "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy",
       ]
       Resource  = "*"
-      Condition = { StringNotEquals = { "iam:PermissionsBoundary" = local.boundary_arn } }
+      Condition = { StringNotEquals = { "iam:PermissionsBoundary" = [for env in local.envs : local.boundary_arns[env]] } }
     },
     {
       Sid      = "DenyBoundaryRemoval"
@@ -84,31 +152,24 @@ locals {
       Resource = "*"
     },
     {
-      # No bounded role hops into another role.
+      # No CI role hops into another role.
       Sid      = "DenyAssumeRole"
       Effect   = "Deny"
       Action   = ["sts:AssumeRole"]
       Resource = "*"
     },
-    {
-      # Only CI roles reach state and pipeline artifacts (plans hold secrets).
-      Sid    = "DenyDeliveryBucketsToApp"
-      Effect = "Deny"
-      Action = ["s3:*"]
-      Resource = [
-        local.state_bucket_arn, "${local.state_bucket_arn}/*",
-        local.artifacts_bucket_arn, "${local.artifacts_bucket_arn}/*",
-      ]
-      Condition = { ArnNotLike = { "aws:PrincipalArn" = local.ci_roles_arn } }
-    },
   ]
+
+  boundary_statements = merge(local.env_boundary_statements, { ci = local.ci_boundary_statements })
 }
 
 resource "aws_iam_policy" "boundary" {
-  name        = local.boundary_name
-  description = "Permissions boundary for every Phoebe CI and app role"
+  for_each = local.boundary_arns
+
+  name        = "phoebe-boundary-${each.key}"
+  description = each.key == "ci" ? "Permissions boundary for the phoebe-ci-* roles" : "Permissions boundary for every ${each.key} infra/app role"
   policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = local.boundary_statements
+    Statement = local.boundary_statements[each.key]
   })
 }

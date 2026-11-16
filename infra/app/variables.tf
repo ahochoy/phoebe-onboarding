@@ -29,12 +29,12 @@ variable "jobs_image_digest" {
 }
 
 variable "boundary_policy_arn" {
-  description = "ARN of the bootstrap permissions boundary (phoebe-boundary). Every role here sets it."
+  description = "ARN of this env's bootstrap permissions boundary (phoebe-boundary-<env>). Every role here sets it."
   type        = string
 
   validation {
-    condition     = can(regex("^arn:aws:iam::[0-9]{12}:policy/phoebe-boundary$", var.boundary_policy_arn))
-    error_message = "boundary_policy_arn must be arn:aws:iam::<account>:policy/phoebe-boundary."
+    condition     = can(regex("^arn:aws:iam::[0-9]{12}:policy/phoebe-boundary-${var.env}$", var.boundary_policy_arn))
+    error_message = "boundary_policy_arn must be arn:aws:iam::<account>:policy/phoebe-boundary-<env> (this env's boundary)."
   }
 }
 

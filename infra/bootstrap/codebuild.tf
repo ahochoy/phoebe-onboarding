@@ -10,13 +10,29 @@ locals {
   repo_url = "https://github.com/${var.github_repo}.git"
   image    = "aws/codebuild/amazonlinux-aarch64-standard:3.0"
 
+  # pr and pr-cleanup take their steps from here, never from the checkout
+  # (ruling R15). Every other project uses ci/buildspec-<key>.yml (Task 8).
+  inline_buildspecs = {
+    "pr" = templatefile("${path.module}/buildspecs/pr.yml", {
+      site_bucket       = "phoebe-staging-site-${local.account_id}"
+      state_bucket      = local.state_bucket
+      distribution_id   = var.staging_distribution_id
+      terraform_version = local.terraform_version
+    })
+    "pr-cleanup" = templatefile("${path.module}/buildspecs/pr-cleanup.yml", {
+      site_bucket     = "phoebe-staging-site-${local.account_id}"
+      distribution_id = var.staging_distribution_id
+    })
+  }
+  terraform_version = "1.16.4"
+
   # Only the owner's own events ever start a build. A fork PR's actor is the
   # fork's author, so it matches no group (Review Focus 5).
   actor_filter = { type = "ACTOR_ACCOUNT_ID", pattern = "^${var.github_owner_id}$" }
 
   projects = {
     "pr" = {
-      description = "PR: read-only staging plan and frontend preview at /pr-<n>/"
+      description = "PR: frontend preview at /pr-<n>/ and read-only staging plan (inline buildspec)"
       role        = "plan"
       source      = "GITHUB"
       privileged  = false
@@ -26,8 +42,8 @@ locals {
       ref_filter  = { type = "BASE_REF", pattern = "^refs/heads/main$" }
     }
     "pr-cleanup" = {
-      description = "PR closed or merged: delete previews/pr-<n>/"
-      role        = "plan"
+      description = "PR closed or merged: delete previews/pr-<n>/ (inline buildspec)"
+      role        = "pr-cleanup"
       source      = "GITHUB"
       privileged  = false
       concurrency = null
@@ -46,8 +62,8 @@ locals {
       ref_filter  = { type = "HEAD_REF", pattern = "^refs/heads/main$" }
     }
     "release-plan" = {
-      description = "Release: resolve the tag commit's digests, plan production"
-      role        = "deploy-production"
+      description = "Release: resolve the tag commit's digests, plan production (read-only)"
+      role        = "plan-production"
       source      = "CODEPIPELINE"
       privileged  = false # promotes by digest, never builds
       concurrency = 1
@@ -105,7 +121,7 @@ resource "aws_codebuild_project" "this" {
     type            = each.value.source
     location        = each.value.source == "GITHUB" ? local.repo_url : null
     git_clone_depth = each.value.source == "GITHUB" ? 1 : null
-    buildspec       = "ci/buildspec-${each.key}.yml"
+    buildspec       = lookup(local.inline_buildspecs, each.key, "ci/buildspec-${each.key}.yml")
 
     dynamic "auth" {
       for_each = each.value.source == "GITHUB" ? [1] : []

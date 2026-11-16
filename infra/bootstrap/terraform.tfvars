@@ -4,3 +4,6 @@ github_repo     = "ahochoy/phoebe-onboarding"
 
 # Flip to true after authorizing the phoebe-github connection (README.md, step 3).
 github_connection_ready = false
+
+# Staging CloudFront id, set after the first staging deploy (README.md, step 7).
+staging_distribution_id = ""

@@ -25,6 +25,17 @@ variable "github_connection_ready" {
   default     = false
 }
 
+variable "staging_distribution_id" {
+  description = "Staging CloudFront distribution id, once infra/app has created it (Task 9). The inline PR and cleanup buildspecs invalidate /pr-<n>/* with it; empty skips the invalidation."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^(E[A-Z0-9]+)?$", var.staging_distribution_id))
+    error_message = "staging_distribution_id must be empty or a CloudFront distribution id (E...)."
+  }
+}
+
 variable "monthly_budget_usd" {
   description = "Monthly account cost budget in USD. 80% of actual spend alerts the phoebe-budget topic."
   type        = number

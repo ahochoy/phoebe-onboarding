@@ -1,0 +1,75 @@
+version: 0.2
+
+# Inline buildspec for phoebe-pr (ruling R15): the steps come from
+# infra/bootstrap, not the PR checkout. The PR's own code still runs (npm ci,
+# the build, terraform plan), which is why the webhook's actor filter is the
+# gate: only the owner's PRs build.
+
+env:
+  variables:
+    SITE_BUCKET: "${site_bucket}"
+    STATE_BUCKET: "${state_bucket}"
+    DISTRIBUTION_ID: "${distribution_id}"
+    TF_VERSION: "${terraform_version}"
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - |
+        (
+          set -e
+          cd /tmp
+          curl -fsSLo tf.zip "https://releases.hashicorp.com/terraform/$TF_VERSION/terraform_$${TF_VERSION}_linux_arm64.zip"
+          curl -fsSLo tf.sums "https://releases.hashicorp.com/terraform/$TF_VERSION/terraform_$${TF_VERSION}_SHA256SUMS"
+          grep " terraform_$${TF_VERSION}_linux_arm64.zip$" tf.sums | sed "s/terraform_.*zip$/tf.zip/" | sha256sum -c -
+          unzip -o tf.zip terraform -d /usr/local/bin
+        )
+
+  pre_build:
+    on-failure: ABORT
+    commands:
+      - |
+        export N="$${CODEBUILD_WEBHOOK_TRIGGER#pr/}"
+        case "$N" in
+          ''|*[!0-9]*) echo "Refusing: CODEBUILD_WEBHOOK_TRIGGER is not pr/<digits>"; exit 1 ;;
+        esac
+        echo "PR $N"
+
+  build:
+    on-failure: ABORT
+    commands:
+      # Preview at /pr-<n>/ (Vite base), synced under previews/pr-<n>/.
+      - |
+        (
+          set -e
+          cd frontend
+          npm ci
+          PHOEBE_BASE="/pr-$N/" npm run build
+          aws s3 sync dist/ "s3://$SITE_BUCKET/previews/pr-$N/" --delete
+        )
+      - |
+        if [ -n "$DISTRIBUTION_ID" ]; then
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/pr-$N/*"
+        else
+          echo "staging_distribution_id not set in infra/bootstrap; skipping invalidation"
+        fi
+      # Read-only staging plan against the digests staging runs now.
+      # -lock=false: phoebe-ci-plan cannot write the lock object.
+      - |
+        (
+          set -e
+          API=$(aws lambda get-function --function-name phoebe-staging-api --query Code.ResolvedImageUri --output text 2>/dev/null || true)
+          JOBS=$(aws lambda get-function --function-name phoebe-staging-worker --query Code.ResolvedImageUri --output text 2>/dev/null || true)
+          case "$API$JOBS" in
+            *@sha256:*@sha256:*) ;;
+            *) echo "Staging is not deployed yet; skipping terraform plan"; exit 0 ;;
+          esac
+          cd infra/app
+          terraform init -input=false -no-color \
+            -backend-config=envs/staging.s3.tfbackend -backend-config="bucket=$STATE_BUCKET"
+          terraform plan -lock=false -input=false -no-color \
+            -var-file=envs/staging.tfvars \
+            -var "api_image_digest=$${API##*@}" -var "jobs_image_digest=$${JOBS##*@}"
+        )

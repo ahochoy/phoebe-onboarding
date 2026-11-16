@@ -36,7 +36,7 @@ header needs it.
 | `env` | `staging` or `production`. |
 | `api_image_digest` | `sha256:<64 hex>` of the `api` image (`backend/Dockerfile --target api`, tag `<sha>`). Passed per deploy; tags are rejected. |
 | `jobs_image_digest` | `sha256:<64 hex>` of the `jobs` image (`--target jobs`, tag `<sha>-jobs`). Passed per deploy; tags are rejected. |
-| `boundary_policy_arn` | `arn:aws:iam::<account_id>:policy/phoebe-boundary` (bootstrap). |
+| `boundary_policy_arn` | `arn:aws:iam::<account_id>:policy/phoebe-boundary-<env>` (bootstrap; this env's boundary, which only allows `phoebe-<env>-*` resources). Another env's boundary is rejected. |
 | `ai_state_bucket` | `phoebe-tfstate-<account_id>`; the `infra/ai` state is read from key `ai.tfstate`. |
 | `budget_topic_arn` | `arn:aws:sns:us-east-2:<account_id>:phoebe-budget` (bootstrap). |
 | `password_hash_secret_arn` | This env's `phoebe-<env>-password-hash` secret, created by the owner (Task 9). Must be the full ARN, including the 6-character random suffix; another env's secret is rejected. |

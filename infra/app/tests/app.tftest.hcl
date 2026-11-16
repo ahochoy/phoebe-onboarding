@@ -177,7 +177,7 @@ variables {
   env                      = "staging"
   api_image_digest         = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   jobs_image_digest        = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
-  boundary_policy_arn      = "arn:aws:iam::123456789012:policy/phoebe-boundary"
+  boundary_policy_arn      = "arn:aws:iam::123456789012:policy/phoebe-boundary-staging"
   ai_state_bucket          = "phoebe-tfstate-123456789012"
   budget_topic_arn         = "arn:aws:sns:us-east-2:123456789012:phoebe-budget"
   password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:phoebe-staging-password-hash-AbC123"
@@ -712,6 +712,7 @@ run "production" {
   variables {
     env                      = "production"
     password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:phoebe-production-password-hash-XyZ789"
+    boundary_policy_arn      = "arn:aws:iam::123456789012:policy/phoebe-boundary-production"
   }
 
   assert {
@@ -759,10 +760,23 @@ run "rejects_other_envs_password_secret" {
   command = plan
 
   variables {
-    env = "production"
+    env                 = "production"
+    boundary_policy_arn = "arn:aws:iam::123456789012:policy/phoebe-boundary-production"
   }
 
   expect_failures = [var.password_hash_secret_arn]
+}
+
+# R14: a staging role must never carry the production boundary, or vice versa.
+run "rejects_other_envs_boundary" {
+  command = plan
+
+  variables {
+    env                      = "production"
+    password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:phoebe-production-password-hash-XyZ789"
+  }
+
+  expect_failures = [var.boundary_policy_arn]
 }
 
 # A partial ARN (no random suffix) would only fail at GetSecretValue time.
