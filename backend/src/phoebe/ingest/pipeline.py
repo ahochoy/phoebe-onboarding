@@ -29,7 +29,7 @@ from phoebe.ingest.parse import (
     parse_pdf,
     parse_plain,
 )
-from phoebe.sandbox import BLOB_PREFIX, blob_key_for
+from phoebe.sandbox import BLOB_PREFIX, blob_key_for, is_uuid
 from phoebe.storage import BlobStore
 
 log = logging.getLogger(__name__)
@@ -141,20 +141,21 @@ def _store(
 ) -> bool:
     with db.transaction() as tx:
         locked = tx.fetch(
-            "select id from documents where id::text = :id for update",
+            "select id from documents where id = :id::uuid for update",
             {"id": document_id},
         )
         if not locked:
             return False
+        # A string on the Data API (uuid columns arrive as text): cast on bind.
         doc_uuid = locked[0]["id"]
-        tx.execute("delete from chunks where document_id = :d", {"d": doc_uuid})
+        tx.execute("delete from chunks where document_id = :d::uuid", {"d": doc_uuid})
         for chunk, vec in zip(chunks, vectors, strict=True):
             tx.execute(
                 """
                 insert into chunks
                   (document_id, ordinal, heading_path, text,
                    start_offset, end_offset, embedding)
-                values (:d, :ord, :hp, :text, :s, :e, :emb::vector)
+                values (:d::uuid, :ord, :hp, :text, :s, :e, :emb::vector)
                 """,
                 {
                     "d": doc_uuid,
@@ -184,10 +185,12 @@ def index_document(
     seed_root: Path | None = None,
     max_chunks: int = 400,
 ) -> None:
+    if not is_uuid(document_id):
+        return
     rows = db.fetch(
         """
         select title, doc_type, source_uri, session_id
-        from documents where id::text = :id
+        from documents where id = :id::uuid
         """,
         {"id": document_id},
     )

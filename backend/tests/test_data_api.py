@@ -29,8 +29,12 @@ from phoebe.documents import (
     mark_indexed,
     update_document,
 )
+from phoebe.embed import HashEmbedder
+from phoebe.ingest.pipeline import index_document
 from phoebe.migrate import MIGRATION_LOCK_KEY, apply_migrations
+from phoebe.sandbox import is_uuid
 from phoebe.sqlsplit import split_statements
+from phoebe.storage import LocalBlobStore
 from phoebe.tasks import TaskPatch, delete_task, update_task
 
 CLUSTER = "arn:aws:rds:us-east-2:111122223333:cluster:phoebe"
@@ -761,7 +765,9 @@ def test_database_unavailable_maps_to_503(logged_in: TestClient) -> None:
 # ---- uuid primary-key lookups --------------------------------------------
 
 
-def test_uuid_lookups_do_not_cast_the_column(db: PsycopgDatabase) -> None:
+def test_uuid_lookups_do_not_cast_the_column(
+    db: PsycopgDatabase, tmp_path: Path
+) -> None:
     seed_org(db)
     owned = str(uuid.uuid4())
     db.execute(
@@ -782,8 +788,49 @@ def test_uuid_lookups_do_not_cast_the_column(db: PsycopgDatabase) -> None:
     update_task(spy, "s", task, TaskPatch(title="New"))
     delete_task(spy, "s", task)
 
+    # The indexing pipeline (lock, lookup, chunk delete/insert).
+    (tmp_path / "x.md").write_text("# Hi\n\nHello there, this is some text.\n")
+    indexed = make_seed_doc(db, title="Idx")
+    db.execute(
+        "update documents set source_uri = 'seed://x.md' where id = :id::uuid",
+        {"id": indexed},
+    )
+    index_document(
+        spy,
+        LocalBlobStore(tmp_path / "blobs"),
+        HashEmbedder(),
+        indexed,
+        seed_root=tmp_path,
+    )
+    assert (
+        db.fetch("select status from documents where id = :id::uuid", {"id": indexed})[
+            0
+        ]["status"]
+        == "indexed"
+    )
+
     id_lookups = [s for s in spy.sql if ":id" in s]
-    assert len(id_lookups) >= 8
+    assert len(id_lookups) >= 10
     for sql in id_lookups:
         assert "id::text = :id" not in sql
         assert ":id::uuid" in sql
+    chunk_sql = [s for s in spy.sql if "chunks" in s and ":d" in s]
+    assert len(chunk_sql) == 2 and all(":d::uuid" in s for s in chunk_sql)
+
+
+def test_is_uuid_is_strictly_canonical() -> None:
+    good = str(uuid.uuid4())
+    assert is_uuid(good) and is_uuid(good.upper())
+    for bad in (
+        f"urn:uuid:{good}",
+        good.replace("-", ""),
+        "{" + good + "}",
+        "-" + good,
+        good + "-",
+        "not-a-uuid",
+        "",
+    ):
+        assert not is_uuid(bad), bad
+    fake = FakeRds()
+    assert get_document(make_db(fake), "s", f"urn:uuid:{good}") is None
+    assert fake.calls == []  # rejected before any statement

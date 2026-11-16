@@ -5,8 +5,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from psycopg.types.string import StrDumperVarchar
 
 from phoebe.api.app import Deps, create_app
 from phoebe.auth import hash_password
@@ -46,6 +48,9 @@ def _migrated_db() -> Iterator[PsycopgDatabase]:
             f"whose name ends in '_test' (got {dbname!r}); the suite drops the schema.",
             returncode=2,
         )
+    # Bind every str as varchar, as the RDS Data API does: an uncast uuid (or
+    # date) parameter then fails the whole suite here instead of only in the cloud.
+    psycopg.adapters.register_dumper(str, StrDumperVarchar)
     database = PsycopgDatabase(url)
     database.execute("drop schema public cascade")
     database.execute("create schema public")
@@ -123,7 +128,7 @@ def seed_completion(db: Database, person_id: str, task_id: str, done: bool) -> N
     db.execute(
         """
         insert into task_completions (person_id, task_id, session_id, done)
-        values (:person_id, :task_id, '', :done)
+        values (:person_id, :task_id::uuid, '', :done)
         """,
         {"person_id": person_id, "task_id": task_id, "done": done},
     )
