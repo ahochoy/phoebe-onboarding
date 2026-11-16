@@ -285,7 +285,8 @@ def create_configured_app() -> FastAPI:
         raise
 
 
-def _configure(settings: Settings, db: ClosableDatabase) -> FastAPI:
+def build_deps(settings: Settings, db: Database) -> Deps:
+    """The one place runtime dependencies are wired (API and Lambda handlers)."""
     sessions: SessionStore
     if settings.session_backend == "dynamodb":
         if not settings.sessions_table:
@@ -308,6 +309,23 @@ def _configure(settings: Settings, db: ClosableDatabase) -> FastAPI:
             max_chunks=settings.max_chunks_per_document,
         ),
     )
+    return Deps(
+        db,
+        sessions,
+        blobs,
+        embedder,
+        jobs,
+        settings,
+        counters=make_counters(settings),
+        control=make_control(settings),
+        answer=answer,
+        rewriter=rewriter,
+        guardrail=guardrail,
+    )
+
+
+def _configure(settings: Settings, db: ClosableDatabase) -> FastAPI:
+    deps = build_deps(settings, db)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -316,19 +334,4 @@ def _configure(settings: Settings, db: ClosableDatabase) -> FastAPI:
         finally:
             db.close()
 
-    return create_app(
-        Deps(
-            db,
-            sessions,
-            blobs,
-            embedder,
-            jobs,
-            settings,
-            counters=make_counters(settings),
-            control=make_control(settings),
-            answer=answer,
-            rewriter=rewriter,
-            guardrail=guardrail,
-        ),
-        lifespan=lifespan,
-    )
+    return create_app(deps, lifespan=lifespan)

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from phoebe.db import Database
+from phoebe.db import Database, DatabaseUnavailable
 from phoebe.documents import mark_failed, mark_indexed
 from phoebe.embed import Embedder, EmbeddingUnavailable, vector_literal
 from phoebe.ingest.chunk import Chunk, chunk_document, embedding_text
@@ -30,7 +30,7 @@ from phoebe.ingest.parse import (
     parse_plain,
 )
 from phoebe.sandbox import BLOB_PREFIX, blob_key_for, is_uuid
-from phoebe.storage import BlobStore
+from phoebe.storage import BlobStore, BlobUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -184,8 +184,18 @@ def index_document(
     fetch: Callable[[str], FetchedPage] = fetch_url,
     seed_root: Path | None = None,
     max_chunks: int = 400,
+    retry_transient: bool = False,
 ) -> None:
+    """Index one document.
+
+    `retry_transient` is for queue workers: transient errors (embedding, blob
+    store, database unavailable) are re-raised untouched, leaving the document
+    `processing` so the queue retries; the DLQ handler marks it failed once
+    retries run out. Permanent errors always mark the document failed. Inline
+    callers keep the default and mark failed on any error.
+    """
     if not is_uuid(document_id):
+        log.info("skipped reason=invalid_id")
         return
     rows = db.fetch(
         """
@@ -195,6 +205,7 @@ def index_document(
         {"id": document_id},
     )
     if not rows:
+        log.info("skipped document=%s reason=deleted", document_id)
         return
     row = rows[0]
     started = time.monotonic()
@@ -216,12 +227,21 @@ def index_document(
         return
     except EmbeddingUnavailable:
         log.error("embedding unavailable document=%s", document_id)
+        if retry_transient:
+            raise
         mark_failed(db, document_id, "Embedding service unavailable")
         return
     except (ParseError, UnsafeUrlError, FetchError) as exc:
         mark_failed(db, document_id, exc.reason)
         return
     except Exception as exc:
+        if retry_transient and isinstance(exc, BlobUnavailable | DatabaseUnavailable):
+            log.warning(
+                "transient failure document=%s error=%s",
+                document_id,
+                type(exc).__name__,
+            )
+            raise
         # Metadata only: exception messages/tracebacks may carry document text.
         log.error(
             "indexing failed document=%s error=%s", document_id, type(exc).__name__
