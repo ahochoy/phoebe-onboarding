@@ -1,0 +1,84 @@
+variable "env" {
+  description = "Environment name: staging or production. Prefixes every resource as phoebe-<env>."
+  type        = string
+
+  validation {
+    condition     = contains(["staging", "production"], var.env)
+    error_message = "env must be staging or production."
+  }
+}
+
+variable "image_digest" {
+  description = "Digest of the phoebe-api image every Lambda runs (sha256:<64 hex>). Never a tag."
+  type        = string
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.image_digest))
+    error_message = "image_digest must be sha256:<64 lowercase hex>, not a tag."
+  }
+}
+
+variable "boundary_policy_arn" {
+  description = "ARN of the bootstrap permissions boundary (phoebe-boundary). Every role here sets it."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws:iam::[0-9]{12}:policy/phoebe-boundary$", var.boundary_policy_arn))
+    error_message = "boundary_policy_arn must be arn:aws:iam::<account>:policy/phoebe-boundary."
+  }
+}
+
+variable "ai_state_bucket" {
+  description = "S3 bucket that holds the shared infra/ai state (key ai.tfstate)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^phoebe-tfstate-[0-9]{12}$", var.ai_state_bucket))
+    error_message = "ai_state_bucket must be phoebe-tfstate-<account_id>."
+  }
+}
+
+variable "budget_topic_arn" {
+  description = "ARN of the bootstrap budget SNS topic (phoebe-budget, us-east-2)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws:sns:us-east-2:[0-9]{12}:phoebe-budget$", var.budget_topic_arn))
+    error_message = "budget_topic_arn must be the phoebe-budget topic in us-east-2."
+  }
+}
+
+variable "password_hash_secret_arn" {
+  description = "ARN of the owner-created Secrets Manager secret phoebe-<env>-password-hash (Task 9)."
+  type        = string
+
+  validation {
+    condition = can(regex(
+      "^arn:aws:secretsmanager:us-east-2:[0-9]{12}:secret:phoebe-${var.env}-password-hash(-[A-Za-z0-9]{6})?$",
+      var.password_hash_secret_arn,
+    ))
+    error_message = "password_hash_secret_arn must be this env's phoebe-<env>-password-hash secret in us-east-2."
+  }
+}
+
+variable "answer_harness" {
+  description = "Which infra/ai harness answers chat: haiku (default) or nova (while Haiku access is pending)."
+  type        = string
+  default     = "haiku"
+
+  validation {
+    condition     = contains(["haiku", "nova"], var.answer_harness)
+    error_message = "answer_harness must be haiku or nova."
+  }
+}
+
+variable "log_level" {
+  description = "PHOEBE_LOG_LEVEL for every Lambda."
+  type        = string
+  default     = "INFO"
+
+  validation {
+    condition     = contains(["DEBUG", "INFO", "WARNING", "ERROR"], var.log_level)
+    error_message = "log_level must be DEBUG, INFO, WARNING or ERROR."
+  }
+}

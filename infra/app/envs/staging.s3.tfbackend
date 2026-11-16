@@ -1,0 +1,5 @@
+key          = "app/staging.tfstate"
+region       = "us-east-2"
+use_lockfile = true
+encrypt      = true
+# bucket = "phoebe-tfstate-<account_id>"  (fill in at Task 9, or pass -backend-config=bucket=...)

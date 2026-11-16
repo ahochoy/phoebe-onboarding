@@ -10,6 +10,8 @@ __pycache__/
 *.tfstate
 *.tfstate.*
 *.tfvars
+# Per-env app inputs are ARNs and names only (no secrets), so they are committed.
+!infra/app/envs/*.tfvars
 frontend/node_modules
 frontend/dist
 frontend/test-results

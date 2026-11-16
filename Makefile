@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e
+.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e tf-check
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -92,6 +92,17 @@ fe-lint:
 
 fe-build:
 	cd frontend && npm run build
+
+# Offline Terraform checks: no backend, no AWS calls (tests use mock providers).
+TF_ROOTS := infra/ai infra/app
+tf-check:
+	terraform fmt -check -recursive infra
+	@set -e; for root in $(TF_ROOTS); do \
+		echo "== $$root"; \
+		terraform -chdir=$$root init -backend=false -input=false >/dev/null; \
+		terraform -chdir=$$root validate; \
+		terraform -chdir=$$root test; \
+	done
 
 # The stack with the login, chat and upload caps raised for the Playwright suite (it logs
 # in once per test across five browser projects). Plain `make stack` restores the defaults.
