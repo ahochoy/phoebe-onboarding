@@ -20,7 +20,9 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 PLAN_DIR="${1:-${CODEBUILD_SRC_DIR_plan:-}}"
-[ -n "$PLAN_DIR" ] && [ -d "$PLAN_DIR" ] || die "plan artifact directory not found (CODEBUILD_SRC_DIR_plan)"
+if [ -z "$PLAN_DIR" ] || [ ! -d "$PLAN_DIR" ]; then
+  die "plan artifact directory not found (CODEBUILD_SRC_DIR_plan)"
+fi
 PLAN_FILE="$PLAN_DIR/production.tfplan"
 [ -f "$PLAN_FILE" ] || die "saved plan not found: $PLAN_FILE"
 [ -f "$PLAN_DIR/release.env" ] || die "release.env not found in $PLAN_DIR"
@@ -69,7 +71,9 @@ put_tag() {
   resp="$(aws ecr batch-get-image --repository-name "$ECR_REPO" --image-ids "imageDigest=$2" --output json)"
   manifest="$(jq -r '.images[0].imageManifest // empty' <<<"$resp")"
   media="$(jq -r '.images[0].imageManifestMediaType // empty' <<<"$resp")"
-  [ -n "$manifest" ] && [ -n "$media" ] || die "no manifest for $ECR_REPO@$2"
+  if [ -z "$manifest" ] || [ -z "$media" ]; then
+    die "no manifest for $ECR_REPO@$2"
+  fi
   if ! aws ecr put-image --repository-name "$ECR_REPO" --image-tag "$1" --image-digest "$2" \
     --image-manifest "$manifest" --image-manifest-media-type "$media" >/dev/null; then
     # Lost a race with another writer: fine only if it is the same digest.
