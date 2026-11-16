@@ -8,7 +8,7 @@ from conftest import CSRF
 from phoebe.api.app import Deps
 from phoebe.sessions import sandbox_id
 
-MB5 = 5 * 1024 * 1024
+MB4 = 4 * 1024 * 1024
 
 
 def deps_of(c: TestClient) -> Deps:
@@ -143,13 +143,13 @@ def test_upload_csv_and_pdf_types(seeded_client: TestClient) -> None:
 
 
 def test_upload_too_large_413(seeded_client: TestClient) -> None:
-    r = upload(seeded_client, "big.md", b"a" * (MB5 + 1))
+    r = upload(seeded_client, "big.md", b"a" * (MB4 + 1))
     assert r.status_code == 413 and r.json() == {"detail": "file_too_large"}
     assert blob_files(seeded_client) == []
 
 
 def test_upload_exactly_5mb_accepted(seeded_client: TestClient) -> None:
-    r = upload(seeded_client, "big.md", b"a" * MB5)
+    r = upload(seeded_client, "big.md", b"a" * MB4)
     assert r.status_code == 202
 
 

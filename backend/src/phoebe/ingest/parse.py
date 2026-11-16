@@ -6,7 +6,7 @@ section's text (no heading line; heading lives in ``heading_path``). Sections
 are ordered and never overlap. A section may be empty (a heading with no body).
 
 Resource limits: there is no in-process timeout. A pypdf hang is bounded by the
-Lambda timeout (plan 4), and upload size is capped at 5 MB by the API (Task 13).
+Lambda timeout (plan 4), and upload size is capped at 4 MB by the API (Task 13).
 Parsers themselves cap page count, CSV rows and total extracted text.
 """
 
