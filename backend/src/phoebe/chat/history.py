@@ -6,13 +6,13 @@ document is effective for the sandbox, indexed, and in an allowed group.
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, BeforeValidator
 
 from phoebe.chat.models import Message
 from phoebe.chat.verify import Citation
-from phoebe.db import Database
+from phoebe.db import Database, json_column, utc_datetime
 from phoebe.groups import visible_group_ids
 from phoebe.overlay_sql import EFFECTIVE_DOCUMENTS_SQL, EFFECTIVE_GROUPS_SQL
 from phoebe.persona import get_persona
@@ -44,8 +44,8 @@ class TurnOut(BaseModel):
     role: Literal["user", "assistant"]
     text: str
     refused: bool
-    created_at: datetime
-    citations: list[TurnCitation]
+    created_at: Annotated[datetime, BeforeValidator(utc_datetime)]
+    citations: Annotated[list[TurnCitation], BeforeValidator(json_column)]
 
 
 def visible_chunk_ids(
@@ -62,7 +62,7 @@ def visible_chunk_ids(
 
 
 def _cited(rows: Sequence[dict[str, Any]]) -> list[str]:
-    return sorted({c["chunk_id"] for r in rows for c in r["citations"]})
+    return sorted({c["chunk_id"] for r in rows for c in json_column(r["citations"])})
 
 
 def recent(
@@ -106,7 +106,7 @@ def recent(
     for r in rows:
         text: str = r["text"]
         if r["role"] == "assistant" and any(
-            c["chunk_id"] not in visible for c in r["citations"]
+            c["chunk_id"] not in visible for c in json_column(r["citations"])
         ):
             text = WITHDRAWN
         out.append({"role": r["role"], "text": text[:max_chars]})
@@ -130,7 +130,7 @@ def list_turns(db: Database, sandbox: str, group_ids: Sequence[str]) -> list[Tur
             created_at=r["created_at"],
             citations=[
                 TurnCitation(**c, removed=c["chunk_id"] not in visible)
-                for c in r["citations"]
+                for c in json_column(r["citations"])
             ],
         )
         for r in rows

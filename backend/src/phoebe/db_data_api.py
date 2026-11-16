@@ -45,7 +45,6 @@ _FIRST_DELAY_S = 0.5
 _MAX_DELAY_S = 8.0
 _MAX_TIMEOUT_RETRIES = 2
 
-_JSON_TYPES = frozenset({"json", "jsonb"})
 _WRITE_WORD = re.compile(
     r"\b(insert|update|delete|merge|truncate|alter|create|drop|call|do|copy)\b"
 )
@@ -125,20 +124,9 @@ def encode_params(params: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def _decode_rows(resp: Mapping[str, Any]) -> list[dict[str, Any]]:
     raw = resp.get("formattedRecords")
-    rows: list[dict[str, Any]] = (
-        json.loads(raw) if isinstance(raw, str) else (raw or [])
-    )
-    # The JSON format returns json/jsonb columns as strings; decode them by type.
-    json_cols = [
-        m.get("label") or m.get("name")
-        for m in resp.get("columnMetadata") or []
-        if str(m.get("typeName", "")).lower() in _JSON_TYPES
-    ]
-    for row in rows:
-        for col in json_cols:
-            if isinstance(row.get(col), str):
-                row[col] = json.loads(row[col])
-    return rows
+    # No type sniffing: jsonb/date/timestamp/decimal arrive as JSON strings and
+    # are decoded where the column is read (see `db.json_column`).
+    return json.loads(raw) if isinstance(raw, str) else (raw or [])
 
 
 def _is_read_only(sql: str) -> bool:
@@ -234,9 +222,7 @@ class DataApiDatabase(Database):
     def fetch(
         self, sql: str, params: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        resp = self._statement(
-            sql, params, formatRecordsAs="JSON", includeResultMetadata=True
-        )
+        resp = self._statement(sql, params, formatRecordsAs="JSON")
         return _decode_rows(resp)
 
     def execute(self, sql: str, params: Mapping[str, Any] | None = None) -> int:

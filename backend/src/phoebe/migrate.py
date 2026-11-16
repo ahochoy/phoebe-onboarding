@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 from phoebe.db import Database
+from phoebe.sqlsplit import split_statements
 
 _MIGRATION_FILE = re.compile(r"^\d{3}_.+\.sql$")
 
@@ -24,7 +25,7 @@ def _already_applied(db: Database, name: str) -> bool:
 def apply_migrations(db: Database, directory: Path) -> list[str]:
     """Apply unapplied `NNN_*.sql` files in order; return the names applied."""
     has_table = (
-        db.fetch("select to_regclass('public.schema_migrations') as t")[0]["t"]
+        db.fetch("select to_regclass('public.schema_migrations')::text as t")[0]["t"]
         is not None
     )
     done = (
@@ -41,7 +42,9 @@ def apply_migrations(db: Database, directory: Path) -> list[str]:
             tx.execute("select pg_advisory_xact_lock(:k)", {"k": MIGRATION_LOCK_KEY})
             if _already_applied(tx, path.name):  # a runner that held the lock first
                 continue
-            tx.execute(path.read_text())
+            # One statement per call: the Data API takes no multi-statement SQL.
+            for statement in split_statements(path.read_text()):
+                tx.execute(statement)
             tx.execute(
                 "insert into schema_migrations (name) values (:name)",
                 {"name": path.name},

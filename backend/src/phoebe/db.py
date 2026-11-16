@@ -1,6 +1,8 @@
+import json
 import re
 from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import psycopg
@@ -13,6 +15,23 @@ _NAMED_PARAM = re.compile(r"(?<![:\w]):([A-Za-z_]\w*)")
 def to_pyformat(sql: str) -> str:
     """Convert `:name` placeholders to `%(name)s`, leaving `::type` casts alone."""
     return _NAMED_PARAM.sub(r"%(\1)s", sql.replace("%", "%%"))
+
+
+def json_column(value: Any) -> Any:
+    """A jsonb value as Python. psycopg returns it parsed; the Data API's JSON
+    format returns it as a JSON string. Use as a pydantic before-validator or on
+    raw rows so both backends read the same."""
+    return json.loads(value) if isinstance(value, str | bytes) else value
+
+
+def utc_datetime(value: Any) -> Any:
+    """A timestamptz as an aware UTC datetime. The Data API returns it as
+    "YYYY-MM-DD HH:MM:SS.ffffff" in UTC with no offset."""
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
 
 
 class DatabaseUnavailable(Exception):

@@ -1,10 +1,10 @@
 import json
 from datetime import date
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, model_validator
 
-from phoebe.db import Database
+from phoebe.db import Database, json_column
 from phoebe.groups import GroupKind, effective_group_ids
 from phoebe.overlay_sql import EFFECTIVE_DOCUMENTS_SQL, EFFECTIVE_GROUPS_SQL
 from phoebe.sandbox import BLOB_PREFIX, EntityKind, blob_key_for, hide, is_uuid, patch
@@ -69,7 +69,7 @@ class DocumentSummary(BaseModel):
 
 class DocumentDetail(DocumentSummary):
     full_text: str | None
-    sections: list[dict[str, Any]]
+    sections: Annotated[list[dict[str, Any]], BeforeValidator(json_column)]
 
 
 class DeleteResult(BaseModel):

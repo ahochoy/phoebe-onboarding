@@ -1,7 +1,7 @@
 import json
 import uuid
 from collections.abc import Callable, Mapping
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +11,15 @@ from fastapi.testclient import TestClient
 
 from conftest import make_seed_doc, make_task, seed_org
 from phoebe.api.app import make_database
+from phoebe.chat.history import list_turns
 from phoebe.config import Settings
-from phoebe.db import Database, DatabaseUnavailable, PsycopgDatabase
+from phoebe.db import (
+    Database,
+    DatabaseUnavailable,
+    PsycopgDatabase,
+    json_column,
+    utc_datetime,
+)
 from phoebe.db_data_api import DataApiDatabase, encode_params
 from phoebe.documents import (
     DocumentPatch,
@@ -23,6 +30,7 @@ from phoebe.documents import (
     update_document,
 )
 from phoebe.migrate import MIGRATION_LOCK_KEY, apply_migrations
+from phoebe.sqlsplit import split_statements
 from phoebe.tasks import TaskPatch, delete_task, update_task
 
 CLUSTER = "arn:aws:rds:us-east-2:111122223333:cluster:phoebe"
@@ -181,28 +189,59 @@ def test_rows_decoded_from_json_records() -> None:
     assert rows == [{"id": "a", "n": 1}, {"id": "b", "n": 2}]
     kw = fake.calls[0][1]
     assert kw["formatRecordsAs"] == "JSON"
-    assert kw["includeResultMetadata"] is True
+    assert "includeResultMetadata" not in kw
 
 
 def test_empty_result_without_records() -> None:
     assert make_db(FakeRds({"numberOfRecordsUpdated": 1})).fetch("select 1") == []
 
 
-def test_json_columns_are_decoded_using_result_metadata() -> None:
-    fake = FakeRds(
-        {
-            "formattedRecords": json.dumps(
-                [{"sections": '[{"a": 1}]', "title": '{"not": "json column"}'}]
-            ),
-            "columnMetadata": [
-                {"name": "sections", "typeName": "jsonb"},
-                {"name": "title", "typeName": "text"},
-            ],
-        }
+def test_adapter_does_not_sniff_types() -> None:
+    """Per the Data API JSON format (no columnMetadata): jsonb/date/timestamp
+    arrive as strings and the adapter hands them over untouched."""
+    raw = {"s": '[{"a": 1}]', "d": "2026-11-16", "ts": "2026-11-16 12:00:00.123456"}
+    fake = FakeRds({"formattedRecords": json.dumps([raw]), "columnMetadata": None})
+    assert make_db(fake).fetch("select 1") == [raw]
+
+
+def test_json_column_helpers_are_backend_agnostic() -> None:
+    assert json_column('[{"a": 1}]') == [{"a": 1}]
+    assert json_column([{"a": 1}]) == [{"a": 1}]  # psycopg: already parsed
+    assert utc_datetime("2026-11-16 12:00:00.123456") == datetime(
+        2026, 11, 16, 12, 0, 0, 123456, tzinfo=UTC
     )
-    row = make_db(fake).fetch("select sections, title from t")[0]
-    assert row["sections"] == [{"a": 1}]
-    assert row["title"] == '{"not": "json column"}'
+    aware = datetime(2026, 11, 16, 12, tzinfo=UTC)
+    assert utc_datetime(aware) is aware
+
+
+def test_chat_history_reads_data_api_formatted_records() -> None:
+    cit = {
+        "n": 1,
+        "chunk_id": "c1",
+        "document_id": DOC_ID,
+        "document_title": "T",
+        "heading_path": "H",
+        "start": 0,
+        "end": 5,
+    }
+    turn = {
+        "id": str(uuid.uuid4()),
+        "role": "assistant",
+        "text": "hi",
+        "refused": False,
+        "created_at": "2026-11-16 12:00:00.123456",
+        "citations": json.dumps([cit]),
+    }
+
+    def handler(op: str, kw: dict[str, Any]) -> Any:
+        if "from chat_turns" in kw["sql"]:
+            return records(turn)
+        return records({"chunk_id": "c1"})
+
+    turns = list_turns(make_db(FakeRds(handler=handler)), "sid", ["platform"])
+    assert turns[0].created_at == datetime(2026, 11, 16, 12, 0, 0, 123456, tzinfo=UTC)
+    assert turns[0].citations[0].chunk_id == "c1"
+    assert turns[0].citations[0].removed is False
 
 
 def test_execute_returns_number_of_records_updated() -> None:
@@ -408,10 +447,8 @@ def _doc_handler(text: str | None, slices: list[int]) -> Callable[..., Any]:
             part = None if text is None else text[off - 1 : off - 1 + SLICE]
             return records({"part": part})
         assert "raw.full_text" not in sql, "full_text must not ride the detail query"
-        return {
-            **records(_detail_row()),
-            "columnMetadata": [{"name": "sections", "typeName": "jsonb"}],
-        }
+        # Data API JSON format: columnMetadata is null; dates arrive as strings.
+        return {**records(_detail_row()), "columnMetadata": None}
 
     return handler
 
@@ -539,6 +576,94 @@ def test_migrations_take_advisory_lock(tmp_path: Path) -> None:
     ddl = [i for i, c in enumerate(tx_calls) if c[0].startswith("create table")]
     assert ddl and ddl[0] > 0
     assert [w for w, s, _ in rec.log if "pg_advisory" in s] == ["tx", "tx"]
+
+
+def test_splitter_basic_and_empty_statements() -> None:
+    assert split_statements("select 1;; select 2 ;\n ;") == ["select 1", "select 2"]
+    assert split_statements("select 1") == ["select 1"]
+    assert split_statements("  \n ") == []
+
+
+def test_splitter_ignores_semicolons_in_quotes() -> None:
+    assert split_statements("select 'a;b', 'it''s; ok'; select 2") == [
+        "select 'a;b', 'it''s; ok'",
+        "select 2",
+    ]
+    assert split_statements('select "a;b", "q""x;y"; select 2') == [
+        'select "a;b", "q""x;y"',
+        "select 2",
+    ]
+
+
+def test_splitter_dollar_quoting() -> None:
+    body = "begin perform 1; return 2; end;"
+    sql = f"create function f() returns int as $${body}$$ language plpgsql; select 2"
+    assert split_statements(sql) == [
+        f"create function f() returns int as $${body}$$ language plpgsql",
+        "select 2",
+    ]
+    tagged = "create function g() as $fn$ x; $$ y; $fn$ language sql; select 3"
+    assert split_statements(tagged) == [
+        "create function g() as $fn$ x; $$ y; $fn$ language sql",
+        "select 3",
+    ]
+    assert split_statements("select $1; select 2") == ["select $1", "select 2"]
+
+
+def test_splitter_comments() -> None:
+    sql = (
+        "-- lead; comment\nselect 1; -- trail; ing\nselect 2 /* a; /* nested; */ b; */;"
+    )
+    assert split_statements(sql) == ["select 1", "select 2"]
+    assert split_statements("select '-- not a comment; ok', '/* nor this */'") == [
+        "select '-- not a comment; ok', '/* nor this */'"
+    ]
+    assert split_statements("-- only a comment;\n/* and another; */") == []
+
+
+EXPECTED_STATEMENTS = {"001_init.sql": 13, "002_sandboxes.sql": 1, "003_chat.sql": 3}
+
+
+def test_every_migration_file_splits_into_the_expected_statements() -> None:
+    from conftest import MIGRATIONS_DIR
+
+    files = sorted(p.name for p in MIGRATIONS_DIR.glob("*.sql"))
+    assert files == sorted(EXPECTED_STATEMENTS), "new migration: add its count"
+    for name, count in EXPECTED_STATEMENTS.items():
+        stmts = split_statements((MIGRATIONS_DIR / name).read_text())
+        assert len(stmts) == count, name
+        assert all(s and not s.endswith(";") for s in stmts)
+
+
+def test_data_api_receives_one_statement_per_call_in_one_transaction() -> None:
+    from conftest import MIGRATIONS_DIR
+
+    def handler(op: str, kw: dict[str, Any]) -> Any:
+        if op == "BeginTransaction":
+            return {"transactionId": f"tx-{len(fake.calls)}"}
+        if "to_regclass" in kw.get("sql", ""):
+            return records({"t": None})
+        return records()
+
+    fake = FakeRds(handler=handler)
+    applied = apply_migrations(make_db(fake), MIGRATIONS_DIR)
+    assert applied == sorted(EXPECTED_STATEMENTS)
+    for op, kw in fake.calls:
+        if op == "ExecuteStatement" and "transactionId" in kw:
+            assert len(split_statements(kw["sql"])) == 1  # never multi-statement
+    # Per file, under one transactionId: lock, schema check, the file's
+    # statements, the schema_migrations insert; then the commit.
+    by_tx: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for op, kw in fake.calls:
+        if "transactionId" in kw:
+            by_tx.setdefault(kw["transactionId"], []).append((op, kw))
+    assert len(by_tx) == len(EXPECTED_STATEMENTS)
+    for run, count in zip(by_tx.values(), EXPECTED_STATEMENTS.values(), strict=True):
+        sqls = [kw["sql"] for op, kw in run if op == "ExecuteStatement"]
+        assert sqls[0] == "select pg_advisory_xact_lock(:k)"
+        assert len(sqls) == 2 + count + 1
+        assert sqls[-1].startswith("insert into schema_migrations")
+        assert run[-1][0] == "CommitTransaction"
 
 
 def test_migrations_take_advisory_lock_on_data_api(tmp_path: Path) -> None:
