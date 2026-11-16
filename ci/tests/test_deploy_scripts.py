@@ -648,10 +648,26 @@ def test_release_plan_reads_the_tag_with_git_not_the_github_api(
     assert r.returncode == 0, r.stdout + r.stderr
     tag = next(a for a in h.argvs("git") if "tag" in a)
     assert tag[-4:] == ["--points-at", COMMIT, "--list", "v*"]
-    assert all(c["argv"][:2] == ["-C", str(REPO)] for c in h.calls("git"))
+    assert all(
+        c["argv"][:2] == ["-C", str(REPO)]
+        for c in h.calls("git")
+        if c["argv"][0] != "config"
+    )
     assert h.calls("curl") == []
     assert not any("fetch" in a for a in h.argvs("git"))
     assert release_env(out)["RELEASE_TAG"] == "v1.2.3"
+
+
+def test_release_plan_marks_the_clone_safe_before_any_other_git_call(
+    h: Harness, tmp_path: Path
+) -> None:
+    images_present(h)
+    release_tags(h, ["v1.2.3"])
+    r = h.run("release-plan.sh", str(tmp_path / "out"), env=plan_env())
+    assert r.returncode == 0, r.stdout + r.stderr
+    git = h.argvs("git")
+    assert git[0] == ["config", "--global", "--add", "safe.directory", str(REPO)]
+    assert all(a[0] != "config" for a in git[1:])
 
 
 def test_release_plan_picks_the_highest_of_several_tags(

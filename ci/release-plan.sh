@@ -37,6 +37,9 @@ log "commit $COMMIT api $API_DIGEST jobs $JOBS_DIGEST"
 # CODEBUILD_CLONE_REF git clone (ruling R17). Fails closed if there is none.
 resolve_tag() {
   local head tags
+  # CodeBuild's clone can be owned by another uid than the build user; without
+  # this git refuses it ("dubious ownership") and every call below fails.
+  git config --global --add safe.directory "$REPO_ROOT" || die "could not mark $REPO_ROOT as a safe git directory"
   head="$(git -C "$REPO_ROOT" rev-parse HEAD)" || die "the source is not a git clone (expected CODEBUILD_CLONE_REF)"
   [ "$head" = "$COMMIT" ] || die "the clone is at $head, not the release commit $COMMIT"
   if [ "$(git -C "$REPO_ROOT" rev-parse --is-shallow-repository)" = true ]; then
