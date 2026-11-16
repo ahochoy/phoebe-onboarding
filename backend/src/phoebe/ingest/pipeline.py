@@ -226,9 +226,9 @@ def index_document(
         mark_failed(db, document_id, exc.reason)
         return
     except EmbeddingUnavailable:
-        log.error("embedding unavailable document=%s", document_id)
         if retry_transient:
-            raise
+            raise  # the queue worker logs it once, at WARNING
+        log.error("embedding unavailable document=%s", document_id)
         mark_failed(db, document_id, "Embedding service unavailable")
         return
     except (ParseError, UnsafeUrlError, FetchError) as exc:
@@ -236,12 +236,7 @@ def index_document(
         return
     except Exception as exc:
         if retry_transient and isinstance(exc, BlobUnavailable | DatabaseUnavailable):
-            log.warning(
-                "transient failure document=%s error=%s",
-                document_id,
-                type(exc).__name__,
-            )
-            raise
+            raise  # the queue worker logs it once, at WARNING
         # Metadata only: exception messages/tracebacks may carry document text.
         log.error(
             "indexing failed document=%s error=%s", document_id, type(exc).__name__

@@ -106,7 +106,7 @@ def test_sweep_fails_stale_processing_documents(db: Database, tmp_path: Path) ->
     blobs = LocalBlobStore(tmp_path / "blobs")
     _sandbox(db, FRESH, NOW - timedelta(minutes=1))
     ids = {}
-    for name, age in (("old", 16), ("young", 2)):
+    for name, age in (("old", 61), ("retrying", 30), ("young", 2)):
         row = db.fetch(
             """
             insert into documents (session_id, title, doc_type, group_id,
@@ -130,6 +130,20 @@ def test_sweep_fails_stale_processing_documents(db: Database, tmp_path: Path) ->
         "select status from documents where id = :i::uuid", {"i": ids["young"]}
     )[0]
     assert young["status"] == "processing"
+    retrying = db.fetch(
+        "select status from documents where id = :i::uuid", {"i": ids["retrying"]}
+    )[0]
+    assert retrying["status"] == "processing"
+
+
+def test_timings_invariant() -> None:
+    from phoebe.lambdas import timings as t
+
+    assert (
+        t.QUEUE_VISIBILITY_TIMEOUT_S * t.MAX_RECEIVE_COUNT
+        < t.STALE_PROCESSING.total_seconds()
+    )
+    assert t.QUEUE_VISIBILITY_TIMEOUT_S >= 6 * t.WORKER_TIMEOUT_S
 
 
 def test_sweep_never_touches_seed_rows(db: Database, tmp_path: Path) -> None:

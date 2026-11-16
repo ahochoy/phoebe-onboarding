@@ -4,7 +4,6 @@ import logging
 from typing import Any
 
 from phoebe.db import DatabaseUnavailable
-from phoebe.documents import mark_failed
 from phoebe.lambdas import runtime
 from phoebe.lambdas.records import document_id, message_id
 from phoebe.sandbox import is_uuid
@@ -24,11 +23,15 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, list[dict[str, str
             log.warning("skipped message=%s reason=malformed", mid)
             continue
         try:
-            rows = d.db.fetch(
-                "select status from documents where id = :id::uuid", {"id": doc_id}
+            # One atomic statement: never overwrites an indexed/failed document.
+            changed = d.db.execute(
+                """
+                update documents set status = 'failed', failure_reason = :r
+                where id = :id::uuid and status = 'processing'
+                """,
+                {"r": REASON, "id": doc_id},
             )
-            if rows and rows[0]["status"] == "processing":
-                mark_failed(d.db, doc_id, REASON)
+            if changed:
                 log.info("dead-lettered document=%s", doc_id)
             else:
                 log.info("skipped message=%s reason=not_processing", mid)

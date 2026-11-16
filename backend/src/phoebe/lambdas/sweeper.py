@@ -6,18 +6,18 @@ sandbox owns. Seed rows (session_id is null) are never touched. Logs counts only
 
 import logging
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from phoebe.db import Database
 from phoebe.lambdas import runtime
+from phoebe.lambdas.timings import STALE_PROCESSING
 from phoebe.sandbox import forget_sandbox, reset_session
 from phoebe.sessions import ABSOLUTE_TIMEOUT
 from phoebe.storage import BlobStore, BlobUnavailable
 
 log = logging.getLogger(__name__)
 
-STALE_PROCESSING = timedelta(minutes=15)
 TIMED_OUT = "Indexing timed out"
 
 
