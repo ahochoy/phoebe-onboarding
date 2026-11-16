@@ -2,7 +2,7 @@ import json
 
 import boto3
 import pytest
-from botocore.config import Config
+from botocore.exceptions import ClientError, EndpointConnectionError
 from moto import mock_aws
 
 from phoebe.jobs import JobUnavailable
@@ -29,11 +29,21 @@ def test_enqueue_sends_exactly_one_message(aws_env):
     assert json.loads(msgs[0]["Body"]) == {"document_id": DOC}
 
 
-def test_send_failure_raises_job_unavailable(aws_env):
-    sqs = boto3.client(
-        "sqs",
-        endpoint_url="http://127.0.0.1:9",
-        config=Config(retries={"max_attempts": 0}, connect_timeout=1),
-    )
+class FailingSqs:
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    def send_message(self, **kw):
+        raise self._exc
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        EndpointConnectionError(endpoint_url="http://secret-host"),
+        ClientError({"Error": {"Code": "AccessDenied", "Message": "m"}}, "SendMessage"),
+    ],
+)
+def test_send_failure_raises_job_unavailable(exc):
     with pytest.raises(JobUnavailable):
-        SqsJobQueue("http://127.0.0.1:9/q", client=sqs).enqueue("d")
+        SqsJobQueue("q", client=FailingSqs(exc)).enqueue("d")

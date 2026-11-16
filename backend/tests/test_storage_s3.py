@@ -1,7 +1,6 @@
 import boto3
 import pytest
-from botocore.config import Config
-from botocore.exceptions import EndpointConnectionError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from moto import mock_aws
 
 from phoebe.storage import BlobUnavailable, LocalBlobStore
@@ -58,31 +57,47 @@ def test_invalid_keys_raise_value_error(aws_env, key):
         make_store().put(key, b"x")
 
 
-def test_connection_errors_become_blob_unavailable(aws_env):
-    client = boto3.client(
-        "s3",
-        endpoint_url="http://127.0.0.1:9",
-        config=Config(retries={"max_attempts": 0}, connect_timeout=1),
+class FailingClient:
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    def put_object(self, **kw):
+        raise self._exc
+
+    def get_object(self, **kw):
+        raise self._exc
+
+    def delete_object(self, **kw):
+        raise self._exc
+
+
+def _client_error(code: str, status: int = 500) -> ClientError:
+    return ClientError(
+        {
+            "Error": {"Code": code, "Message": "detail"},
+            "ResponseMetadata": {"HTTPStatusCode": status},
+        },
+        "GetObject",
     )
-    store = S3BlobStore(BUCKET, client=client)
+
+
+def test_connection_errors_become_blob_unavailable():
+    exc = EndpointConnectionError(endpoint_url="http://secret-host")
+    store = S3BlobStore(BUCKET, client=FailingClient(exc))
     for call in (
         lambda: store.put("k", b"x"),
         lambda: store.get("k"),
         lambda: store.delete("k"),
     ):
-        with pytest.raises(BlobUnavailable):
+        with pytest.raises(BlobUnavailable) as raised:
             call()
+        assert "secret-host" not in str(raised.value)
 
 
-def test_endpoint_connection_error_is_wrapped(aws_env):
-    class Boom:
-        class exceptions:
-            class NoSuchKey(Exception):
-                pass
-
-        def get_object(self, **kw):
-            raise EndpointConnectionError(endpoint_url="http://secret-host")
-
-    with pytest.raises(BlobUnavailable) as exc:
-        S3BlobStore(BUCKET, client=Boom()).get("k")
-    assert "secret-host" not in str(exc.value)
+@pytest.mark.parametrize("code", ["AccessDenied", "InternalError", "SlowDown"])
+def test_other_client_errors_become_blob_unavailable_not_missing(code):
+    store = S3BlobStore(BUCKET, client=FailingClient(_client_error(code)))
+    with pytest.raises(BlobUnavailable):
+        store.get("k")
+    with pytest.raises(BlobUnavailable):
+        store.put("k", b"x")
