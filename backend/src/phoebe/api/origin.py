@@ -6,8 +6,11 @@ consumes a throttle hit, reads the kill switch or touches the session store.
 
 import hmac
 import json
+import logging
 
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+_log = logging.getLogger("phoebe.api")
 
 HEADER = b"x-phoebe-origin"
 HEALTH = "/api/health"
@@ -31,6 +34,8 @@ class OriginGuard:
         if hmac.compare_digest(given, self._secret):
             await self.app(scope, receive, send)
             return
+        # Metadata only: the path (no query string) and status, never headers.
+        _log.warning("origin guard rejected path=%s status=403", scope["path"][:200])
         await send(
             {
                 "type": "http.response.start",

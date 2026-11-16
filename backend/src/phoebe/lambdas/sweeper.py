@@ -1,5 +1,8 @@
 """Hourly sweep: expired sandboxes and stuck indexing jobs.
 
+Skipped without touching the database while the site is idle (no activity
+since the last completed sweep), so a paused Aurora stays paused.
+
 Reuses `reset_session` / `forget_sandbox` so there is one definition of what a
 sandbox owns. Seed rows (session_id is null) are never touched. Logs counts only.
 """
@@ -9,6 +12,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from phoebe.activity import ACTIVITY_KEY, SWEEP_KEY, ActivityStore
 from phoebe.db import Database
 from phoebe.lambdas import runtime
 from phoebe.lambdas.timings import STALE_PROCESSING
@@ -62,9 +66,33 @@ def sweep(db: Database, blobs: BlobStore, now: datetime) -> SweepReport:
     return SweepReport(len(expired), chunks, deleted_blobs, stale)
 
 
-def handler(event: Any, context: Any) -> dict[str, int]:
+def is_idle(store: ActivityStore) -> bool:
+    """True when nothing has happened since the last completed sweep, so the DB
+    (which may be paused) has no work. An unreadable store is not idle: sweep."""
+    try:
+        last_activity = store.read(ACTIVITY_KEY)
+        last_complete = store.read(SWEEP_KEY)
+    except Exception as exc:  # noqa: BLE001 - fail toward correctness
+        log.warning("activity read failed error=%s", type(exc).__name__)
+        return False
+    if last_complete is None:
+        return False
+    return last_activity is None or last_activity < last_complete
+
+
+def handler(event: Any, context: Any) -> dict[str, int | bool]:
     d = runtime.deps()
-    report = sweep(d.db, d.blobs, datetime.now(UTC))
+    store = d.activity.store
+    if is_idle(store):
+        log.info("sweep skipped idle")
+        return {"skipped": True}
+    started = datetime.now(UTC)
+    report = sweep(d.db, d.blobs, started)
+    try:
+        # The start time: activity during the sweep still triggers the next one.
+        store.write(SWEEP_KEY, int(started.timestamp()))
+    except Exception as exc:  # noqa: BLE001 - the next run just sweeps again
+        log.warning("sweep mark failed error=%s", type(exc).__name__)
     log.info(
         "sweep sandboxes=%d chunks=%d blobs=%d stale_docs=%d",
         report.sandboxes,

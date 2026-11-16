@@ -38,8 +38,9 @@ _OUTAGE = frozenset(
     }
 )
 
-# A Data API response is capped at 1 MB; text columns are read in slices this long.
-TEXT_SLICE_CHARS = 200_000
+# The Data API caps each result row at 64 KB (and a response at 1 MB); text
+# columns are read in slices this long: at most 60 KB even at 4 bytes/char.
+TEXT_SLICE_CHARS = 15_000
 
 _FIRST_DELAY_S = 0.5
 _MAX_DELAY_S = 8.0

@@ -10,6 +10,11 @@ _MIGRATION_FILE = re.compile(r"^\d{3}_.+\.sql$")
 # Arbitrary fixed key for the migration advisory lock.
 MIGRATION_LOCK_KEY = 7_450_413_901
 
+# `pg_advisory_xact_lock` returns `void`, which the RDS Data API cannot return as
+# a result column; wrap it so the statement yields an int (the volatile call in
+# the subquery is still evaluated, so the lock is taken).
+MIGRATION_LOCK_SQL = "select 1 as locked from (select pg_advisory_xact_lock(:k)) s"
+
 
 def _already_applied(db: Database, name: str) -> bool:
     if (
@@ -39,7 +44,7 @@ def apply_migrations(db: Database, directory: Path) -> list[str]:
             continue
         with db.transaction() as tx:
             # Serialise concurrent runners; the lock drops at commit/rollback.
-            tx.execute("select pg_advisory_xact_lock(:k)", {"k": MIGRATION_LOCK_KEY})
+            tx.execute(MIGRATION_LOCK_SQL, {"k": MIGRATION_LOCK_KEY})
             if _already_applied(tx, path.name):  # a runner that held the lock first
                 continue
             # One statement per call: the Data API takes no multi-statement SQL.

@@ -1,4 +1,5 @@
 import hmac
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
@@ -77,6 +78,18 @@ def test_missing_or_wrong_header_is_forbidden(db, tmp_path, headers):
     # Rejected before the throttle, the kill switch or the session store.
     assert counters.calls == 0
     assert control.calls == 0
+
+
+def test_rejection_logs_one_metadata_line(db, tmp_path, caplog):
+    c, _, _ = make(db, tmp_path)
+    with caplog.at_level(logging.WARNING, logger="phoebe.api"):
+        r = c.get("/api/me?q=private", headers={HDR: "wrong-value-xyz"})
+    assert r.status_code == 403
+    lines = [
+        rec.getMessage() for rec in caplog.records if "origin guard" in rec.getMessage()
+    ]
+    assert lines == ["origin guard rejected path=/api/me status=403"]
+    assert "wrong-value-xyz" not in caplog.text and "private" not in caplog.text
 
 
 def test_right_header_behaves_normally(db, tmp_path):

@@ -61,6 +61,7 @@ def login(body: LoginBody, request: Request) -> Response:
         _scrypt_slots.release()
     if not ok:
         raise HTTPException(401, "invalid_password")
+    deps.activity.touch()  # the sweeper has work again (throttled, never fails)
     old_id = request.cookies.get(COOKIE_NAME)
     old = deps.sessions.get(old_id) if old_id else None
     if old is not None:

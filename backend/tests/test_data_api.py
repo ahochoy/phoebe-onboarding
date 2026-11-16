@@ -20,7 +20,7 @@ from phoebe.db import (
     json_column,
     utc_datetime,
 )
-from phoebe.db_data_api import DataApiDatabase, encode_params
+from phoebe.db_data_api import TEXT_SLICE_CHARS, DataApiDatabase, encode_params
 from phoebe.documents import (
     DocumentPatch,
     delete_document,
@@ -31,7 +31,7 @@ from phoebe.documents import (
 )
 from phoebe.embed import HashEmbedder
 from phoebe.ingest.pipeline import index_document
-from phoebe.migrate import MIGRATION_LOCK_KEY, apply_migrations
+from phoebe.migrate import MIGRATION_LOCK_KEY, MIGRATION_LOCK_SQL, apply_migrations
 from phoebe.sandbox import is_uuid
 from phoebe.sqlsplit import split_statements
 from phoebe.storage import LocalBlobStore
@@ -416,7 +416,13 @@ def test_sql_errors_pass_through_unchanged() -> None:
 # ---- sliced text ----------------------------------------------------------
 
 DOC_ID = str(uuid.uuid4())
-SLICE = 200_000
+SLICE = 15_000
+
+
+def test_slice_fits_the_data_api_row_limit() -> None:
+    # The Data API caps a result row at 64 KB; keep a slice ≤ 60 KB at 4 bytes/char.
+    assert DataApiDatabase.text_slice_chars == SLICE
+    assert TEXT_SLICE_CHARS * 4 <= 61_440
 
 
 def _detail_row(**over: Any) -> dict[str, Any]:
@@ -445,7 +451,7 @@ def _doc_handler(text: str | None, slices: list[int]) -> Callable[..., Any]:
         assert op == "ExecuteStatement"
         sql = kw["sql"]
         params = {p["name"]: p["value"] for p in kw["parameters"]}
-        if "substr(full_text, :off, 200000)" in sql:
+        if f"substr(full_text, :off, {SLICE})" in sql:
             off = params["off"]["longValue"]
             slices.append(off)
             part = None if text is None else text[off - 1 : off - 1 + SLICE]
@@ -458,7 +464,7 @@ def _doc_handler(text: str | None, slices: list[int]) -> Callable[..., Any]:
 
 
 def test_large_text_is_fetched_in_slices() -> None:
-    text = "".join(chr(97 + i % 26) for i in range(2 * SLICE + 50_000))
+    text = "".join(chr(97 + i % 26) for i in range(2 * SLICE + 5_000))
     slices: list[int] = []
     fake = FakeRds(handler=_doc_handler(text, slices))
     doc = get_document(make_db(fake), "sid", DOC_ID)
@@ -573,7 +579,7 @@ def test_migrations_take_advisory_lock(tmp_path: Path) -> None:
     firsts = [c for c in tx_calls if "pg_advisory_xact_lock" in c[0]]
     assert len(firsts) == 2
     assert all(
-        sql == "select pg_advisory_xact_lock(:k)" and p == {"k": MIGRATION_LOCK_KEY}
+        sql == MIGRATION_LOCK_SQL and p == {"k": MIGRATION_LOCK_KEY}
         for sql, p in firsts
     )
     assert "pg_advisory_xact_lock" in tx_calls[0][0]
@@ -664,7 +670,7 @@ def test_data_api_receives_one_statement_per_call_in_one_transaction() -> None:
     assert len(by_tx) == len(EXPECTED_STATEMENTS)
     for run, count in zip(by_tx.values(), EXPECTED_STATEMENTS.values(), strict=True):
         sqls = [kw["sql"] for op, kw in run if op == "ExecuteStatement"]
-        assert sqls[0] == "select pg_advisory_xact_lock(:k)"
+        assert sqls[0] == MIGRATION_LOCK_SQL
         assert len(sqls) == 2 + count + 1
         assert sqls[-1].startswith("insert into schema_migrations")
         assert run[-1][0] == "CommitTransaction"
@@ -684,9 +690,25 @@ def test_migrations_take_advisory_lock_on_data_api(tmp_path: Path) -> None:
     assert apply_migrations(make_db(fake), tmp_path) == ["001_a.sql"]
     ops = fake.ops()
     begin = ops.index("BeginTransaction")
-    assert fake.calls[begin + 1][1]["sql"] == "select pg_advisory_xact_lock(:k)"
+    assert fake.calls[begin + 1][1]["sql"] == MIGRATION_LOCK_SQL
     assert fake.calls[begin + 1][1]["transactionId"] == "tx-1"
     assert ops[-1] == "CommitTransaction"
+
+
+def test_migration_lock_sql_returns_a_value_and_holds_the_lock(
+    db: PsycopgDatabase,
+) -> None:
+    # Real Postgres: the wrapped call yields an int column (not `void`, which the
+    # Data API rejects) and the advisory lock is held until the transaction ends.
+    held = (
+        "select count(*) as n from pg_locks where locktype = 'advisory'"
+        " and pid = pg_backend_pid()"
+    )
+    with db.transaction() as tx:
+        rows = tx.fetch(MIGRATION_LOCK_SQL, {"k": MIGRATION_LOCK_KEY})
+        assert rows == [{"locked": 1}]
+        assert tx.fetch(held)[0]["n"] == 1
+    assert db.fetch(held)[0]["n"] == 0
 
 
 def test_migration_applied_by_a_concurrent_runner_is_skipped(

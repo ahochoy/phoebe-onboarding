@@ -296,10 +296,20 @@ def _configured_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def test_configured_app_refuses_embedder_mismatch(
     db, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    # Lazy (R21): the app builds; the first DB-using request returns 503.
     _configured_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("PHOEBE_COOKIE_SECURE", "false")  # TestClient is plain http
     db.execute("insert into app_meta (key, value) values ('embedder', 'titan-v2-1024')")
-    with pytest.raises(EmbedderMismatch):
-        create_configured_app()
+    app = create_configured_app()
+    with TestClient(app) as c:
+        assert c.get("/api/health").status_code == 200
+        _login(c)
+        r = c.get("/api/documents?scope=all")
+        assert r.status_code == 503
+        assert r.json() == {"detail": "embedder_mismatch"}
+        # Not cached as a failure: fixing the index heals without a redeploy.
+        db.execute("update app_meta set value = 'hash-v1-1024' where key = 'embedder'")
+        assert c.get("/api/documents?scope=all").status_code == 200
 
 
 def test_configured_app_wires_offline_defaults(

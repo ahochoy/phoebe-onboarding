@@ -3,10 +3,13 @@ import logging
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
+from fastapi.testclient import TestClient
 from moto import mock_aws
 
 from phoebe.api import app as app_mod
 from phoebe.api.app import create_configured_app
+from phoebe.auth import hash_password
 from phoebe.config import Settings, resolve_secrets
 from phoebe.jobs_sqs import SqsJobQueue
 from phoebe.logconfig import configure_logging
@@ -99,6 +102,60 @@ def test_empty_password_hash_cannot_build_the_app(monkeypatch, tmp_path, aws_env
     monkeypatch.setenv("PHOEBE_PASSWORD_HASH", "")
     with pytest.raises(RuntimeError, match="PASSWORD_HASH"):
         create_configured_app()
+
+
+# ---- lazy embedder check (R21) ------------------------------------------------
+
+
+class SwitchableRds:
+    """rds-data stand-in: raises an outage while `down`, else returns no rows."""
+
+    def __init__(self) -> None:
+        self.down = True
+        self.sql: list[str] = []
+
+    def execute_statement(self, **kw):
+        self.sql.append(kw["sql"])
+        if self.down:
+            raise ClientError(
+                {"Error": {"Code": "DatabaseUnavailableException", "Message": "x"}},
+                "ExecuteStatement",
+            )
+        return {"formattedRecords": "[]", "numberOfRecordsUpdated": 0}
+
+
+def test_app_builds_without_the_database_and_checks_once_lazily(
+    monkeypatch, tmp_path, aws_env
+):
+    rds = SwitchableRds()
+    cloud_env(
+        monkeypatch,
+        tmp_path,
+        PHOEBE_PASSWORD_HASH=hash_password("pw"),
+        PHOEBE_CONTROL_FILE=str(tmp_path / "control.json"),
+        PHOEBE_COOKIE_SECURE="false",  # the TestClient speaks plain http
+    )
+    monkeypatch.setattr(
+        app_mod, "aws_client", lambda s, r: rds if s == "rds-data" else FakeClient()
+    )
+    app = create_configured_app()  # what api/main.py runs at import
+    assert rds.sql == []
+    with TestClient(app) as c:
+        assert c.get("/api/health").status_code == 200
+        assert rds.sql == []  # /api/health never wakes the database
+        r = c.post(
+            "/api/login", json={"password": "pw"}, headers={"X-Phoebe-Csrf": "1"}
+        )
+        assert r.status_code == 204
+        r = c.get("/api/documents?scope=all")
+        assert r.status_code == 503
+        assert r.json() == {"detail": "database_unavailable"}
+        assert sum("to_regclass('public.app_meta')" in s for s in rds.sql) == 1
+        rds.down = False
+        assert c.get("/api/documents?scope=all").status_code == 200
+        assert c.get("/api/documents?scope=all").status_code == 200
+        # Checked once more after the failure, then never again in this container.
+        assert sum("to_regclass('public.app_meta')" in s for s in rds.sql) == 2
 
 
 # ---- secrets ---------------------------------------------------------------

@@ -1,9 +1,14 @@
 import logging
 import re
+import threading
 import time
 import uuid
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import Callable, Mapping
+from contextlib import (
+    AbstractAsyncContextManager,
+    AbstractContextManager,
+    asynccontextmanager,
+)
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from http import HTTPStatus
@@ -16,6 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from phoebe.activity import ActivityRecorder, InMemoryActivityStore, make_activity
 from phoebe.api.origin import OriginGuard
 from phoebe.chat.models import (
     AnswerModel,
@@ -41,7 +47,7 @@ from phoebe.limits import (
     make_counters,
 )
 from phoebe.logconfig import configure_logging
-from phoebe.meta import check_embedder
+from phoebe.meta import EmbedderMismatch, check_embedder
 from phoebe.sessions import (
     DynamoDBSessionStore,
     InMemorySessionStore,
@@ -72,6 +78,9 @@ class Deps:
     answer: AnswerModel = field(default_factory=ExtractiveAnswerModel)
     rewriter: Rewriter = field(default_factory=HeuristicRewriter)
     guardrail: Guardrail = field(default_factory=NoGuardrail)
+    activity: ActivityRecorder = field(
+        default_factory=lambda: ActivityRecorder(InMemoryActivityStore())
+    )
 
 
 def _error(status: int, code: str) -> JSONResponse:
@@ -112,6 +121,12 @@ def _install_error_handlers(app: FastAPI) -> None:
         route = getattr(request.scope.get("route"), "path", None) or "-"
         _log.warning("database unavailable route=%s", route)
         return _error(503, "database_unavailable")
+
+    @app.exception_handler(EmbedderMismatch)
+    async def _embedder_mismatch(request: Request, _: EmbedderMismatch) -> Response:
+        route = getattr(request.scope.get("route"), "path", None) or "-"
+        _log.error("stored vectors come from another embedder route=%s", route)
+        return _error(503, "embedder_mismatch")
 
     @app.exception_handler(BlobUnavailable)
     async def _blob_unavailable(request: Request, _: BlobUnavailable) -> Response:
@@ -229,6 +244,52 @@ def startup_check_embedder(db: Database, embedder: Embedder) -> None:
         check_embedder(db, embedder)
 
 
+class EmbedderCheckedDatabase:
+    """The API's database: runs `startup_check_embedder` lazily, once per
+    container, before the first statement of the first DB-using request.
+
+    Nothing touches the database at import (a resuming Aurora would blow the
+    Lambda init limit), and DB-free routes such as /api/health never wake it.
+    `DatabaseUnavailable` propagates (the normal 503) and `EmbedderMismatch`
+    becomes 503 `embedder_mismatch`; either way the next request checks again.
+    """
+
+    def __init__(self, inner: ClosableDatabase, embedder: Embedder) -> None:
+        self._inner = inner
+        self._embedder = embedder
+        self._checked = False
+        self._lock = threading.Lock()
+
+    def _ensure_checked(self) -> None:
+        if self._checked:
+            return
+        with self._lock:
+            if not self._checked:
+                startup_check_embedder(self._inner, self._embedder)
+                self._checked = True
+
+    def fetch(
+        self, sql: str, params: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        self._ensure_checked()
+        return self._inner.fetch(sql, params)
+
+    def execute(self, sql: str, params: Mapping[str, Any] | None = None) -> int:
+        self._ensure_checked()
+        return self._inner.execute(sql, params)
+
+    def transaction(self) -> AbstractContextManager[Database]:
+        self._ensure_checked()
+        return self._inner.transaction()
+
+    def close(self) -> None:
+        self._inner.close()
+
+    def __getattr__(self, name: str) -> Any:
+        # Backend traits such as `text_slice_chars` come from the inner database.
+        return getattr(self._inner, name)
+
+
 def aws_client(service: str, region: str) -> Any:
     """Module-level factory so tests can swap every AWS client at once."""
     return boto3.client(service, region_name=region)  # type: ignore[call-overload]
@@ -285,8 +346,11 @@ def create_configured_app() -> FastAPI:
         raise
 
 
-def build_deps(settings: Settings, db: Database) -> Deps:
-    """The one place runtime dependencies are wired (API and Lambda handlers)."""
+def build_deps(
+    settings: Settings, db: ClosableDatabase, *, check_embedder_lazily: bool = False
+) -> Deps:
+    """The one place runtime dependencies are wired (API and Lambda handlers).
+    Makes no network calls."""
     sessions: SessionStore
     if settings.session_backend == "dynamodb":
         if not settings.sessions_table:
@@ -296,7 +360,10 @@ def build_deps(settings: Settings, db: Database) -> Deps:
         sessions = InMemorySessionStore()
     blobs = make_blobs(settings)
     embedder = make_embedder(settings)
-    startup_check_embedder(db, embedder)
+    if check_embedder_lazily:
+        # The API only. Lambda handlers never check (they would wake an idle
+        # Aurora); the ops seed task checks explicitly.
+        db = EmbedderCheckedDatabase(db, embedder)
     answer, rewriter, guardrail = make_models(settings)
     jobs = make_jobs(
         settings,
@@ -321,11 +388,12 @@ def build_deps(settings: Settings, db: Database) -> Deps:
         answer=answer,
         rewriter=rewriter,
         guardrail=guardrail,
+        activity=make_activity(settings),
     )
 
 
 def _configure(settings: Settings, db: ClosableDatabase) -> FastAPI:
-    deps = build_deps(settings, db)
+    deps = build_deps(settings, db, check_embedder_lazily=True)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):

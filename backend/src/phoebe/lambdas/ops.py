@@ -4,6 +4,7 @@ import logging
 from dataclasses import asdict
 from typing import Any
 
+from phoebe.api.app import startup_check_embedder
 from phoebe.lambdas import runtime
 from phoebe.migrate import apply_migrations
 from phoebe.seed import MIGRATIONS_DIR, load_seed
@@ -25,6 +26,8 @@ def handler(event: Any, context: Any = None) -> dict[str, Any]:
         log.info("migrate applied=%d", len(applied))
         return {"applied": applied}
     if task == "seed_if_empty":
+        # The one handler that checks the embedder (the API checks lazily).
+        startup_check_embedder(d.db, d.embedder)
         # Never wipes: any existing seed group means the seed is already loaded.
         if _seed_groups(d.db) > 0:
             log.info("seed_if_empty skipped")
