@@ -150,7 +150,9 @@ def _fetch_text_sliced(db: Database, doc_id: str, size: int) -> str | None:
     offset = 1  # substr is 1-based
     while True:
         rows = db.fetch(
-            f"select substr(full_text, :off, {size}) as part"
+            # `::int`: the Data API binds ints as bigint, and Postgres has no
+            # substr(text, bigint, integer).
+            f"select substr(full_text, :off::int, {size}) as part"
             " from documents where id = :id::uuid",
             {"off": offset, "id": doc_id},
         )
