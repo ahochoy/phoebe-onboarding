@@ -179,7 +179,7 @@ variables {
   jobs_image_digest        = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
   boundary_policy_arn      = "arn:aws:iam::123456789012:policy/phoebe-boundary-staging"
   ai_state_bucket          = "phoebe-tfstate-123456789012"
-  budget_topic_arn         = "arn:aws:sns:us-east-2:123456789012:phoebe-budget"
+  budget_topic_arn         = "arn:aws:sns:us-east-2:123456789012:phoebe-budget-staging"
   password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:phoebe-staging-password-hash-AbC123"
 }
 
@@ -713,6 +713,7 @@ run "production" {
     env                      = "production"
     password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:phoebe-production-password-hash-XyZ789"
     boundary_policy_arn      = "arn:aws:iam::123456789012:policy/phoebe-boundary-production"
+    budget_topic_arn         = "arn:aws:sns:us-east-2:123456789012:phoebe-budget-production"
   }
 
   assert {
@@ -762,6 +763,7 @@ run "rejects_other_envs_password_secret" {
   variables {
     env                 = "production"
     boundary_policy_arn = "arn:aws:iam::123456789012:policy/phoebe-boundary-production"
+    budget_topic_arn    = "arn:aws:sns:us-east-2:123456789012:phoebe-budget-production"
   }
 
   expect_failures = [var.password_hash_secret_arn]
@@ -774,9 +776,23 @@ run "rejects_other_envs_boundary" {
   variables {
     env                      = "production"
     password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:phoebe-production-password-hash-XyZ789"
+    budget_topic_arn         = "arn:aws:sns:us-east-2:123456789012:phoebe-budget-production"
   }
 
   expect_failures = [var.boundary_policy_arn]
+}
+
+# R16: production must never subscribe to staging's topic (or vice versa).
+run "rejects_other_envs_budget_topic" {
+  command = plan
+
+  variables {
+    env                      = "production"
+    password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:phoebe-production-password-hash-XyZ789"
+    boundary_policy_arn      = "arn:aws:iam::123456789012:policy/phoebe-boundary-production"
+  }
+
+  expect_failures = [var.budget_topic_arn]
 }
 
 # A partial ARN (no random suffix) would only fail at GetSecretValue time.

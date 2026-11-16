@@ -76,9 +76,16 @@ override_resource {
 }
 
 override_resource {
-  target = aws_sns_topic.budget
+  target = aws_sns_topic.budget["staging"]
   values = {
-    arn = "arn:aws:sns:us-east-2:123456789012:phoebe-budget"
+    arn = "arn:aws:sns:us-east-2:123456789012:phoebe-budget-staging"
+  }
+}
+
+override_resource {
+  target = aws_sns_topic.budget["production"]
+  values = {
+    arn = "arn:aws:sns:us-east-2:123456789012:phoebe-budget-production"
   }
 }
 
@@ -580,6 +587,7 @@ run "deploy_roles" {
     condition = alltrue(flatten([
       for env in ["staging", "production"] : [
         for s in jsondecode(aws_iam_role_policy.ci["deploy-${env}"].policy).Statement : (
+          s.Effect != "Allow" ||
           !contains(flatten([s.Action]), "iam:CreateRole") ||
           try(s.Condition.StringEquals["iam:PermissionsBoundary"], "") == "arn:aws:iam::123456789012:policy/phoebe-boundary-${env}"
         )
@@ -983,7 +991,7 @@ run "state_ecr_budget" {
 
   assert {
     condition = (
-      aws_sns_topic.budget.name == "phoebe-budget" &&
+      toset([for t in values(aws_sns_topic.budget) : t.name]) == toset(["phoebe-budget-staging", "phoebe-budget-production"]) &&
       aws_budgets_budget.account.budget_type == "COST" &&
       aws_budgets_budget.account.time_unit == "MONTHLY" &&
       tonumber(aws_budgets_budget.account.limit_amount) == 20 &&
@@ -997,19 +1005,167 @@ run "state_ecr_budget" {
       for n in aws_budgets_budget.account.notification :
       n.threshold == 80 && n.threshold_type == "PERCENTAGE" && n.notification_type == "ACTUAL" &&
       n.comparison_operator == "GREATER_THAN" &&
-      toset(n.subscriber_sns_topic_arns) == toset(["arn:aws:sns:us-east-2:123456789012:phoebe-budget"]) &&
+      toset(n.subscriber_sns_topic_arns) == toset(["arn:aws:sns:us-east-2:123456789012:phoebe-budget-staging", "arn:aws:sns:us-east-2:123456789012:phoebe-budget-production"]) &&
       try(length(n.subscriber_email_addresses), 0) == 0
     ])
-    error_message = "Alert at 80% actual to the phoebe-budget topic only (no email addresses)."
+    error_message = "Alert at 80% actual to both env topics only (no email addresses)."
   }
 
   assert {
-    condition = anytrue([
-      for s in jsondecode(aws_sns_topic_policy.budget.policy).Statement :
-      s.Effect == "Allow" && s.Principal.Service == "budgets.amazonaws.com" &&
-      contains(flatten([s.Action]), "SNS:Publish") &&
-      s.Condition.StringEquals["aws:SourceAccount"] == "123456789012"
+    condition = alltrue([
+      for env in ["staging", "production"] : anytrue([
+        for s in jsondecode(aws_sns_topic_policy.budget[env].policy).Statement :
+        s.Effect == "Allow" && s.Principal.Service == "budgets.amazonaws.com" &&
+        contains(flatten([s.Action]), "SNS:Publish") &&
+        s.Resource == "arn:aws:sns:us-east-2:123456789012:phoebe-budget-${env}" &&
+        s.Condition.StringEquals["aws:SourceAccount"] == "123456789012"
+      ])
     ])
-    error_message = "Budgets may publish to the topic, scoped by aws:SourceAccount."
+    error_message = "Budgets may publish to each env topic, scoped by aws:SourceAccount."
+  }
+}
+
+# ---- Fix round 1: budget isolation (R16), RDS secret, fork gate, paths ----------
+
+run "budget_isolation" {
+  command = apply
+
+  # Every SNS grant of every CI role (inline and reads) stays on its own env topic.
+  assert {
+    condition = alltrue(flatten([
+      for k, env in {
+        "plan"              = "staging"
+        "deploy-staging"    = "staging"
+        "plan-production"   = "production"
+        "deploy-production" = "production"
+        } : [
+        for s in concat(jsondecode(aws_iam_role_policy.ci[k].policy).Statement, jsondecode(aws_iam_policy.ci_reads[env].policy).Statement) : (
+          !anytrue([for a in flatten([s.Action]) : startswith(a, "sns:")]) ||
+          alltrue([
+            for r in flatten([s.Resource]) :
+            r == "arn:aws:sns:us-east-2:123456789012:phoebe-budget-${env}" || r == "arn:aws:sns:us-east-2:123456789012:phoebe-budget-${env}:*"
+          ])
+        )
+      ]
+    ]))
+    error_message = "No CI role can touch the other env's budget topic or its subscriptions (no SNS grant on *)."
+  }
+
+  assert {
+    condition = !anytrue(flatten([
+      for k in keys(aws_iam_role_policy.ci) : [
+        for s in jsondecode(aws_iam_role_policy.ci[k].policy).Statement : anytrue([
+          for a in flatten([s.Action]) : contains(["sns:SetSubscriptionAttributes", "sns:*"], a)
+        ])
+      ]
+    ]))
+    error_message = "No CI role may change subscription attributes (filter policies would mute the kill switch)."
+  }
+
+  assert {
+    condition     = !anytrue([for k in ["plan", "pr-cleanup", "plan-production", "pipeline"] : strcontains(aws_iam_role_policy.ci[k].policy, "sns:")])
+    error_message = "Only deploy roles have inline SNS actions."
+  }
+
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] : alltrue([
+        for s in jsondecode(aws_iam_role_policy.ci["deploy-${env}"].policy).Statement : (
+          !contains(flatten([s.Action]), "sns:Subscribe") || (
+            jsonencode(flatten([s.Action])) == jsonencode(["sns:Subscribe"]) &&
+            jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:sns:us-east-2:123456789012:phoebe-budget-${env}"]) &&
+            try(s.Condition.StringEquals["sns:Endpoint"], "") == "arn:aws:lambda:us-east-2:123456789012:function:phoebe-${env}-budget" &&
+            try(s.Condition.StringEquals["sns:Protocol"], "") == "lambda"
+          )
+        )
+      ])
+    ])
+    error_message = "Subscribe only on the own topic, only the own budget Lambda, protocol lambda."
+  }
+
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] : anytrue([
+        for s in jsondecode(aws_iam_role_policy.ci["deploy-${env}"].policy).Statement :
+        jsonencode(flatten([s.Action])) == jsonencode(["sns:Unsubscribe"]) &&
+        jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:sns:us-east-2:123456789012:phoebe-budget-${env}:*"])
+      ])
+    ])
+    error_message = "Unsubscribe only subscriptions on the own topic."
+  }
+}
+
+run "rds_secret_and_paths" {
+  command = apply
+
+  # I1: creating a cluster with a managed password needs no RotateSecret.
+  assert {
+    condition     = !anytrue([for k in keys(aws_iam_role_policy.ci) : strcontains(aws_iam_role_policy.ci[k].policy, "secretsmanager:RotateSecret")])
+    error_message = "No CI role can rotate secrets."
+  }
+
+  # I2: the env boundary's master-secret allow fails closed on the cluster tag.
+  assert {
+    condition = alltrue(flatten([
+      for env in ["staging", "production"] : [
+        for s in jsondecode(aws_iam_policy.boundary[env].policy).Statement : (
+          s.Effect != "Allow" ||
+          !anytrue([for r in flatten([s.Resource]) : strcontains(r, "secret:rds!cluster-")]) ||
+          try(s.Condition.StringEquals["secretsmanager:ResourceTag/aws:rds:primaryDBClusterArn"], "") == "arn:aws:rds:us-east-2:123456789012:cluster:phoebe-${env}"
+        )
+      ]
+    ]))
+    error_message = "The Aurora master secret is allowed only when tagged with this env's cluster."
+  }
+
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] : anytrue([
+        for s in jsondecode(aws_iam_policy.boundary[env].policy).Statement : s.Sid == "EnvDbSecret" && s.Effect == "Allow"
+      ]) && !strcontains(aws_iam_policy.boundary[env].policy, "\"Null\"")
+    ])
+    error_message = "No Null-guarded (fail-open) secret deny remains."
+  }
+
+  # Minor: deploy roles refuse pathed roles ("*" crosses "/").
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] : anytrue([
+        for s in jsondecode(aws_iam_role_policy.ci["deploy-${env}"].policy).Statement :
+        s.Effect == "Deny" && contains(flatten([s.Action]), "iam:CreateRole") &&
+        jsonencode(flatten([s.Resource])) == jsonencode(["arn:aws:iam::123456789012:role/*/*"])
+      ])
+    ])
+    error_message = "Deploy roles cannot create roles under a path."
+  }
+}
+
+run "fork_gate" {
+  command = plan
+
+  # I3: phoebe-pr checks the PR's head repo before any repo code runs.
+  assert {
+    condition = (
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "PHOEBE_GITHUB_REPO: \"ahochoy/phoebe-onboarding\"") &&
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "https://api.github.com/repos/$PHOEBE_GITHUB_REPO/pulls/$N") &&
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "head.repo.full_name") &&
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "--max-time")
+    )
+    error_message = "The PR spec fetches the PR from the public API and compares .head.repo.full_name with github_repo."
+  }
+
+  assert {
+    condition = (
+      can(regex("(?s)api\\.github\\.com.*npm ci\n", aws_codebuild_project.this["pr"].source[0].buildspec)) &&
+      !can(regex("(?s)npm ci\n.*api\\.github\\.com", aws_codebuild_project.this["pr"].source[0].buildspec)) &&
+      !can(regex("(?s)terraform init.*api\\.github\\.com", aws_codebuild_project.this["pr"].source[0].buildspec)) &&
+      can(regex("(?s)^.*?install:.*?api\\.github\\.com.*?pre_build:", aws_codebuild_project.this["pr"].source[0].buildspec))
+    )
+    error_message = "The fork gate runs in the install phase, before npm ci and terraform."
+  }
+
+  assert {
+    condition     = strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "|| HEAD_REPO=\"\"")
+    error_message = "An API failure leaves HEAD_REPO empty, so the gate refuses (fail closed)."
   }
 }

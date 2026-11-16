@@ -1,4 +1,4 @@
-# The account budget and its SNS topic (phoebe-budget, us-east-2) live in
+# The account budget and the per-env SNS topics (phoebe-budget-<env>, us-east-2) live in
 # infra/bootstrap. Each env subscribes its own budget Lambda, which pauses chat.
 
 resource "aws_lambda_permission" "budget_sns" {

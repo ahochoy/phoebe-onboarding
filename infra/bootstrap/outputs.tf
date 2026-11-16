@@ -8,9 +8,9 @@ output "boundary_policy_arns" {
   value       = { for k, p in aws_iam_policy.boundary : k => p.arn }
 }
 
-output "budget_topic_arn" {
-  description = "phoebe-budget SNS topic ARN in us-east-2 (infra/app budget_topic_arn)."
-  value       = aws_sns_topic.budget.arn
+output "budget_topic_arns" {
+  description = "Per-env budget topics in us-east-2 (infra/app budget_topic_arn = this env's)."
+  value       = { for k, t in aws_sns_topic.budget : k => t.arn }
 }
 
 output "ecr_repository_url" {

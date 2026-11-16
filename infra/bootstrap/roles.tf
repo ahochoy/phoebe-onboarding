@@ -83,11 +83,17 @@ locals {
           "logs:DescribeLogGroups", "logs:ListTagsForResource", "logs:ListTagsLogGroup",
           "secretsmanager:DescribeSecret", "secretsmanager:GetResourcePolicy",
           "iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
-          "sns:GetTopicAttributes", "sns:GetSubscriptionAttributes", "sns:ListSubscriptionsByTopic",
           "ecr:DescribeImages", "ecr:DescribeRepositories",
           "lambda:GetEventSourceMapping", "lambda:ListEventSourceMappings",
         ]
         Resource = "*"
+      },
+      {
+        # Ruling R16: only this env's budget topic and its subscriptions.
+        Sid      = "OwnBudgetTopicReads"
+        Effect   = "Allow"
+        Action   = ["sns:GetTopicAttributes", "sns:ListSubscriptionsByTopic", "sns:ListTagsForResource", "sns:GetSubscriptionAttributes"]
+        Resource = [local.budget_topic_arns[env], "${local.budget_topic_arns[env]}:*"]
       },
       {
         Sid    = "EnvResourceReads"
@@ -249,10 +255,14 @@ locals {
           Condition = { StringEquals = { "iam:AWSServiceName" = "rds.amazonaws.com" } }
         },
         {
-          # manage_master_user_password: RDS creates rds!cluster-<uuid> as the caller.
+          # manage_master_user_password: RDS creates rds!cluster-<uuid> as the
+          # caller, which needs exactly kms:DescribeKey, CreateSecret and
+          # TagResource (Aurora user guide). No RotateSecret. TagResource cannot
+          # forge the aws:rds:* tags the env boundary keys on: aws:-prefixed
+          # tag keys are reserved for AWS.
           Sid      = "RdsManagedSecret"
           Effect   = "Allow"
-          Action   = ["secretsmanager:CreateSecret", "secretsmanager:TagResource", "secretsmanager:RotateSecret"]
+          Action   = ["secretsmanager:CreateSecret", "secretsmanager:TagResource"]
           Resource = ["${local.arn_prefix.secrets}:secret:rds!cluster-*"]
         },
         {
@@ -348,10 +358,32 @@ locals {
           Resource = ["${local.arn_prefix.scheduler}:schedule/default/phoebe-${env}-*"]
         },
         {
-          Sid      = "BudgetSubscription"
+          # Ruling R16: subscribe only this env's budget Lambda to this env's topic.
+          Sid      = "BudgetSubscribe"
           Effect   = "Allow"
-          Action   = ["sns:Subscribe", "sns:Unsubscribe", "sns:SetSubscriptionAttributes"]
-          Resource = [aws_sns_topic.budget.arn, "${aws_sns_topic.budget.arn}:*"]
+          Action   = ["sns:Subscribe"]
+          Resource = [local.budget_topic_arns[env]]
+          Condition = {
+            StringEquals = {
+              "sns:Endpoint" = "${local.arn_prefix.lambda}:function:phoebe-${env}-budget"
+              "sns:Protocol" = "lambda"
+            }
+          }
+        },
+        {
+          Sid      = "BudgetUnsubscribe"
+          Effect   = "Allow"
+          Action   = ["sns:Unsubscribe"]
+          Resource = ["${local.budget_topic_arns[env]}:*"]
+        },
+        {
+          # "*" in an ARN crosses "/", so role/phoebe-<env>-* would also match a
+          # role under the path /phoebe-<env>-x/. Role names cannot contain
+          # "/", so any ARN with two "/" is pathed: refuse it.
+          Sid      = "DenyPathedRoles"
+          Effect   = "Deny"
+          Action   = ["iam:CreateRole"]
+          Resource = ["${local.arn_prefix.iam}:role/*/*"]
         },
         {
           Sid       = "CreateBoundedRoles"

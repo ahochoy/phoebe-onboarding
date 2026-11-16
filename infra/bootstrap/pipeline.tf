@@ -1,5 +1,6 @@
 # phoebe-release: a pushed v* tag -> plan production -> owner approves -> apply
-# that saved plan. Plan and Apply both run as phoebe-ci-deploy-production.
+# that saved plan. Plan runs as the read-only phoebe-ci-plan-production;
+# Apply (after approval) runs as phoebe-ci-deploy-production.
 
 locals {
   # The tag's commit; release-plan resolves phoebe-api:<sha> and <sha>-jobs to digests.

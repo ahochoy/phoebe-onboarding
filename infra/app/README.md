@@ -17,7 +17,7 @@ All names start with `phoebe-<env>`.
 | `iam.tf` | One role per Lambda plus the scheduler role, each with the bootstrap permissions boundary and only the actions its code uses. |
 | `schedule.tf` | EventBridge Scheduler `phoebe-<env>-sweeper`, `rate(1 hour)`. |
 | `edge.tf` | CloudFront distribution (default `*.cloudfront.net` certificate, `PriceClass_100`, no aliases/ACM/logging). Default behaviour: private site bucket via OAC, managed `CachingOptimized`, CloudFront Function `phoebe-<env>-spa-router` (viewer-request). `/api/*`: API function URL origin sending `X-Phoebe-Origin` (the origin secret), managed `CachingDisabled` and `AllViewerExceptHostHeader`, all methods, `compress = false` (SSE). Response headers policy (CSP, HSTS 1 year, nosniff, strict-origin-when-cross-origin) on both. Site bucket policy: `s3:GetObject` to `cloudfront.amazonaws.com` scoped to this distribution's ARN. |
-| `budget.tf` | Subscribes this env's budget Lambda to the bootstrap `phoebe-budget` topic. |
+| `budget.tf` | Subscribes this env's budget Lambda to its own bootstrap topic `phoebe-budget-<env>` (ruling R16: a staging deploy can't touch production's subscription). |
 
 Timings match `backend/src/phoebe/lambdas/timings.py` (ruling R8): worker
 timeout 120 s, visibility 720 s (6x), maxReceiveCount 3, hourly sweep. Change
@@ -38,7 +38,7 @@ header needs it.
 | `jobs_image_digest` | `sha256:<64 hex>` of the `jobs` image (`--target jobs`, tag `<sha>-jobs`). Passed per deploy; tags are rejected. |
 | `boundary_policy_arn` | `arn:aws:iam::<account_id>:policy/phoebe-boundary-<env>` (bootstrap; this env's boundary, which only allows `phoebe-<env>-*` resources). Another env's boundary is rejected. |
 | `ai_state_bucket` | `phoebe-tfstate-<account_id>`; the `infra/ai` state is read from key `ai.tfstate`. |
-| `budget_topic_arn` | `arn:aws:sns:us-east-2:<account_id>:phoebe-budget` (bootstrap). |
+| `budget_topic_arn` | `arn:aws:sns:us-east-2:<account_id>:phoebe-budget-<env>` (bootstrap; another env's topic is rejected). |
 | `password_hash_secret_arn` | This env's `phoebe-<env>-password-hash` secret, created by the owner (Task 9). Must be the full ARN, including the 6-character random suffix; another env's secret is rejected. |
 | `answer_harness` | `haiku` (default) or `nova`. Use `nova` until the account's Anthropic use-case form is approved (see `infra/ai/README.md`). |
 | `log_level` | Default `INFO`. |

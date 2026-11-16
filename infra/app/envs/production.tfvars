@@ -4,7 +4,7 @@ env = "production"
 # with the account id once infra/bootstrap is applied (Task 9), then commit:
 # boundary_policy_arn      = "arn:aws:iam::<account_id>:policy/phoebe-boundary-production"
 # ai_state_bucket          = "phoebe-tfstate-<account_id>"
-# budget_topic_arn         = "arn:aws:sns:us-east-2:<account_id>:phoebe-budget"
+# budget_topic_arn         = "arn:aws:sns:us-east-2:<account_id>:phoebe-budget-production"
 # password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:<account_id>:secret:phoebe-production-password-hash-<suffix>"
 
 # Image digests are passed per deploy:

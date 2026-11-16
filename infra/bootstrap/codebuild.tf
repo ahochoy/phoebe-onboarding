@@ -18,6 +18,7 @@ locals {
       state_bucket      = local.state_bucket
       distribution_id   = var.staging_distribution_id
       terraform_version = local.terraform_version
+      github_repo       = var.github_repo
     })
     "pr-cleanup" = templatefile("${path.module}/buildspecs/pr-cleanup.yml", {
       site_bucket     = "phoebe-staging-site-${local.account_id}"

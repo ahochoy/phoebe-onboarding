@@ -17,7 +17,7 @@ touching the `phoebe-ci-*` roles. Nothing here has been applied yet (Task 9).
 | `pipeline.tf` | CodePipeline V2 `phoebe-release`, in `QUEUED` execution mode. Stages: Source (CodeConnections, triggered by pushed tags `v*`), then Plan (`phoebe-release-plan`, read-only), then Approve (manual), then Apply (`phoebe-release-apply`, on the saved plan). |
 | `roles.tf` | Six `phoebe-ci-*` roles, each with `phoebe-boundary-ci` and one inline policy. Managed `phoebe-ci-reads-<env>` holds the Terraform refresh reads; it is attached to the roles that run infra/app for that env. Trust is scoped by `aws:SourceAccount` and, for CodeBuild roles, by the role's own project ARN. |
 | `boundary.tf` | `phoebe-boundary-staging`, `phoebe-boundary-production` and `phoebe-boundary-ci` (below). |
-| `budget.tf` | SNS `phoebe-budget` in us-east-2. Its topic policy lets `budgets.amazonaws.com` publish, scoped by `aws:SourceAccount` and `arn:aws:budgets::<account_id>:*`. A monthly account cost budget `phoebe-monthly` at `monthly_budget_usd` alerts the topic at 80% ACTUAL. `aws_budgets_budget` has no `region` argument: the provider reaches the global Budgets API from the us-east-2 provider, so there is no us-east-1 provider. |
+| `budget.tf` | SNS `phoebe-budget-staging` and `phoebe-budget-production` in us-east-2 (ruling R16). Each topic policy lets `budgets.amazonaws.com` publish, scoped by `aws:SourceAccount` and `arn:aws:budgets::<account_id>:*`. A monthly account cost budget `phoebe-monthly` at `monthly_budget_usd` alerts both topics at 80% ACTUAL. Each env's budget Lambda subscribes only to its own topic. `aws_budgets_budget` has no `region` argument: the provider reaches the global Budgets API from the us-east-2 provider, so there is no us-east-1 provider. |
 
 ### CodeBuild projects and roles
 
@@ -49,6 +49,15 @@ Terraform:
   `terraform plan -lock=false` for staging. The plan uses the digests staging
   runs now, read from the Lambda config. The PR's own code still runs here
   (`npm ci`, the build, Terraform), so the actor filter remains the gate.
+- **Fork gate in `pr.yml`.** Owner actions on a fork PR, such as a reopen or a
+  maintainer-edit push, pass the actor filter. The first install command
+  therefore checks the PR's head repo before any repo code runs. It reads the
+  PR from GitHub's public REST API (`repos/<github_repo>/pulls/$N`, 20 s
+  timeout) and aborts unless `.head.repo.full_name` equals `github_repo`. It
+  parses with jq, or python3 if jq is missing. It fails closed: an API error,
+  rate limit or deleted fork leaves the value empty, and the build stops. The
+  checkout happens before the phases, but nothing from it executes before
+  this check.
 - **The invalidation** in both specs needs `staging_distribution_id`. It is
   empty (invalidation skipped) until the first staging deploy; then the owner
   sets it and re-applies.
@@ -69,6 +78,11 @@ Terraform:
   `ecr:BatchGetImage` for the manifest and `ecr:PutImage` with the new tag.
   IMMUTABLE only forbids moving an existing tag. Lifecycle rule 1 then keeps
   those images forever.
+- **Release tags may already exist.** `phoebe-ci-deploy-staging` also holds
+  `ecr:PutImage` (it pushes), so it could pre-create a `release-*` tag. The
+  release step must therefore check an existing `release-<git tag>` tag. It may
+  continue only if that tag already points at the digest being promoted, and
+  must fail otherwise. Never skip the check.
 - **infra/ai is owner-applied locally (R12).** No CI role can write it or call
   Bedrock or AgentCore. CI only reads `ai.tfstate` through
   `terraform_remote_state`. `deploy.sh` must not apply `infra/ai`.
@@ -81,10 +95,15 @@ Terraform:
 - `s3`, `dynamodb`, `sqs`, `rds-data`, `lambda:InvokeFunction`, log writes and
   secret reads, only on `phoebe-<env>-*` ARNs (buckets
   `phoebe-<env>-*-<account_id>`, cluster `phoebe-<env>`);
-- the Aurora master secret `rds!cluster-*`. Its name is a uuid. A deny refuses
-  it when the secret's `aws:rds:primaryDBClusterArn` tag names another
-  cluster. That is fail-open if RDS does not set the tag, and the app roles'
-  own policies already name the exact ARN;
+- the Aurora master secret `rds!cluster-*` (its name is a uuid), but **only**
+  when `secretsmanager:ResourceTag/aws:rds:primaryDBClusterArn` is this env's
+  cluster. This fails closed: an untagged secret, or one tagged for another
+  cluster, is refused. I could not find the tag key in the AWS docs (the
+  Aurora Secrets Manager page lists none). Task 9 must confirm it with
+  `aws secretsmanager describe-secret` on the first staging cluster's secret.
+  If the key differs, the app's first DB call fails loudly (AccessDenied),
+  which the smoke test catches. Deploy roles cannot forge it: `aws:`-prefixed
+  tag keys are reserved for AWS;
 - shared Bedrock and AgentCore invokes (models, the guardrail, harnesses are
   env-agnostic).
 
@@ -164,6 +183,20 @@ source mappings).
 - **`phoebe-release-apply` uses `ci/buildspec-release-apply.yml` from the tagged
   source.** Tags are owner-only, and the approval gate reviews the saved plan
   first.
+- **Untagged distributions are writable by both deploy roles.** Distribution
+  writes use `StringEqualsIfExists` on `aws:ResourceTag/env`, so that creation
+  works before the tag exists. A distribution with no `env` tag therefore
+  matches both roles. infra/app's `default_tags` always set it, so only a
+  hand-made, untagged distribution in this account would be exposed.
+- **Budget topics (R16).** Each deploy role may `sns:Subscribe` only its own
+  env's budget Lambda (`sns:Endpoint` `function:phoebe-<env>-budget`, protocol
+  `lambda`) to its own topic. It may `sns:Unsubscribe` only subscriptions on
+  that topic, and reads only that topic. No CI role has
+  `sns:SetSubscriptionAttributes`, so no filter policy can mute the kill
+  switch.
+- **Pathed roles.** `*` in an ARN crosses `/`, so deploy roles explicitly deny
+  `iam:CreateRole` on `role/*/*`. That blocks a role under a path such as
+  `/phoebe-<env>-x/`.
 
 ## Inputs
 
@@ -178,9 +211,10 @@ source mappings).
 ## Outputs
 
 `state_bucket`, `boundary_policy_arns` (`staging`, `production`, `ci`),
-`budget_topic_arn`, `ecr_repository_url`, `connection_arn`, `connection_status`,
-`codebuild_projects`, `pipeline_name`, `ci_role_arns`. `state_bucket`, the
-matching env boundary and `budget_topic_arn` feed `infra/app/envs/<env>.tfvars`.
+`budget_topic_arns` (`staging`, `production`), `ecr_repository_url`,
+`connection_arn`, `connection_status`, `codebuild_projects`, `pipeline_name`,
+`ci_role_arns`. `state_bucket`, the matching env boundary and the matching env
+topic feed `infra/app/envs/<env>.tfvars`.
 
 ## One-time owner steps (Task 9 runs these; every apply follows a shown plan)
 
@@ -232,7 +266,7 @@ matching env boundary and `budget_topic_arn` feed `infra/app/envs/<env>.tfvars`.
    `terraform.tfvars` and re-apply, so previews invalidate.
 
 Budget alerts reach the per-env budget Lambdas only. To also get an email, the
-owner subscribes an address to `phoebe-budget` in the console; it is not
+owner subscribes an address to `phoebe-budget-production` in the console; it is not
 recorded here.
 
 ## Offline checks

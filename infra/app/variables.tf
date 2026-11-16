@@ -49,12 +49,12 @@ variable "ai_state_bucket" {
 }
 
 variable "budget_topic_arn" {
-  description = "ARN of the bootstrap budget SNS topic (phoebe-budget, us-east-2)."
+  description = "ARN of this env's bootstrap budget SNS topic (phoebe-budget-<env>, us-east-2)."
   type        = string
 
   validation {
-    condition     = can(regex("^arn:aws:sns:us-east-2:[0-9]{12}:phoebe-budget$", var.budget_topic_arn))
-    error_message = "budget_topic_arn must be the phoebe-budget topic in us-east-2."
+    condition     = can(regex("^arn:aws:sns:us-east-2:[0-9]{12}:phoebe-budget-${var.env}$", var.budget_topic_arn))
+    error_message = "budget_topic_arn must be this env's phoebe-budget-<env> topic in us-east-2."
   }
 }
 

@@ -71,22 +71,17 @@ locals {
         ]
       },
       {
-        # The Aurora master secret's name is rds!cluster-<uuid>.
+        # The Aurora master secret's name is rds!cluster-<uuid>, so it is
+        # scoped by the cluster tag RDS puts on it. Fail closed: an untagged
+        # or differently tagged secret is not allowed. The tag key is not in
+        # the AWS docs I could find; Task 9 confirms it with describe-secret,
+        # and if it differs the app's first DB call fails loudly.
         Sid      = "EnvDbSecret"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = ["arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:rds!cluster-*"]
-      },
-      {
-        # Fail-open scoping: if RDS tags the secret with its cluster (as it
-        # documents for managed secrets), another env's secret is refused.
-        Sid      = "DenyOtherClusterSecret"
-        Effect   = "Deny"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = ["arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:rds!cluster-*"]
         Condition = {
-          Null            = { "aws:ResourceTag/aws:rds:primaryDBClusterArn" = "false" }
-          StringNotEquals = { "aws:ResourceTag/aws:rds:primaryDBClusterArn" = "arn:aws:rds:${local.region}:${local.account_id}:cluster:phoebe-${env}" }
+          StringEquals = { "secretsmanager:ResourceTag/aws:rds:primaryDBClusterArn" = "arn:aws:rds:${local.region}:${local.account_id}:cluster:phoebe-${env}" }
         }
       },
       {
