@@ -5,6 +5,7 @@ carry no provider text; nothing here logs question or answer text.
 """
 
 import html
+import logging
 import re
 from collections.abc import Generator, Iterator, Sequence
 from typing import Any, Literal, Protocol, TypedDict
@@ -28,6 +29,24 @@ _QUERY_MAX_CHARS = 500
 
 class ModelUnavailable(Exception):
     """A model call failed; carries no provider or user text."""
+
+
+_log = logging.getLogger("phoebe.chat")
+
+
+def _error_kind(exc: BaseException) -> str:
+    """An AWS error code or exception type name: never the error message,
+    which may echo user or provider text."""
+    if isinstance(exc, ClientError):
+        code = exc.response.get("Error", {}).get("Code")
+        if isinstance(code, str) and code:
+            return code
+    return type(exc).__name__
+
+
+def _unavailable(what: str, kind: str) -> ModelUnavailable:
+    _log.warning("%s kind=%s", what, kind)
+    return ModelUnavailable(what)
 
 
 class AnswerModel(Protocol):
@@ -90,13 +109,14 @@ class HarnessAnswerModel:
                 allowedTools=["phoebe_no_tools"],
             )
             events = response["stream"]
-        except BotoCoreError, ClientError, KeyError, TypeError:
-            raise ModelUnavailable("model request failed") from None
+        except (BotoCoreError, ClientError, KeyError, TypeError) as exc:
+            raise _unavailable("model request failed", _error_kind(exc)) from None
         completed = False
         try:
             for event in events:
-                if any(key in event for key in _STREAM_ERRORS):
-                    raise ModelUnavailable("model stream error") from None
+                errors = [key for key in _STREAM_ERRORS if key in event]
+                if errors:
+                    raise _unavailable("model stream error", errors[0]) from None
                 start = event.get("contentBlockStart")
                 if start and start.get("start", {}).get("toolUse"):
                     raise ModelUnavailable("tool use not allowed") from None
@@ -110,15 +130,18 @@ class HarnessAnswerModel:
                         yield text
                 stop = event.get("messageStop")
                 if stop:
-                    if stop.get("stopReason") != "end_turn":
-                        raise ModelUnavailable("incomplete answer") from None
+                    reason = stop.get("stopReason")
+                    if reason != "end_turn":
+                        raise _unavailable(
+                            "incomplete answer", str(reason)[:40]
+                        ) from None
                     completed = True
-        except BotoCoreError, ClientError:
-            raise ModelUnavailable("model stream failed") from None
+        except (BotoCoreError, ClientError) as exc:
+            raise _unavailable("model stream failed", _error_kind(exc)) from None
         finally:
             events.close()
         if not completed:
-            raise ModelUnavailable("stream ended early")
+            raise _unavailable("stream ended early", "no_message_stop")
 
 
 _PASSAGE = re.compile(r"<passage\s+id=\"P1\"[^>]*>(.*?)</passage>", re.DOTALL)
@@ -189,7 +212,8 @@ class BedrockRewriter:
             )
             blocks = resp["output"]["message"]["content"]
             out = "".join(b.get("text", "") for b in blocks).strip()[:_QUERY_MAX_CHARS]
-        except Exception:  # noqa: BLE001 - any failure uses the heuristic
+        except Exception as exc:  # noqa: BLE001 - any failure uses the heuristic
+            _log.info("rewriter fell back kind=%s", _error_kind(exc))
             return self._fallback.rewrite(history, question)
         return out or self._fallback.rewrite(history, question)
 
@@ -223,8 +247,8 @@ class BedrockGuardrail:
                 content=[{"text": {"text": text}}],
             )
             return resp["action"] != "GUARDRAIL_INTERVENED"
-        except Exception:  # noqa: BLE001 - nothing chained: may echo text
-            raise ModelUnavailable("guardrail request failed") from None
+        except Exception as exc:  # noqa: BLE001 - nothing chained: may echo text
+            raise _unavailable("guardrail request failed", _error_kind(exc)) from None
 
 
 def make_models(settings: Settings) -> tuple[AnswerModel, Rewriter, Guardrail]:
