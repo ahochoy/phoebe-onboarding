@@ -64,10 +64,10 @@ variable "password_hash_secret_arn" {
 
   validation {
     condition = can(regex(
-      "^arn:aws:secretsmanager:us-east-2:[0-9]{12}:secret:phoebe-${var.env}-password-hash(-[A-Za-z0-9]{6})?$",
+      "^arn:aws:secretsmanager:us-east-2:[0-9]{12}:secret:phoebe-${var.env}-password-hash-[A-Za-z0-9]{6}$",
       var.password_hash_secret_arn,
     ))
-    error_message = "password_hash_secret_arn must be this env's phoebe-<env>-password-hash secret in us-east-2."
+    error_message = "password_hash_secret_arn must be the full ARN (with the 6-character random suffix) of this env's phoebe-<env>-password-hash secret in us-east-2."
   }
 }
 

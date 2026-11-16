@@ -36,7 +36,6 @@ locals {
       Effect = "Allow"
       Action = [
         "rds-data:ExecuteStatement",
-        "rds-data:BatchExecuteStatement",
         "rds-data:BeginTransaction",
         "rds-data:CommitTransaction",
         "rds-data:RollbackTransaction",
@@ -51,15 +50,16 @@ locals {
     },
   ]
 
-  # A missing key must surface as NoSuchKey, not AccessDenied.
+  # Ruling R10: GetObject on a missing key returns NoSuchKey (404) only when
+  # the caller has s3:ListBucket on the bucket. That check carries no s3:prefix
+  # context, so the grant must be bucket-level with no condition, or S3
+  # returns AccessDenied and the worker retries a permanent miss to the DLQ.
+  # Only the API and worker read blobs, so only they get it.
   list_uploads_statement = {
     Sid      = "ListUploads"
     Effect   = "Allow"
     Action   = ["s3:ListBucket"]
     Resource = [aws_s3_bucket.uploads.arn]
-    Condition = {
-      StringLike = { "s3:prefix" = ["uploads/*"] }
-    }
   }
 
   uploads_objects = ["${aws_s3_bucket.uploads.arn}/uploads/*"]
@@ -115,7 +115,7 @@ locals {
       {
         Sid      = "AnswerHarness"
         Effect   = "Allow"
-        Action   = ["bedrock-agentcore:InvokeHarness", "bedrock-agentcore:InvokeAgentRuntime"]
+        Action   = ["bedrock-agentcore:InvokeHarness"] # botocore bedrock-agentcore: operation InvokeHarness
         Resource = [local.harness_arn]
       },
     ])

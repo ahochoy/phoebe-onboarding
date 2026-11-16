@@ -468,17 +468,46 @@ run "iam" {
     error_message = "No Lambda policy grants on Resource \"*\"."
   }
 
-  # Task 2/3 carry: ListBucket (prefix uploads/) so a missing key is NoSuchKey.
+  # Task 2/3 carry plus ruling R10: an unconditioned bucket-level ListBucket so a
+  # missing key is NoSuchKey. The 404-vs-403 check carries no s3:prefix, so a
+  # prefix condition would never match.
   assert {
     condition = alltrue([
       for k in ["api", "worker"] : anytrue([
         for st in jsondecode(aws_iam_role_policy.lambda[k].policy).Statement :
         flatten([st.Action]) == ["s3:ListBucket"] &&
         flatten([st.Resource]) == [aws_s3_bucket.uploads.arn] &&
-        try(st.Condition.StringLike["s3:prefix"], null) == ["uploads/*"]
+        try(st.Condition, null) == null
       ])
     ])
-    error_message = "API and worker roles need s3:ListBucket on the uploads bucket, scoped to uploads/."
+    error_message = "API and worker roles need an unconditioned s3:ListBucket on the uploads bucket."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for k, p in aws_iam_role_policy.lambda : [
+        for st in jsondecode(p.policy).Statement : !contains(flatten([st.Action]), "s3:ListBucket")
+      ] if !contains(["api", "worker"], k)
+    ]))
+    error_message = "Only the API and worker roles may list the uploads bucket."
+  }
+
+  assert {
+    condition = alltrue([
+      for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
+      flatten([st.Action]) == ["bedrock-agentcore:InvokeHarness"]
+      if anytrue([for a in flatten([st.Action]) : startswith(a, "bedrock-agentcore:")])
+    ])
+    error_message = "The API role gets only bedrock-agentcore:InvokeHarness (the one call the code makes)."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for p in values(aws_iam_role_policy.lambda) : [
+        for st in jsondecode(p.policy).Statement : !contains(flatten([st.Action]), "rds-data:BatchExecuteStatement")
+      ]
+    ]))
+    error_message = "db_data_api.py never batches, so no role gets rds-data:BatchExecuteStatement."
   }
 
   assert {
@@ -708,6 +737,17 @@ run "rejects_other_envs_password_secret" {
 
   variables {
     env = "production"
+  }
+
+  expect_failures = [var.password_hash_secret_arn]
+}
+
+# A partial ARN (no random suffix) would only fail at GetSecretValue time.
+run "rejects_password_secret_without_suffix" {
+  command = plan
+
+  variables {
+    password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:phoebe-staging-password-hash"
   }
 
   expect_failures = [var.password_hash_secret_arn]

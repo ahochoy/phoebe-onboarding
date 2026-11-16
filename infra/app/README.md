@@ -38,7 +38,7 @@ header needs it.
 | `boundary_policy_arn` | `arn:aws:iam::<account_id>:policy/phoebe-boundary` (bootstrap). |
 | `ai_state_bucket` | `phoebe-tfstate-<account_id>`; the `infra/ai` state is read from key `ai.tfstate`. |
 | `budget_topic_arn` | `arn:aws:sns:us-east-2:<account_id>:phoebe-budget` (bootstrap). |
-| `password_hash_secret_arn` | This env's `phoebe-<env>-password-hash` secret, created by the owner (Task 9). Another env's secret is rejected. |
+| `password_hash_secret_arn` | This env's `phoebe-<env>-password-hash` secret, created by the owner (Task 9). Must be the full ARN, including the 6-character random suffix; another env's secret is rejected. |
 | `answer_harness` | `haiku` (default) or `nova`. Use `nova` until the account's Anthropic use-case form is approved (see `infra/ai/README.md`). |
 | `log_level` | Default `INFO`. |
 
