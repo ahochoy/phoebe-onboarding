@@ -1,0 +1,30 @@
+version: 0.2
+
+# phoebe-release-plan: pipeline Plan stage (read-only phoebe-ci-plan-production).
+# Resolves the tag commit's two digests, finds its v* tag, saves the production
+# plan. The plan log is what the owner reviews before approving. The `plan`
+# artifact (production.tfplan, release.env) is what release-apply applies.
+# RELEASE_COMMIT comes from the pipeline (#{SourceVariables.CommitId}).
+
+env:
+  shell: bash
+  variables:
+    TF_VERSION: "1.16.4"
+    PHOEBE_GITHUB_REPO: "ahochoy/phoebe-onboarding"
+
+phases:
+  install:
+    on-failure: ABORT
+    commands:
+      - bash ci/install-terraform.sh "$TF_VERSION"
+
+  build:
+    on-failure: ABORT
+    commands:
+      - bash ci/release-plan.sh release-out
+
+artifacts:
+  base-directory: release-out
+  files:
+    - production.tfplan
+    - release.env

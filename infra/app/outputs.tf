@@ -33,6 +33,11 @@ output "api_role_arn" {
   value       = aws_iam_role.lambda["api"].arn
 }
 
+output "distribution_id" {
+  description = "CloudFront distribution id (ci/deploy.sh invalidates /*; staging's feeds infra/bootstrap staging_distribution_id)."
+  value       = aws_cloudfront_distribution.main.id
+}
+
 output "site_url" {
   description = "Public URL of this env's CloudFront distribution (SPA at /, API at /api/*, previews at /pr-<n>/ in staging)."
   value       = "https://${aws_cloudfront_distribution.main.domain_name}"

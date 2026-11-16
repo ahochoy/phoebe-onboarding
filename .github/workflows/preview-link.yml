@@ -1,0 +1,53 @@
+name: preview-link
+
+# Posts (or updates) one comment on each same-repo PR into main with its
+# staging preview URL. The preview itself is built by CodeBuild (phoebe-pr);
+# this workflow holds no cloud credentials and only writes the PR comment.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: preview-link-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  comment:
+    # Fork PRs never get a preview (phoebe-pr refuses them), so no link either.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          # Passed through the environment, never interpolated into the script.
+          STAGING_SITE_URL: ${{ vars.STAGING_SITE_URL }}
+        with:
+          script: |
+            const marker = "<!-- phoebe-preview-link -->";
+            const base = (process.env.STAGING_SITE_URL || "").replace(/\/+$/, "");
+            if (!base) {
+              core.notice("The STAGING_SITE_URL repository variable is not set; no preview comment.");
+              return;
+            }
+            const n = context.payload.pull_request.number;
+            const body = `${marker}\nPreview (deploys in a few minutes): ${base}/pr-${n}/`;
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: n,
+              per_page: 100,
+            });
+            const existing = comments.find(
+              (c) => c.user?.type === "Bot" && (c.body || "").includes(marker),
+            );
+            if (!existing) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: n, body });
+            } else if (existing.body !== body) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            }

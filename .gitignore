@@ -19,3 +19,5 @@ frontend/node_modules
 frontend/dist
 frontend/test-results
 frontend/playwright-report
+# Release plan artifact written by ci/release-plan.sh.
+release-out/

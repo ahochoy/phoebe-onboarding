@@ -700,7 +700,8 @@ run "outputs" {
       output.cluster_arn == aws_rds_cluster.main.arn &&
       output.db_secret_arn == aws_rds_cluster.main.master_user_secret[0].secret_arn &&
       output.origin_secret_arn == aws_secretsmanager_secret.origin.arn &&
-      output.api_role_arn == aws_iam_role.lambda["api"].arn
+      output.api_role_arn == aws_iam_role.lambda["api"].arn &&
+      output.distribution_id == aws_cloudfront_distribution.main.id
     )
     error_message = "Outputs for Task 6."
   }

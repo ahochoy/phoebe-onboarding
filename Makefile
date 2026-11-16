@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e tf-check
+.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e tf-check deploy-check
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -40,8 +40,10 @@ down:
 test: test-db
 	uv run pytest backend/tests
 
+# Also lints .github/workflows with a pinned, checksum-verified actionlint (cached after the first run).
 lint:
 	uv run ruff check . && uv run ruff format --check . && uv run pyright
+	ci/actionlint.sh
 
 # Kill-switch state lives in data/control.json. When the api container is up it
 # reads its own copy, so run the command inside it; otherwise use the host.
@@ -114,3 +116,10 @@ stack-e2e:
 # Cross-browser end to end against the running stack (`make stack-e2e` first).
 e2e:
 	cd frontend && npm run build && npx playwright test
+
+# Offline checks for the CodeBuild scripts (ci/): syntax, shellcheck when installed, and
+# the pytest suite that drives them with stubbed aws/terraform/docker/npm/curl.
+deploy-check:
+	@for f in ci/*.sh; do bash -n "$$f" || exit 1; done
+	@if command -v shellcheck >/dev/null; then shellcheck -x ci/*.sh; else echo "shellcheck not installed; skipping"; fi
+	uv run pytest ci/tests -q

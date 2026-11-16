@@ -45,8 +45,10 @@ header needs it.
 
 ## Outputs
 
-`site_url`, `api_function_url`, `site_bucket`, `ops_function_name`, `cluster_arn`,
-`db_secret_arn`, `origin_secret_arn`, `api_role_arn`.
+`site_url`, `api_function_url`, `site_bucket`, `ops_function_name`, `distribution_id`,
+`cluster_arn`, `db_secret_arn`, `origin_secret_arn`, `api_role_arn`. `ci/deploy.sh`
+reads the first five after its apply. Staging's `distribution_id` is also the value
+for infra/bootstrap's `staging_distribution_id` (bootstrap owner step 7).
 
 ## Per-env usage
 
@@ -70,6 +72,46 @@ non-HTTP Lambda it would hang init and compete with `awslambdaric`, so the
 `jobs` image leaves the adapter (and its `AWS_LWA_*` env) out.
 
 Applies run only in CodeBuild (Task 8) or under the Task 9 owner gate.
+
+## Deploys (ci/)
+
+| CodeBuild project | Buildspec | Script | What it does |
+|---|---|---|---|
+| `phoebe-staging` (push to main) | `ci/buildspec-staging.yml` | `ci/staging.sh` | `docker buildx build --platform linux/arm64 --target api\|jobs -f backend/Dockerfile .`, pushed as `phoebe-api:<sha>` and `<sha>-jobs` (a retried build reuses already-pushed tags), digests read back from ECR, then `ci/deploy.sh staging <api> <jobs>`. |
+| `phoebe-release-plan` (tag `v*`) | `ci/buildspec-release-plan.yml` | `ci/release-plan.sh` | Resolves `phoebe-api:<tag sha>` and `<tag sha>-jobs`; stops with "never reached staging" if either is missing. Finds the commit's single `v*` tag (GitHub public API). `terraform plan -lock=false` for production; saves `production.tfplan` and `release.env` (commit, tag, both digests) as the `plan` artifact. |
+| `phoebe-release-apply` (after approval) | `ci/buildspec-release-apply.yml` | `ci/release-apply.sh` | Checks `release-<tag>` / `release-<tag>-jobs`: an existing tag must already point at the promoted digest, or the release stops before any change. Runs `ci/deploy.sh production` on **the saved plan** (no re-plan), then adds the missing release tags (BatchGetImage + PutImage). |
+
+`ci/deploy.sh <env> <api_digest> <jobs_digest>`: `terraform init`/`apply` here
+(staging with the two `-var`s; production applies `$PHOEBE_PLAN_FILE`), ops
+`migrate` then `seed_if_empty` (stops on a function error or an `error`
+result), `npm ci` + `npm run build` with base `/`, the site sync below, the two
+seed sources to `seed-sources/`, an invalidation of `/*` (waited for), then
+`ci/smoke.sh <site_url> <api_function_url>`. It never applies `infra/ai` (R12).
+
+`ci/smoke.sh` checks, through CloudFront: `/api/health` is 200 `{"status":"ok"}`;
+`/` is the SPA (root element); `/api/status` is 200 JSON; a direct call to the
+function URL's `/api/status` is **403** (`/api/health` is exempt from the origin
+guard, so it can't prove this); `/pr-0/` is not a 404/5xx. The
+`CloudFront-Viewer-Address` check is reported as skipped: the API has no echo
+endpoint (deliberately), so Task 9 checks it, and the throttle, by hand.
+
+`make deploy-check` runs these scripts offline against stubbed `aws`,
+`terraform`, `docker`, `npm` and `curl` (`ci/tests/`).
+
+### Site caching contract (R11)
+
+| Path in the site bucket | `Cache-Control` | Why |
+|---|---|---|
+| `assets/*` (Vite output, content-hashed names) | `public, max-age=31536000, immutable` | A changed file gets a new name, so a cached copy is never stale. |
+| `index.html`, `favicon.svg` and other root files | `no-cache` | Browsers and CloudFront revalidate on every request, so a deploy is visible at once and always points at assets that exist. |
+| `seed-sources/*` | `no-cache` | Fetched by the seed loader; small. |
+| `previews/pr-<n>/*` | written by the inline `phoebe-pr` buildspec (infra/bootstrap) | Never touched by `deploy.sh`'s sync. |
+
+Order: `assets/` is uploaded first, then the root files, then a `--delete
+--size-only` pass prunes stale files (excluding `previews/*` and
+`seed-sources/*`; size-only so it never re-uploads a file without its header).
+Then `/*` is invalidated. CloudFront's `CachingOptimized` policy honours these
+headers (its max TTL is a year).
 
 ## Edge notes
 
