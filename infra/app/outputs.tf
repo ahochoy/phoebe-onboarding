@@ -32,3 +32,8 @@ output "api_role_arn" {
   description = "API Lambda execution role ARN."
   value       = aws_iam_role.lambda["api"].arn
 }
+
+output "site_url" {
+  description = "Public URL of this env's CloudFront distribution (SPA at /, API at /api/*, previews at /pr-<n>/ in staging)."
+  value       = "https://${aws_cloudfront_distribution.main.domain_name}"
+}

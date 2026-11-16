@@ -21,6 +21,12 @@ mock_provider "aws" {
     }
   }
 
+  mock_resource "aws_cloudfront_function" {
+    defaults = {
+      arn = "arn:aws:cloudfront::123456789012:function/phoebe-staging-spa-router"
+    }
+  }
+
   mock_resource "aws_dynamodb_table" {
     defaults = {
       arn = "arn:aws:dynamodb:us-east-2:123456789012:table/phoebe-staging-mock"
@@ -102,6 +108,23 @@ override_resource {
   values = {
     arn = "arn:aws:s3:::phoebe-staging-site-123456789012"
     id  = "phoebe-staging-site-123456789012"
+
+    bucket_regional_domain_name = "phoebe-staging-site-123456789012.s3.us-east-2.amazonaws.com"
+  }
+}
+
+override_resource {
+  target = aws_lambda_function_url.api
+  values = {
+    function_url = "https://abcdefghij0123456789.lambda-url.us-east-2.on.aws/"
+  }
+}
+
+override_resource {
+  target = aws_cloudfront_distribution.main
+  values = {
+    arn         = "arn:aws:cloudfront::123456789012:distribution/E1ABCDEFGHIJKL"
+    domain_name = "d111111abcdef8.cloudfront.net"
   }
 }
 
@@ -751,4 +774,177 @@ run "rejects_password_secret_without_suffix" {
   }
 
   expect_failures = [var.password_hash_secret_arn]
+}
+
+run "edge" {
+  command = apply
+
+  # Default behaviour: the private S3 site bucket through OAC, with the SPA/preview router.
+  assert {
+    condition = (
+      aws_cloudfront_distribution.main.default_cache_behavior[0].target_origin_id == "site" &&
+      length(aws_cloudfront_distribution.main.default_cache_behavior[0].function_association) == 1 &&
+      one(aws_cloudfront_distribution.main.default_cache_behavior[0].function_association).event_type == "viewer-request" &&
+      one(aws_cloudfront_distribution.main.default_cache_behavior[0].function_association).function_arn == aws_cloudfront_function.spa_router.arn
+    )
+    error_message = "The default (S3) behaviour runs the spa_router CloudFront Function on viewer-request."
+  }
+
+  assert {
+    condition = (
+      aws_cloudfront_function.spa_router.runtime == "cloudfront-js-2.0" &&
+      aws_cloudfront_function.spa_router.publish == true &&
+      aws_cloudfront_function.spa_router.name == "phoebe-staging-spa-router"
+    )
+    error_message = "spa_router is a published cloudfront-js-2.0 function named phoebe-<env>-spa-router (no Lambda@Edge)."
+  }
+
+  assert {
+    condition = (
+      aws_cloudfront_origin_access_control.site.origin_access_control_origin_type == "s3" &&
+      aws_cloudfront_origin_access_control.site.signing_behavior == "always" &&
+      aws_cloudfront_origin_access_control.site.signing_protocol == "sigv4" &&
+      one([for o in aws_cloudfront_distribution.main.origin : o.origin_access_control_id if o.origin_id == "site"]) == aws_cloudfront_origin_access_control.site.id
+    )
+    error_message = "The site origin uses a sigv4 S3 origin access control."
+  }
+
+  # /api/*: function URL origin, secret header, no cache, all methods, no compression (SSE).
+  assert {
+    condition     = length(aws_cloudfront_distribution.main.ordered_cache_behavior) == 1 && aws_cloudfront_distribution.main.ordered_cache_behavior[0].path_pattern == "/api/*"
+    error_message = "Exactly one ordered behaviour: /api/*."
+  }
+
+  assert {
+    condition = (
+      aws_cloudfront_distribution.main.ordered_cache_behavior[0].target_origin_id == "api" &&
+      one([for o in aws_cloudfront_distribution.main.origin : o.domain_name if o.origin_id == "api"]) == trimsuffix(trimprefix(aws_lambda_function_url.api.function_url, "https://"), "/")
+    )
+    error_message = "/api/* targets the API function URL origin."
+  }
+
+  assert {
+    condition = (
+      length(flatten([for o in aws_cloudfront_distribution.main.origin : [for h in o.custom_header : h] if o.origin_id == "api"])) == 1 &&
+      flatten([for o in aws_cloudfront_distribution.main.origin : [for h in o.custom_header : h.name] if o.origin_id == "api"])[0] == "X-Phoebe-Origin" &&
+      nonsensitive(flatten([for o in aws_cloudfront_distribution.main.origin : [for h in o.custom_header : h.value] if o.origin_id == "api"])[0]) == nonsensitive(random_password.origin.result)
+    )
+    error_message = "The API origin sends X-Phoebe-Origin with the origin secret's value."
+  }
+
+  assert {
+    condition = (
+      one([for o in aws_cloudfront_distribution.main.origin : o.custom_origin_config[0].origin_protocol_policy if o.origin_id == "api"]) == "https-only" &&
+      !contains(
+        flatten(one([for o in aws_cloudfront_distribution.main.origin : o.custom_origin_config[0].origin_ssl_protocols if o.origin_id == "api"])),
+        "SSLv3",
+      )
+    )
+    error_message = "The API origin is reached over HTTPS only."
+  }
+
+  assert {
+    condition = (
+      aws_cloudfront_distribution.main.ordered_cache_behavior[0].cache_policy_id == "4135ea2d-6df8-47a0-9b3a-6c3fd7bf9d80" &&
+      aws_cloudfront_distribution.main.ordered_cache_behavior[0].origin_request_policy_id == "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+    )
+    error_message = "/api/* uses the managed CachingDisabled cache policy and AllViewerExceptHostHeader origin request policy."
+  }
+
+  assert {
+    condition = (
+      toset(aws_cloudfront_distribution.main.ordered_cache_behavior[0].allowed_methods) == toset(["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]) &&
+      aws_cloudfront_distribution.main.ordered_cache_behavior[0].compress == false
+    )
+    error_message = "/api/* allows all methods and sets compress = false so SSE is not buffered."
+  }
+
+  assert {
+    condition     = length(aws_cloudfront_distribution.main.ordered_cache_behavior[0].function_association) == 0
+    error_message = "The router must not run on /api/*."
+  }
+
+  # Viewer-facing settings.
+  assert {
+    condition = (
+      aws_cloudfront_distribution.main.default_cache_behavior[0].viewer_protocol_policy == "redirect-to-https" &&
+      aws_cloudfront_distribution.main.ordered_cache_behavior[0].viewer_protocol_policy == "redirect-to-https"
+    )
+    error_message = "Every behaviour redirects HTTP to HTTPS."
+  }
+
+  assert {
+    condition = (
+      aws_cloudfront_distribution.main.price_class == "PriceClass_100" &&
+      aws_cloudfront_distribution.main.enabled == true &&
+      aws_cloudfront_distribution.main.is_ipv6_enabled == true &&
+      aws_cloudfront_distribution.main.default_root_object == "index.html"
+    )
+    error_message = "Enabled, IPv6, PriceClass_100, default root object index.html."
+  }
+
+  assert {
+    condition = (
+      length(coalesce(aws_cloudfront_distribution.main.aliases, [])) == 0 &&
+      aws_cloudfront_distribution.main.viewer_certificate[0].cloudfront_default_certificate == true &&
+      aws_cloudfront_distribution.main.viewer_certificate[0].acm_certificate_arn == null
+    )
+    error_message = "No custom domain: no aliases, the default *.cloudfront.net certificate, no ACM."
+  }
+
+  assert {
+    condition     = aws_cloudfront_distribution.main.logging_config == null || length(aws_cloudfront_distribution.main.logging_config) == 0
+    error_message = "No CloudFront access logging (metadata-only logs live in the Lambda)."
+  }
+
+  # Security headers on both behaviours.
+  assert {
+    condition = (
+      aws_cloudfront_distribution.main.default_cache_behavior[0].response_headers_policy_id == aws_cloudfront_response_headers_policy.security.id &&
+      aws_cloudfront_distribution.main.ordered_cache_behavior[0].response_headers_policy_id == aws_cloudfront_response_headers_policy.security.id
+    )
+    error_message = "Both behaviours attach the security headers policy."
+  }
+
+  assert {
+    condition = (
+      aws_cloudfront_response_headers_policy.security.security_headers_config[0].content_security_policy[0].content_security_policy == "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" &&
+      aws_cloudfront_response_headers_policy.security.security_headers_config[0].content_security_policy[0].override == true
+    )
+    error_message = "The CSP is exactly the agreed policy."
+  }
+
+  assert {
+    condition = (
+      aws_cloudfront_response_headers_policy.security.security_headers_config[0].strict_transport_security[0].access_control_max_age_sec == 31536000 &&
+      aws_cloudfront_response_headers_policy.security.security_headers_config[0].strict_transport_security[0].override == true &&
+      aws_cloudfront_response_headers_policy.security.security_headers_config[0].content_type_options[0].override == true &&
+      aws_cloudfront_response_headers_policy.security.security_headers_config[0].referrer_policy[0].referrer_policy == "strict-origin-when-cross-origin" &&
+      aws_cloudfront_response_headers_policy.security.security_headers_config[0].referrer_policy[0].override == true
+    )
+    error_message = "HSTS for one year, nosniff, and Referrer-Policy strict-origin-when-cross-origin."
+  }
+
+  # Site bucket policy: only this distribution, via the CloudFront service principal.
+  assert {
+    condition     = aws_s3_bucket_policy.site.bucket == aws_s3_bucket.site.id
+    error_message = "The bucket policy is on the site bucket."
+  }
+
+  assert {
+    condition = (
+      length(jsondecode(aws_s3_bucket_policy.site.policy).Statement) == 1 &&
+      jsondecode(aws_s3_bucket_policy.site.policy).Statement[0].Effect == "Allow" &&
+      jsondecode(aws_s3_bucket_policy.site.policy).Statement[0].Action == "s3:GetObject" &&
+      jsondecode(aws_s3_bucket_policy.site.policy).Statement[0].Principal.Service == "cloudfront.amazonaws.com" &&
+      jsondecode(aws_s3_bucket_policy.site.policy).Statement[0].Resource == "${aws_s3_bucket.site.arn}/*" &&
+      jsondecode(aws_s3_bucket_policy.site.policy).Statement[0].Condition.StringEquals["AWS:SourceArn"] == aws_cloudfront_distribution.main.arn
+    )
+    error_message = "The site bucket allows only s3:GetObject to cloudfront.amazonaws.com, scoped to this distribution's ARN."
+  }
+
+  assert {
+    condition     = output.site_url == "https://${aws_cloudfront_distribution.main.domain_name}"
+    error_message = "site_url is https://<distribution>.cloudfront.net."
+  }
 }

@@ -103,6 +103,7 @@ tf-check:
 		terraform -chdir=$$root validate; \
 		terraform -chdir=$$root test; \
 	done
+	node --test 'infra/app/functions/*.test.js'
 
 # The stack with the login, chat and upload caps raised for the Playwright suite (it logs
 # in once per test across five browser projects). Plain `make stack` restores the defaults.
