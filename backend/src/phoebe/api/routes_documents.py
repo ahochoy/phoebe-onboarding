@@ -52,7 +52,9 @@ post_router = APIRouter(prefix="/api", dependencies=[Depends(require_csrf)])
 routers = (router, post_router)
 
 
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+# 4 MB, not 5: a Lambda function URL takes at most 6 MB per request, and the
+# multipart body arrives base64-encoded (+33%), so 5 MB files never reach us.
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 _CHUNK = 64 * 1024
 # Multipart framing (boundaries, field parts) on top of the file itself.
 _MULTIPART_SLACK = 64 * 1024

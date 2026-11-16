@@ -41,6 +41,8 @@ async function toApiError(res: Response): Promise<ApiError> {
   } catch {
     // Not JSON (proxy error page, empty body): keep the generic code.
   }
+  // A 413 from in front of the app (Lambda's request-size limit) has no `detail`.
+  if (res.status === 413 && code === "internal_error") code = "file_too_large";
   return new ApiError(res.status, code, reason);
 }
 

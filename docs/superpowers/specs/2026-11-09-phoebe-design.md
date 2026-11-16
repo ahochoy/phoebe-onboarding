@@ -204,7 +204,7 @@ The owner chose cost and simplicity over network isolation. A Lambda inside a VP
 **Caps** (starting values; the exact numbers are the builder's call, set in config)
 - Per session: about 30 chat messages per hour, 5 uploads per day, and at most about 20 sandbox documents.
 - Global: a daily cap on chat messages and on uploads across all sessions.
-- Uploads: 5 MB max; PDF, Markdown, and CSV only, checked by content as well as extension.
+- Uploads: 4 MB max (a Lambda function URL caps a request at 6 MB and base64-encodes the multipart body); PDF, Markdown, and CSV only, checked by content as well as extension.
 - Link fetches: https only. Block private, link-local, and metadata IP ranges, both after DNS resolution and on every redirect. Size limit, timeout, and a content-type allowlist.
 - Lambda reserved concurrency set to a small number.
 

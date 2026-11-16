@@ -141,6 +141,20 @@ describe("api client", () => {
     expect(err.code).toBe("internal_error");
   });
 
+  it("maps a 413 without detail (Lambda's size limit) to file_too_large", async () => {
+    server.use(
+      http.post("/api/up", () =>
+        HttpResponse.json(
+          { Message: "Request must be smaller than 6291456 bytes for the InvokeFunction operation" },
+          { status: 413 },
+        ),
+      ),
+    );
+    const err = await catchError(apiSend("POST", "/api/up", {}));
+    expect(err.status).toBe(413);
+    expect(err.code).toBe("file_too_large");
+  });
+
   it("maps FastAPI validation array detail to invalid_request", async () => {
     server.use(
       http.post("/api/v", () =>

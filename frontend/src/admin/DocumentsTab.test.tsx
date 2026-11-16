@@ -71,7 +71,7 @@ const DOCS: DocumentOut[] = [
   }),
 ];
 
-const TOO_BIG = "Files must be 5 MB or smaller.";
+const TOO_BIG = "Files must be 4 MB or smaller.";
 
 function EmployeeProbe() {
   useDocuments();
@@ -261,7 +261,7 @@ describe("DocumentsTab", () => {
       expect(form!.get("last_updated")).toBe("");
     });
 
-    it("rejects files over 5 MB client-side and sends no request", async () => {
+    it("rejects files over 4 MB client-side and sends no request", async () => {
       mockList();
       let posted = 0;
       server.use(
@@ -275,7 +275,7 @@ describe("DocumentsTab", () => {
       await user.click(await screen.findByRole("button", { name: "Upload document" }));
       const dialog = await screen.findByRole("dialog", { name: "Upload a document" });
       const big = new File(["x"], "big.pdf", { type: "application/pdf" });
-      Object.defineProperty(big, "size", { value: 5 * 1024 * 1024 + 1 });
+      Object.defineProperty(big, "size", { value: 4 * 1024 * 1024 + 1 });
       const input = within(dialog).getByLabelText("File");
       await user.upload(input, big);
       expect(await within(dialog).findByText(TOO_BIG)).toBeInTheDocument();

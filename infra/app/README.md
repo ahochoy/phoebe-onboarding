@@ -132,7 +132,7 @@ can be checked offline):
    multi-byte text (e.g. CJK or emoji), wait for `indexed`, open it, and check
    the full text renders intact (it is read in 15,000-character slices, each
    under the Data API's 64 KB row limit).
-5. **Near-limit upload.** Upload a file just under 5 MB; it is accepted and
+5. **Near-limit upload.** Upload a file just under 4 MB; it is accepted and
    indexes (or fails with a clear reason), and a file just over is `413
    file_too_large`.
 6. **Client IP and throttle.** `CloudFront-Viewer-Address` reaches the API

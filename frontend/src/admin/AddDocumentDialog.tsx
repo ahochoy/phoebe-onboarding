@@ -9,8 +9,8 @@ import { Field, dialogContent, inputClass, primaryButton, secondaryButton } from
 import { GroupSelect } from "./GroupSelect";
 
 export const ACCEPT = ".pdf,.md,.markdown,.csv";
-export const MAX_BYTES = 5 * 1024 * 1024;
-export const TOO_BIG = "Files must be 5 MB or smaller.";
+export const MAX_BYTES = 4 * 1024 * 1024;
+export const TOO_BIG = "Files must be 4 MB or smaller.";
 
 export type AddMode = "file" | "link";
 
@@ -92,7 +92,7 @@ function UploadForm({ onDone, onLimit }: FormProps) {
 
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="mt-4 space-y-4">
-      <Field label="File" hint="PDF, Markdown or CSV, up to 5 MB." error={errors.file}>
+      <Field label="File" hint="PDF, Markdown or CSV, up to 4 MB." error={errors.file}>
         {(p) => (
           <input
             {...p}
