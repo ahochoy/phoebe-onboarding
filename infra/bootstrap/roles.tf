@@ -339,6 +339,16 @@ locals {
           Condition = { ArnLike = { "lambda:FunctionArn" = "${local.arn_prefix.lambda}:function:phoebe-${env}-*" } }
         },
         {
+          # CreateEventSourceMapping with tags also authorizes lambda:TagResource
+          # on event-source-mapping:*, where lambda:FunctionArn is absent. Allow
+          # it only when the request tags the mapping with this env (default_tags).
+          Sid       = "TagNewEventSourceMappings"
+          Effect    = "Allow"
+          Action    = ["lambda:TagResource"]
+          Resource  = ["${local.arn_prefix.lambda}:event-source-mapping:*"]
+          Condition = { StringEquals = { "aws:RequestTag/env" = env } }
+        },
+        {
           # Ruling R24: CreateDBCluster/Instance with no subnet group places the
           # cluster in the default VPC, which RDS resolves with the caller's ec2
           # describes. Read-only; EC2 describes support no resource scoping.
