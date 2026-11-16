@@ -16,6 +16,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: api
     depends_on:
       db:
         condition: service_healthy

@@ -1,10 +1,23 @@
 import json
 import logging
+import re
 from enum import StrEnum
 from typing import Any
 
 from phoebe.db import Database
 from phoebe.sessions import log_id
+
+_CANONICAL_UUID = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def is_uuid(value: str) -> bool:
+    """Entity ids are compared as uuid in SQL (index-friendly); anything else is
+    simply not found, never an error."""
+    # Strict canonical 8-4-4-4-12 form: UUID() alone also takes `urn:uuid:` and
+    # stray hyphens, which Postgres rejects (a 500 instead of a 404).
+    return _CANONICAL_UUID.fullmatch(value) is not None
 
 
 class EntityKind(StrEnum):

@@ -1,0 +1,27 @@
+version: 0.2
+
+# Inline buildspec for phoebe-pr-cleanup (ruling R15). It never runs code from
+# the checkout: the actor on a close or merge is whoever closed it, which may
+# be the owner closing someone else's PR. It only deletes one preview prefix.
+
+env:
+  variables:
+    SITE_BUCKET: "${site_bucket}"
+    DISTRIBUTION_ID: "${distribution_id}"
+
+phases:
+  build:
+    on-failure: ABORT
+    commands:
+      - |
+        N="$${CODEBUILD_WEBHOOK_TRIGGER#pr/}"
+        case "$N" in
+          ''|*[!0-9]*) echo "Refusing: CODEBUILD_WEBHOOK_TRIGGER is not pr/<digits>"; exit 1 ;;
+        esac
+        echo "Removing preview for PR $N"
+        aws s3 rm "s3://$SITE_BUCKET/previews/pr-$N/" --recursive
+        if [ -n "$DISTRIBUTION_ID" ]; then
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/pr-$N/*"
+        else
+          echo "staging_distribution_id not set in infra/bootstrap; skipping invalidation"
+        fi

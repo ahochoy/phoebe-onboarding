@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Protocol
 
 
+class BlobUnavailable(Exception):
+    """The blob store could not be reached (transient); never carries details."""
+
+
 class BlobStore(Protocol):
     def put(self, key: str, data: bytes) -> None: ...
 

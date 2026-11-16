@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Phoebe onboarding portal backend"
 requires-python = ">=3.14"
 dependencies = [
+    "awslambdaric>=4.2.3",
     "beautifulsoup4>=4.15.0",
     "boto3>=1.44.0",
     "fastapi>=0.162.4",
@@ -33,16 +34,17 @@ extend-exclude = ["docs", ".superpowers"]
 src = ["backend/src", "backend/tests"]
 
 [tool.pyright]
-include = ["backend"]
+include = ["backend", "ci"]
 extraPaths = ["backend/src"]
 
 [dependency-groups]
 dev = [
     "botocore[crt]>=1.44.0",
     "fpdf2>=2.9.0",
-    "moto[dynamodb]>=5.2.5",
+    "moto[dynamodb,s3,secretsmanager,sqs]>=5.2.5",
     "pyright>=1.1.414",
     "pytest>=9.2.0",
+    "pyyaml>=6.0.3",
     "ruff>=0.17.4",
     "types-pyyaml>=6.0.12.20261111",
 ]

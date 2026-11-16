@@ -1,13 +1,13 @@
 import json
 from datetime import date
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, model_validator
 
-from phoebe.db import Database
+from phoebe.db import Database, json_column
 from phoebe.groups import GroupKind, effective_group_ids
 from phoebe.overlay_sql import EFFECTIVE_DOCUMENTS_SQL, EFFECTIVE_GROUPS_SQL
-from phoebe.sandbox import BLOB_PREFIX, EntityKind, blob_key_for, hide, patch
+from phoebe.sandbox import BLOB_PREFIX, EntityKind, blob_key_for, hide, is_uuid, patch
 
 DocType = Literal["pdf", "markdown", "csv", "web", "google_doc"]
 DocStatus = Literal["processing", "indexed", "failed"]
@@ -69,7 +69,7 @@ class DocumentSummary(BaseModel):
 
 class DocumentDetail(DocumentSummary):
     full_text: str | None
-    sections: list[dict[str, Any]]
+    sections: Annotated[list[dict[str, Any]], BeforeValidator(json_column)]
 
 
 class DeleteResult(BaseModel):
@@ -88,18 +88,25 @@ from eff_docs ed
 join eff_groups g on g.id = ed.group_id
 """
 
-# Detail projection: the summary columns plus the stored text and sections.
-_SELECT_DETAIL = f"""
+
+def _select_detail(text_column: str) -> str:
+    return f"""
 with eff_groups as ({EFFECTIVE_GROUPS_SQL}),
 eff_docs as ({EFFECTIVE_DOCUMENTS_SQL})
 select ed.id::text as id, ed.title, ed.purpose, ed.last_updated, ed.doc_type,
        ed.group_id, g.name as group_name, g.kind as group_kind, ed.status,
        ed.failure_reason, ed.source_uri, ed.public_url, ed.owned,
-       raw.full_text, coalesce(raw.sections, '[]'::jsonb) as sections
+       {text_column}, coalesce(raw.sections, '[]'::jsonb) as sections
 from eff_docs ed
 join eff_groups g on g.id = ed.group_id
 join documents raw on raw.id = ed.id
 """
+
+
+# Detail projection: the summary columns plus the stored text and sections.
+_SELECT_DETAIL = _select_detail("raw.full_text")
+# Same, with the text left out (fetched separately in slices).
+_SELECT_DETAIL_NO_TEXT = _select_detail("null::text as full_text")
 
 _ORDER = "order by g.kind, ed.title, ed.id"
 
@@ -120,11 +127,40 @@ def list_documents(
 
 
 def get_document(db: Database, session_id: str, doc_id: str) -> DocumentDetail | None:
+    # A backend that caps response size (the RDS Data API: 1 MB) declares the
+    # slice length and gets `full_text` in pieces; others read it whole.
+    if not is_uuid(doc_id):
+        return None
+    slice_chars: int | None = getattr(db, "text_slice_chars", None)
+    select = _SELECT_DETAIL if slice_chars is None else _SELECT_DETAIL_NO_TEXT
     rows = db.fetch(
-        f"{_SELECT_DETAIL} where ed.id::text = :id",
-        {"sid": session_id, "id": doc_id},
+        f"{select} where ed.id = :id::uuid", {"sid": session_id, "id": doc_id}
     )
-    return DocumentDetail(**rows[0]) if rows else None
+    if not rows:
+        return None
+    row = rows[0]
+    if slice_chars is not None:
+        row["full_text"] = _fetch_text_sliced(db, doc_id, slice_chars)
+    return DocumentDetail(**row)
+
+
+def _fetch_text_sliced(db: Database, doc_id: str, size: int) -> str | None:
+    """`documents.full_text` in `size`-char slices until a short one comes back."""
+    parts: list[str] = []
+    offset = 1  # substr is 1-based
+    while True:
+        rows = db.fetch(
+            f"select substr(full_text, :off, {size}) as part"
+            " from documents where id = :id::uuid",
+            {"off": offset, "id": doc_id},
+        )
+        part: str | None = rows[0]["part"] if rows else None
+        if part is None:
+            return None if not parts else "".join(parts)
+        parts.append(part)
+        if len(part) < size:
+            return "".join(parts)
+        offset += size
 
 
 def _owned_count(db: Database, session_id: str) -> int:
@@ -164,8 +200,10 @@ def create_document(
 
 
 def _owned_row(db: Database, session_id: str, doc_id: str) -> dict[str, Any] | None:
+    if not is_uuid(doc_id):
+        return None
     rows = db.fetch(
-        "select source_uri from documents where id::text = :id and session_id = :sid",
+        "select source_uri from documents where id = :id::uuid and session_id = :sid",
         {"sid": session_id, "id": doc_id},
     )
     return rows[0] if rows else None
@@ -173,6 +211,8 @@ def _owned_row(db: Database, session_id: str, doc_id: str) -> dict[str, Any] | N
 
 def _visible_seed_document(db: Database, session_id: str, doc_id: str) -> bool:
     """True if `doc_id` is a seed document this session has not hidden."""
+    if not is_uuid(doc_id):
+        return False
     return bool(
         db.fetch(
             """
@@ -180,7 +220,7 @@ def _visible_seed_document(db: Database, session_id: str, doc_id: str) -> bool:
             left join overrides o
               on o.session_id = :sid and o.entity_kind = 'document'
              and o.entity_id = d.id::text
-            where d.id::text = :id and d.session_id is null
+            where d.id = :id::uuid and d.session_id is null
               and not coalesce(o.hidden, false)
             """,
             {"sid": session_id, "id": doc_id},
@@ -204,7 +244,7 @@ def update_document(
     if owned:
         sets = ", ".join(f"{name} = :{name}" for name in fields)
         db.execute(
-            f"update documents set {sets} where id::text = :id and session_id = :sid",
+            f"update documents set {sets} where id = :id::uuid and session_id = :sid",
             {**fields, "id": doc_id, "sid": session_id},
         )
     else:
@@ -217,7 +257,7 @@ def delete_document(db: Database, session_id: str, doc_id: str) -> DeleteResult:
     row = _owned_row(db, session_id, doc_id)
     if row is not None:
         db.execute(
-            "delete from documents where id::text = :id and session_id = :sid",
+            "delete from documents where id = :id::uuid and session_id = :sid",
             {"id": doc_id, "sid": session_id},
         )
         uri: str = row["source_uri"]
@@ -235,6 +275,8 @@ def mark_indexed(
     sections: str | list[dict[str, Any]],
 ) -> bool:
     """Indexing worker hook: no session involved. False if the row is gone."""
+    if not is_uuid(doc_id):
+        return False
     payload = sections if isinstance(sections, str) else json.dumps(sections)
     return (
         db.execute(
@@ -242,7 +284,7 @@ def mark_indexed(
             update documents
             set status = 'indexed', full_text = :text,
                 sections = :sections::jsonb, failure_reason = null
-            where id::text = :id
+            where id = :id::uuid
             """,
             {"id": doc_id, "text": full_text, "sections": payload},
         )
@@ -251,11 +293,13 @@ def mark_indexed(
 
 
 def mark_failed(db: Database, doc_id: str, reason: str) -> bool:
+    if not is_uuid(doc_id):
+        return False
     return (
         db.execute(
             """
             update documents set status = 'failed', failure_reason = :reason
-            where id::text = :id
+            where id = :id::uuid
             """,
             {"id": doc_id, "reason": reason},
         )

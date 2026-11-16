@@ -56,11 +56,12 @@ def login(body: LoginBody, request: Request) -> Response:
     if not _scrypt_slots.acquire(blocking=False):
         raise HTTPException(429, "too_many_attempts")
     try:
-        ok = verify_password(body.password, deps.settings.password_hash)
+        ok = verify_password(body.password, deps.settings.password_hash or "")
     finally:
         _scrypt_slots.release()
     if not ok:
         raise HTTPException(401, "invalid_password")
+    deps.activity.touch()  # the sweeper has work again (throttled, never fails)
     old_id = request.cookies.get(COOKIE_NAME)
     old = deps.sessions.get(old_id) if old_id else None
     if old is not None:

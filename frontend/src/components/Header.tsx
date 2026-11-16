@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from "react-router";
 import { apiGet, apiSend } from "../api/client";
 import type { GroupNode } from "../api/types";
 import { formatStart } from "../lib/dates";
-import { forgetSession, useMe } from "../session/useMe";
+import { clearHadSession, forgetSession, useMe } from "../session/useMe";
 import { Mascot } from "./Mascot";
 import { ResetDialog } from "./ResetDialog";
 import { StatusPill } from "./StatusPill";
@@ -35,6 +35,7 @@ export function Header() {
     } catch {
       // Leave either way: the session is being abandoned.
     }
+    clearHadSession();
     void navigate("/", { replace: true });
     forgetSession(queryClient);
   }

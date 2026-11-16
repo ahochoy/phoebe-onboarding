@@ -19,7 +19,9 @@ function makeQueryClient(): QueryClient {
 
 export function App() {
   const [client] = useState(makeQueryClient);
-  const [router] = useState(() => createBrowserRouter(routes));
+  const [router] = useState(() =>
+    createBrowserRouter(routes, { basename: import.meta.env.BASE_URL.replace(/\/$/, "") || "/" }),
+  );
   return (
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />

@@ -1,0 +1,105 @@
+version: 0.2
+
+# Inline buildspec for phoebe-pr (ruling R15): the steps come from
+# infra/bootstrap, not the PR checkout. The PR's own code still runs (npm ci,
+# the build, terraform plan), which is why the webhook's actor filter is the
+# gate: only the owner's PRs build.
+
+env:
+  variables:
+    SITE_BUCKET: "${site_bucket}"
+    STATE_BUCKET: "${state_bucket}"
+    DISTRIBUTION_ID: "${distribution_id}"
+    TF_VERSION: "${terraform_version}"
+    PHOEBE_GITHUB_REPO: "${github_repo}"
+
+phases:
+  install:
+    on-failure: ABORT
+    runtime-versions:
+      nodejs: 22
+    commands:
+      # Fork gate (I3), before any repo code runs: owner actions on a fork PR
+      # (reopen, a maintainer-edit push) pass the actor filter, so check the
+      # PR's head repo through GitHub's public API. Fail closed on any error.
+      # It runs from an empty directory and uses only jq (no interpreter that
+      # would import modules from the cwd, i.e. the fork's checkout).
+      - |
+        GATE_DIR=$(mktemp -d) && cd "$GATE_DIR" || { echo "Refusing: no neutral directory for the fork gate"; exit 1; }
+        N="$${CODEBUILD_WEBHOOK_TRIGGER#pr/}"
+        case "$N" in
+          ''|*[!0-9]*) echo "Refusing: CODEBUILD_WEBHOOK_TRIGGER is not pr/<digits>"; exit 1 ;;
+        esac
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "Refusing: jq is required for the fork gate"
+          exit 1
+        fi
+        HEAD_REPO=$(curl -fsS --max-time 20 -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/$PHOEBE_GITHUB_REPO/pulls/$N" | jq -er .head.repo.full_name) || HEAD_REPO=""
+        if [ "$HEAD_REPO" != "$PHOEBE_GITHUB_REPO" ]; then
+          echo "Refusing: PR $N head repo is '$HEAD_REPO', not $PHOEBE_GITHUB_REPO (fork PRs never build here)"
+          exit 1
+        fi
+        echo "PR $N head repo verified: $HEAD_REPO"
+        cd "$CODEBUILD_SRC_DIR"
+      - |
+        (
+          set -e
+          cd /tmp
+          curl -fsSLo tf.zip "https://releases.hashicorp.com/terraform/$TF_VERSION/terraform_$${TF_VERSION}_linux_arm64.zip"
+          curl -fsSLo tf.sums "https://releases.hashicorp.com/terraform/$TF_VERSION/terraform_$${TF_VERSION}_SHA256SUMS"
+          grep " terraform_$${TF_VERSION}_linux_arm64.zip$" tf.sums | sed "s/terraform_.*zip$/tf.zip/" | sha256sum -c -
+          unzip -o tf.zip terraform -d /usr/local/bin
+        )
+
+  pre_build:
+    on-failure: ABORT
+    commands:
+      - |
+        export N="$${CODEBUILD_WEBHOOK_TRIGGER#pr/}"
+        case "$N" in
+          ''|*[!0-9]*) echo "Refusing: CODEBUILD_WEBHOOK_TRIGGER is not pr/<digits>"; exit 1 ;;
+        esac
+        echo "PR $N"
+
+  build:
+    on-failure: ABORT
+    commands:
+      # Preview at /pr-<n>/ (Vite base), synced under previews/pr-<n>/ with the
+      # R11 caching contract (infra/app/README.md): hashed assets/ immutable,
+      # index.html and other root files no-cache, then a delete-only prune.
+      - |
+        (
+          set -e
+          cd frontend
+          npm ci
+          PHOEBE_BASE="/pr-$N/" npm run build
+          P="s3://$SITE_BUCKET/previews/pr-$N"
+          aws s3 sync dist/assets/ "$P/assets/" --only-show-errors --cache-control "public, max-age=31536000, immutable"
+          aws s3 sync dist/ "$P/" --only-show-errors --exclude "assets/*" --cache-control "no-cache"
+          aws s3 sync dist/ "$P/" --only-show-errors --delete --size-only
+        )
+      - |
+        if [ -n "$DISTRIBUTION_ID" ]; then
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/pr-$N/*"
+        else
+          echo "staging_distribution_id not set in infra/bootstrap; skipping invalidation"
+        fi
+      # Read-only staging plan against the digests staging runs now.
+      # -lock=false: phoebe-ci-plan cannot write the lock object.
+      - |
+        (
+          set -e
+          API=$(aws lambda get-function --function-name phoebe-staging-api --query Code.ResolvedImageUri --output text 2>/dev/null || true)
+          JOBS=$(aws lambda get-function --function-name phoebe-staging-worker --query Code.ResolvedImageUri --output text 2>/dev/null || true)
+          case "$API$JOBS" in
+            *@sha256:*@sha256:*) ;;
+            *) echo "Staging is not deployed yet; skipping terraform plan"; exit 0 ;;
+          esac
+          cd infra/app
+          terraform init -input=false -no-color \
+            -backend-config=envs/staging.s3.tfbackend -backend-config="bucket=$STATE_BUCKET"
+          terraform plan -lock=false -input=false -no-color \
+            -var-file=envs/staging.tfvars \
+            -var "api_image_digest=$${API##*@}" -var "jobs_image_digest=$${JOBS##*@}"
+        )

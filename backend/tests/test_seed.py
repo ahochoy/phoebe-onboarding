@@ -1,6 +1,5 @@
 from collections.abc import Sequence
 from pathlib import Path
-from urllib.parse import urlparse
 
 import pytest
 
@@ -90,11 +89,15 @@ def test_payments_runbook_not_visible_to_alex(db: Database) -> None:
     assert all("Payments Runbook" != p.document_title for p in hits)
 
 
-def test_seed_public_urls_use_example_tld(db: Database) -> None:
+def test_seed_public_urls_are_hosted_seed_sources(db: Database) -> None:
     load_seed(db, HashEmbedder(), SEED_DIR)
-    urls = [d.public_url for d in list_documents(db, "s1") if d.public_url]
-    assert urls
-    assert all((urlparse(u).hostname or "").endswith(".example") for u in urls)
+    urls = {d.title: d.public_url for d in list_documents(db, "s1") if d.public_url}
+    assert urls == {
+        "Benefits Guide": "/seed-sources/benefits.html",
+        "Project Manifest": "/seed-sources/project-manifest.txt",
+    }
+    for url in urls.values():
+        assert (SEED_DIR / "content" / Path(url).name).is_file()
 
 
 class _BoomEmbedder:

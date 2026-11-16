@@ -5,7 +5,7 @@ import { ApiError, apiSend } from "../api/client";
 import { Mascot } from "../components/Mascot";
 import { WELCOME_KEY } from "../components/WelcomeSplash";
 import { messageFor } from "../lib/messages";
-import { useMe } from "../session/useMe";
+import { hadSession, markHadSession, useMe } from "../session/useMe";
 import { useStatus } from "../state/status";
 
 export function Landing() {
@@ -14,7 +14,9 @@ export function Landing() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  const expired = (location.state as { expired?: boolean } | null)?.expired === true;
+  // First-time visitors bounced by the gate never had a session to end.
+  const expired =
+    (location.state as { expired?: boolean } | null)?.expired === true && hadSession();
 
   const fieldRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
@@ -34,6 +36,7 @@ export function Landing() {
     setError(null);
     try {
       await apiSend("POST", "/api/login", { password });
+      markHadSession();
       try {
         window.sessionStorage.setItem(WELCOME_KEY, "pending");
       } catch {

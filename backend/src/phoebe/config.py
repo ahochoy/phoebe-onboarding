@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -8,8 +8,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PHOEBE_")
 
-    database_url: str
-    password_hash: str
+    # Required for db_backend="psycopg"; unused with "data_api".
+    database_url: str | None = None
+    db_backend: Literal["psycopg", "data_api"] = "psycopg"
+    db_cluster_arn: str | None = None
+    db_secret_arn: str | None = None
+    db_name: str = "phoebe"
+    # Empty/None only when password_hash_secret_arn supplies it (resolve_secrets).
+    password_hash: str | None = None
+    password_hash_secret_arn: str | None = None
+    origin_secret: str | None = None
+    origin_secret_arn: str | None = None
+    blob_backend: Literal["local", "s3"] = "local"
+    uploads_bucket: str | None = None
+    job_backend: Literal["inline", "sqs"] = "inline"
+    jobs_queue_url: str | None = None
+    log_level: str = "INFO"
     session_backend: Literal["memory", "dynamodb"] = "memory"
     sessions_table: str | None = None
     cookie_secure: bool = True
@@ -45,6 +59,39 @@ class Settings(BaseSettings):
     guardrail_id: str | None = None
     guardrail_version: str | None = None
     client_ip_header: str | None = None
+
+
+def _read_secret(client: Any, arn: str) -> str:
+    try:
+        value = client.get_secret_value(SecretId=arn)["SecretString"]
+    except Exception:  # noqa: BLE001 - nothing chained: never echo AWS detail
+        raise RuntimeError("could not read a configured secret") from None
+    if not isinstance(value, str) or not value:
+        raise RuntimeError("a configured secret is empty")
+    return value
+
+
+def resolve_secrets(settings: Settings, *, client: Any = None) -> Settings:
+    """Fill `origin_secret` / `password_hash` from Secrets Manager (read once)."""
+    if settings.password_hash_secret_arn and settings.password_hash:
+        raise RuntimeError(
+            "PHOEBE_PASSWORD_HASH must be empty when PHOEBE_PASSWORD_HASH_SECRET_ARN"
+            " is set"
+        )
+    if not (settings.origin_secret_arn or settings.password_hash_secret_arn):
+        return settings
+    if client is None:
+        import boto3
+
+        client = boto3.client("secretsmanager", region_name=settings.aws_region)
+    update: dict[str, str] = {}
+    if settings.origin_secret_arn:
+        update["origin_secret"] = _read_secret(client, settings.origin_secret_arn)
+    if settings.password_hash_secret_arn:
+        update["password_hash"] = _read_secret(
+            client, settings.password_hash_secret_arn
+        )
+    return settings.model_copy(update=update)
 
 
 class ControlSettings(BaseSettings):

@@ -41,6 +41,7 @@ from phoebe.embed import EmbeddingUnavailable
 from phoebe.groups import GroupKind
 from phoebe.ingest.fetch import google_doc_export_url
 from phoebe.ingest.parse import ParseError, sniff_upload
+from phoebe.jobs import InlineJobQueue
 from phoebe.retrieve import Passage, search
 from phoebe.sandbox import BLOB_PREFIX
 
@@ -115,13 +116,29 @@ def _summary(request: Request, session_id: str, doc_id: str) -> DocumentOut:
     return _out(detail)
 
 
-def _enqueue(request: Request, background: BackgroundTasks, doc_id: str) -> None:
-    background.add_task(
-        run_guarded,
-        request.app.state.deps.jobs.enqueue,
-        doc_id,
-        request_id=request.state.request_id,
-    )
+def _enqueue(
+    request: Request, background: BackgroundTasks, sid: str, doc_id: str
+) -> None:
+    """Inline indexing runs after the response. A real queue is a cheap hand-off,
+    so it runs now: if it fails the document is removed (no orphan "pending" row,
+    no sandbox slot used) and the error surfaces as 503 `queue_unavailable`."""
+    deps = request.app.state.deps
+    if isinstance(deps.jobs, InlineJobQueue):
+        background.add_task(
+            run_guarded,
+            deps.jobs.enqueue,
+            doc_id,
+            request_id=request.state.request_id,
+        )
+        return
+    try:
+        deps.jobs.enqueue(doc_id)
+    except Exception:
+        with contextlib.suppress(Exception):  # cleanup must not mask the real error
+            result = delete_document(deps.db, sid, doc_id)
+            if result.blob_key:
+                deps.blobs.delete(result.blob_key)
+        raise
 
 
 def _read_capped(file: UploadFile) -> bytes | None:
@@ -220,7 +237,7 @@ def upload_document(
             raise HTTPException(422, "invalid_group") from None
         raise
     summary = _summary(request, sid, doc_id)
-    _enqueue(request, background, doc_id)
+    _enqueue(request, background, sid, doc_id)
     return JSONResponse(summary.model_dump(mode="json"), status_code=202)
 
 
@@ -264,7 +281,7 @@ def link_document(
     except ValueError:
         raise HTTPException(422, "invalid_group") from None
     summary = _summary(request, sid, doc_id)
-    _enqueue(request, background, doc_id)
+    _enqueue(request, background, sid, doc_id)
     return JSONResponse(summary.model_dump(mode="json"), status_code=202)
 
 

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from phoebe.db import Database
+from phoebe.db import Database, DatabaseUnavailable
 from phoebe.documents import mark_failed, mark_indexed
 from phoebe.embed import Embedder, EmbeddingUnavailable, vector_literal
 from phoebe.ingest.chunk import Chunk, chunk_document, embedding_text
@@ -29,8 +29,8 @@ from phoebe.ingest.parse import (
     parse_pdf,
     parse_plain,
 )
-from phoebe.sandbox import BLOB_PREFIX, blob_key_for
-from phoebe.storage import BlobStore
+from phoebe.sandbox import BLOB_PREFIX, blob_key_for, is_uuid
+from phoebe.storage import BlobStore, BlobUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -141,20 +141,21 @@ def _store(
 ) -> bool:
     with db.transaction() as tx:
         locked = tx.fetch(
-            "select id from documents where id::text = :id for update",
+            "select id from documents where id = :id::uuid for update",
             {"id": document_id},
         )
         if not locked:
             return False
+        # A string on the Data API (uuid columns arrive as text): cast on bind.
         doc_uuid = locked[0]["id"]
-        tx.execute("delete from chunks where document_id = :d", {"d": doc_uuid})
+        tx.execute("delete from chunks where document_id = :d::uuid", {"d": doc_uuid})
         for chunk, vec in zip(chunks, vectors, strict=True):
             tx.execute(
                 """
                 insert into chunks
                   (document_id, ordinal, heading_path, text,
                    start_offset, end_offset, embedding)
-                values (:d, :ord, :hp, :text, :s, :e, :emb::vector)
+                values (:d::uuid, :ord, :hp, :text, :s, :e, :emb::vector)
                 """,
                 {
                     "d": doc_uuid,
@@ -183,15 +184,28 @@ def index_document(
     fetch: Callable[[str], FetchedPage] = fetch_url,
     seed_root: Path | None = None,
     max_chunks: int = 400,
+    retry_transient: bool = False,
 ) -> None:
+    """Index one document.
+
+    `retry_transient` is for queue workers: transient errors (embedding, blob
+    store, database unavailable) are re-raised untouched, leaving the document
+    `processing` so the queue retries; the DLQ handler marks it failed once
+    retries run out. Permanent errors always mark the document failed. Inline
+    callers keep the default and mark failed on any error.
+    """
+    if not is_uuid(document_id):
+        log.info("skipped reason=invalid_id")
+        return
     rows = db.fetch(
         """
         select title, doc_type, source_uri, session_id
-        from documents where id::text = :id
+        from documents where id = :id::uuid
         """,
         {"id": document_id},
     )
     if not rows:
+        log.info("skipped document=%s reason=deleted", document_id)
         return
     row = rows[0]
     started = time.monotonic()
@@ -212,6 +226,8 @@ def index_document(
         mark_failed(db, document_id, exc.reason)
         return
     except EmbeddingUnavailable:
+        if retry_transient:
+            raise  # the queue worker logs it once, at WARNING
         log.error("embedding unavailable document=%s", document_id)
         mark_failed(db, document_id, "Embedding service unavailable")
         return
@@ -219,6 +235,8 @@ def index_document(
         mark_failed(db, document_id, exc.reason)
         return
     except Exception as exc:
+        if retry_transient and isinstance(exc, BlobUnavailable | DatabaseUnavailable):
+            raise  # the queue worker logs it once, at WARNING
         # Metadata only: exception messages/tracebacks may carry document text.
         log.error(
             "indexing failed document=%s error=%s", document_id, type(exc).__name__
@@ -232,6 +250,9 @@ def index_document(
                 type(mark_exc).__name__,
             )
         raise
+    if not stored:
+        log.info("skipped document=%s reason=deleted", document_id)
+        return
     log.info(
         "indexed document=%s stored=%s chunks=%d ms=%d",
         document_id,

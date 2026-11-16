@@ -94,7 +94,7 @@ documents:
      purpose: "Company policies on leave, benefits, conduct and expenses."}
   - {key: benefits, title: Benefits Guide, group: larkspur, doc_type: web,
      last_updated: 2026-10-01, source: "seed://content/benefits.html",
-     public_url: "https://larkspur-labs.example/benefits",
+     public_url: "/seed-sources/benefits.html",
      purpose: "Medical, dental, vision, 401(k) and enrollment details."}
   - {key: holidays, title: Holiday Calendar 2026-27, group: larkspur, doc_type: csv,
      last_updated: 2026-08-20, source: "seed://content/holidays.csv",
@@ -113,7 +113,7 @@ documents:
      purpose: "Who is on Platform, what we own and how we work."}
   - {key: project-manifest, title: Project Manifest, group: platform, doc_type: google_doc,
      last_updated: 2026-11-09, source: "seed://content/project-manifest.txt",
-     public_url: "https://docs.larkspur-labs.example/document/project-manifest",
+     public_url: "/seed-sources/project-manifest.txt",
      purpose: "Active Platform projects this quarter and their leads."}
   - {key: first-week, title: First-Week Schedule, group: platform, doc_type: markdown,
      last_updated: 2026-10-28, source: "seed://content/first-week.md",

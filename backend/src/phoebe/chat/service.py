@@ -229,7 +229,7 @@ def _persist(
             """
             insert into chat_turns (id, session_id, role, text, citations, refused,
                                     created_at)
-            values (:id, :sid, 'assistant', :text, :citations::jsonb, :refused,
+            values (:id::uuid, :sid, 'assistant', :text, :citations::jsonb, :refused,
                     clock_timestamp())
             """,
             {

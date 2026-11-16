@@ -1,6 +1,8 @@
+import json
 import re
 from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import psycopg
@@ -15,6 +17,30 @@ def to_pyformat(sql: str) -> str:
     return _NAMED_PARAM.sub(r"%(\1)s", sql.replace("%", "%%"))
 
 
+def json_column(value: Any) -> Any:
+    """A jsonb value as Python. psycopg returns it parsed; the Data API's JSON
+    format returns it as a JSON string. Use as a pydantic before-validator or on
+    raw rows so both backends read the same."""
+    return json.loads(value) if isinstance(value, str | bytes) else value
+
+
+def utc_datetime(value: Any) -> Any:
+    """A timestamptz as an aware UTC datetime. The Data API returns it as
+    "YYYY-MM-DD HH:MM:SS.ffffff" in UTC with no offset."""
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+class DatabaseUnavailable(Exception):
+    """The store cannot serve the request right now (resuming, unreachable).
+
+    The API maps it to `503 database_unavailable`. Carries no SQL or parameters.
+    """
+
+
 class Database(Protocol):
     def fetch(
         self, sql: str, params: Mapping[str, Any] | None = None
@@ -23,6 +49,10 @@ class Database(Protocol):
     def execute(self, sql: str, params: Mapping[str, Any] | None = None) -> int: ...
 
     def transaction(self) -> AbstractContextManager[Database]: ...
+
+
+class ClosableDatabase(Database, Protocol):
+    def close(self) -> None: ...
 
 
 type _Conn = psycopg.Connection[dict[str, Any]]

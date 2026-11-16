@@ -105,15 +105,21 @@ def test_login_ignores_x_forwarded_for_by_default(db, tmp_path):
 
 
 def test_client_ip_header_used_when_configured(db, tmp_path):
-    c = make_client(db, tmp_path, client_ip_header="cloudfront-viewer-address")
+    c = make_client(
+        db,
+        tmp_path,
+        client_ip_header="cloudfront-viewer-address",
+        origin_secret="s3cr3t",
+    )
     h = "cloudfront-viewer-address"
+    o = {"X-Phoebe-Origin": "s3cr3t"}
     for _ in range(3):
-        assert login(c, "wrong", {h: "203.0.113.5:443"}).status_code == 401
-    assert login(c, "wrong", {h: "203.0.113.5:999"}).status_code == 429
+        assert login(c, "wrong", {**o, h: "203.0.113.5:443"}).status_code == 401
+    assert login(c, "wrong", {**o, h: "203.0.113.5:999"}).status_code == 429
     for _ in range(3):
-        assert login(c, "wrong", {h: "[2001:db8::1]:443"}).status_code == 401
-    assert login(c, "wrong", {h: "[2001:db8::1]:1"}).status_code == 429
-    assert login(c, PW, {h: "198.51.100.1:1"}).status_code == 204
+        assert login(c, "wrong", {**o, h: "[2001:db8::1]:443"}).status_code == 401
+    assert login(c, "wrong", {**o, h: "[2001:db8::1]:1"}).status_code == 429
+    assert login(c, PW, {**o, h: "198.51.100.1:1"}).status_code == 204
 
 
 def test_client_ip_parsing_and_fallback():
@@ -207,17 +213,34 @@ def test_search_counts_against_chat_cap(db, tmp_path):
     assert (r.status_code, r.json()) == (429, {"detail": "session_chat_limit"})
 
 
-def test_client_ip_garbage_header_falls_back():
+def _req_with(value: bytes):
     from starlette.requests import Request
 
-    r = Request(
-        {
-            "type": "http",
-            "headers": [(b"h", b"not-an-ip:80")],
-            "client": ("10.0.0.1", 1),
-        }
+    return Request(
+        {"type": "http", "headers": [(b"h", value)], "client": ("10.0.0.1", 1)}
     )
-    assert client_ip(r, "h") == "10.0.0.1"
+
+
+@pytest.mark.parametrize(
+    ("value", "ip"),
+    [
+        (b"198.51.100.10:46532", "198.51.100.10"),
+        (b"[2001:db8::1]:46532", "2001:db8::1"),
+        (b"2001:db8::1:46532", "2001:db8::1"),  # CloudFront's unbracketed IPv6
+        (b"198.51.100.10", "198.51.100.10"),
+    ],
+)
+def test_client_ip_always_strips_the_port(value: bytes, ip: str):
+    assert client_ip(_req_with(value), "h") == ip
+
+
+def test_client_ip_garbage_header_keys_on_a_hash_not_the_peer():
+    a = client_ip(_req_with(b"not-an-ip:80"), "h")
+    b = client_ip(_req_with(b"also-garbage"), "h")
+    assert a.startswith("hdr-") and b.startswith("hdr-")
+    assert a != "10.0.0.1" and a != b
+    assert a == client_ip(_req_with(b"not-an-ip:80"), "h")  # stable per value
+    assert "not-an-ip" not in a
 
 
 def test_status_reports_chat_limits_when_seeded(db, tmp_path):

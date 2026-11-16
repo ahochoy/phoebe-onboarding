@@ -27,9 +27,12 @@ def require_sandbox(
     request: Request, session: Annotated[Session, Depends(require_session)]
 ) -> str:
     """The non-secret sandbox id for this session (never the raw token).
-    Registers the sandbox (or bumps its last_seen) for the future sweeper."""
+    Registers the sandbox (or bumps its last_seen) for the sweeper, and records
+    activity so the sweeper knows the database has work."""
     sid = sandbox_id(session.id)
-    touch_sandbox(request.app.state.deps.db, sid)
+    deps = request.app.state.deps
+    deps.activity.touch()  # wakes the sweeper's DB work (throttled, never fails)
+    touch_sandbox(deps.db, sid)
     return sid
 
 

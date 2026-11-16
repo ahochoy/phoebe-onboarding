@@ -6,6 +6,8 @@ import { defineConfig } from "vite";
 const apiTarget = `http://localhost:${process.env.PHOEBE_PORT ?? 8080}`;
 
 export default defineConfig({
+  // Previews are served under a sub-path (e.g. PHOEBE_BASE=/pr-12/); /api stays at the origin root.
+  base: process.env.PHOEBE_BASE ?? "/",
   plugins: [react(), tailwindcss()],
   server: { port: 5173, proxy: { "/api": apiTarget } },
   preview: { proxy: { "/api": apiTarget } },

@@ -4,7 +4,9 @@ Everything fails closed: if a store cannot answer, the AI path is refused with
 503 `chat_paused` and nothing is admitted.
 """
 
+import hashlib
 import ipaddress
+import re
 
 from fastapi import HTTPException, Request
 
@@ -15,24 +17,31 @@ HOUR = 3600
 DAY = 86400
 
 
+_PORT = re.compile(r"^(.*):\d+$")
+
+
 def client_ip(request: Request, header: str | None) -> str:
+    """The throttle key for this client.
+
+    With `header` (CloudFront-Viewer-Address: `ip:port`, IPv6 as `addr:port`
+    or `[addr]:port`), the trailing port is always stripped and brackets
+    removed. A value that still is not an IP keys on a hash of the raw header,
+    never on the socket peer (behind CloudFront that is shared by everyone).
+    """
     fallback = request.client.host if request.client else "unknown"
     if not header:
         return fallback
     raw = request.headers.get(header, "").strip()
     if not raw:
         return fallback
-    if raw.startswith("["):
-        end = raw.find("]")
-        host = raw[1:end] if end > 0 else raw
-    elif raw.count(":") == 1:
-        host = raw.split(":", 1)[0]
-    else:
-        host = raw  # bare IPv6 or bare IPv4
+    m = _PORT.match(raw)
+    host = m.group(1) if m else raw
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
     try:
         return str(ipaddress.ip_address(host))
     except ValueError:
-        return fallback
+        return "hdr-" + hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 def _deps(request: Request):
@@ -45,7 +54,8 @@ def _settings(request: Request) -> Settings:
 
 def throttle_login(request: Request) -> None:
     s = _settings(request)
-    ip = client_ip(request, s.client_ip_header)
+    # The header is only trustworthy behind the origin guard (CloudFront).
+    ip = client_ip(request, s.client_ip_header if s.origin_secret else None)
     try:
         ok = _deps(request).counters.hit(
             f"login#{ip}", s.login_per_ip_window, s.login_window_seconds
