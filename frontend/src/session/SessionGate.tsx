@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Navigate, Outlet, useNavigate } from "react-router";
 import { ApiError, onSessionExpired } from "../api/client";
+import { ChatRuntimeProvider } from "../chat/ChatRuntimeProvider";
 import { Header } from "../components/Header";
 import { Mascot } from "../components/Mascot";
 import { WelcomeSplash } from "../components/WelcomeSplash";
@@ -56,7 +57,11 @@ export function SessionGate() {
     <div className="flex h-dvh flex-col">
       <Header />
       <main className="mx-auto min-h-0 w-full max-w-6xl flex-1 overflow-y-auto p-4">
-        <Outlet />
+        {/* Session-scoped, so the conversation and any answer in progress survive
+            switching between the Employee and Admin views. */}
+        <ChatRuntimeProvider>
+          <Outlet />
+        </ChatRuntimeProvider>
       </main>
       <WelcomeSplash me={me.data} />
     </div>

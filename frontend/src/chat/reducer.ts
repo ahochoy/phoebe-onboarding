@@ -1,5 +1,5 @@
 import type { Citation, ClosestDoc, DoneEvent, TurnOut } from "../api/types";
-import { messageFor } from "../lib/messages";
+import { messageFor, STOPPED_COPY } from "../lib/messages";
 
 export interface ChatMessage {
   id: string;
@@ -18,6 +18,8 @@ export type ChatAction =
   | { type: "delta"; text: string }
   | { type: "done"; done: DoneEvent }
   | { type: "error"; code: string }
+  /** The visitor stopped the answer: settled, not an error. */
+  | { type: "stopped" }
   | { type: "reset" };
 
 function base(id: string, role: ChatMessage["role"], text: string): ChatMessage {
@@ -45,12 +47,16 @@ function updateStreaming(
 
 export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessage[] {
   switch (action.type) {
-    case "history":
-      return action.turns.map((t) => ({
+    case "history": {
+      // Earlier turns go ahead of anything asked before history arrived, never instead of it.
+      const earlier = action.turns.map((t) => ({
         ...base(t.id, t.role, t.text),
         refused: t.refused,
         citations: t.citations,
       }));
+      const ids = new Set(earlier.map((m) => m.id));
+      return [...earlier, ...state.filter((m) => !ids.has(m.id))];
+    }
     case "send":
       return [
         ...state,
@@ -76,6 +82,14 @@ export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessa
         ...m,
         status: "error",
         text: messageFor(action.code),
+        citations: [],
+        closest: [],
+      }));
+    case "stopped":
+      return updateStreaming(state, (m) => ({
+        ...m,
+        status: "done",
+        text: STOPPED_COPY,
         citations: [],
         closest: [],
       }));

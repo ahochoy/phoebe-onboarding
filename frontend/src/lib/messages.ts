@@ -31,6 +31,12 @@ const GENERIC = "Something went wrong. Try again in a moment.";
 export const PAUSED_COPY =
   "You can still browse Phoebe and explore the UX. Chat and document upload are paused until limits reset.";
 
+/** Replaces an answer the visitor stopped. Not an error. */
+export const STOPPED_COPY = "You stopped this answer.";
+
+/** Beside data that is still shown after a background refresh failed. */
+export const STALE_COPY = "This may be out of date.";
+
 /** Copy for an ApiError, or for a bare error code string. */
 export function messageFor(err: unknown): string {
   if (typeof err === "string") return MESSAGES[err] ?? GENERIC;

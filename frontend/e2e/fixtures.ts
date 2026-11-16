@@ -110,16 +110,25 @@ export async function settledAnswer(page: Page, opts: SettleOptions = {}): Promi
   return answer;
 }
 
-/** Types a question into the composer and sends it with Enter. */
+/**
+ * Types a question into the composer and sends it with Enter. Waits for the number of
+ * user messages to go up, not just for the last one to read the same text: an earlier
+ * copy of the same question would otherwise hide a dropped Enter.
+ */
 export async function ask(
   page: Page,
   question: string,
   opts: SettleOptions = {},
 ): Promise<Locator> {
+  const users = page.locator('[data-role="user"]');
+  const before = await users.count();
   const box = composer(page);
   await box.fill(question);
   await box.press("Enter");
-  await expect(page.locator('[data-role="user"]').last()).toHaveText(question);
+  await expect
+    .poll(() => users.count(), { message: "the question was not sent" })
+    .toBeGreaterThan(before);
+  await expect(users.last()).toHaveText(question);
   return settledAnswer(page, opts);
 }
 

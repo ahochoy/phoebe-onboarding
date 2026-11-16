@@ -95,11 +95,21 @@ describe("chatReducer", () => {
         ],
       },
     ];
-    const state = chatReducer(sent(), { type: "history", turns });
+    const state = chatReducer([], { type: "history", turns });
     expect(state).toHaveLength(2);
     expect(state[0]).toMatchObject({ id: "u1", role: "user", status: "done" });
     expect(state[1]).toMatchObject({ id: "a1", role: "assistant", status: "done", reason: null });
     expect(state[1]?.citations.map((c) => c.removed)).toEqual([false, true]);
+
+    // History that lands after a question was sent goes ahead of it, not instead of it.
+    const merged = chatReducer(sent(), { type: "history", turns });
+    expect(merged.map((m) => m.id)).toEqual(["u1", "a1", ...sent().map((m) => m.id)]);
+  });
+
+  it("stopped settles the streaming answer with non-error copy", () => {
+    let state = chatReducer(sent(), { type: "delta", text: "partial" });
+    state = chatReducer(state, { type: "stopped" });
+    expect(state[1]).toMatchObject({ status: "done", text: "You stopped this answer." });
   });
 
   it("error on stream marks message error with mapped copy", () => {

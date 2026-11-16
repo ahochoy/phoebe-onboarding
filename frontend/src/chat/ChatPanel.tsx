@@ -4,7 +4,7 @@ import { useId } from "react";
 import { Mascot } from "../components/Mascot";
 import { useViewer } from "../documents/ViewerProvider";
 import { PAUSED_COPY } from "../lib/messages";
-import { ChatRuntimeProvider, useChat } from "./ChatRuntimeProvider";
+import { useChat } from "./ChatRuntimeProvider";
 import { CitedText } from "./CitedText";
 import type { ChatMessage } from "./reducer";
 import { ClosestList, SourceList } from "./SourceList";
@@ -112,6 +112,8 @@ function Composer() {
           aria-describedby={paused ? noteId : undefined}
           placeholder="Ask about your onboarding…"
           submitMode="enter"
+          // There is no stop control in this release; Escape must not silently cancel.
+          cancelOnEscape={false}
           rows={1}
           disabled={!chatAvailable}
           className="min-h-10 flex-1 resize-none rounded-lg border border-ink/20 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-ink/5"
@@ -160,11 +162,10 @@ function Thread() {
   );
 }
 
-/** Cited, streaming chat. Needs a QueryClient and a ViewerProvider above it. */
+/**
+ * Cited, streaming chat. Needs a ChatRuntimeProvider (mounted per session by the
+ * session gate) and a ViewerProvider above it.
+ */
 export function ChatPanel() {
-  return (
-    <ChatRuntimeProvider>
-      <Thread />
-    </ChatRuntimeProvider>
-  );
+  return <Thread />;
 }

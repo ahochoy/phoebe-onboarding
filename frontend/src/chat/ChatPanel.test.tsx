@@ -10,6 +10,7 @@ import { OPEN, PAUSED } from "../test/fixtures";
 import { makeClient } from "../test/render";
 import { server } from "../test/server";
 import { ChatPanel } from "./ChatPanel";
+import { ChatRuntimeProvider } from "./ChatRuntimeProvider";
 
 const viewer = vi.hoisted(() => ({ open: vi.fn(), close: vi.fn() }));
 vi.mock("../documents/ViewerProvider", () => ({
@@ -121,7 +122,9 @@ function useBackground(opts: { history?: TurnOut[]; status?: () => StatusOut } =
 function renderPanel() {
   return render(
     <QueryClientProvider client={makeClient()}>
-      <ChatPanel />
+      <ChatRuntimeProvider>
+        <ChatPanel />
+      </ChatRuntimeProvider>
     </QueryClientProvider>,
   );
 }
@@ -420,6 +423,78 @@ describe("ChatPanel", () => {
 
     unmount();
     expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it("Escape in the composer while streaming neither cancels the answer nor shows an error", async () => {
+    useBackground();
+    const chat = useChatStream();
+    const signals: AbortSignal[] = [];
+    const realFetch = globalThis.fetch;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (init?.signal) signals.push(init.signal);
+      return realFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await ask(user, "Long answer?");
+    chat.push("delta", { text: "Still going" });
+    expect(await screen.findByText("Still going")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("textbox", { name: "Ask Phoebe a question" }));
+    await user.keyboard("{Escape}");
+    expect(signals[0]?.aborted).toBe(false);
+    expect(screen.queryByText(/Something went wrong/)).not.toBeInTheDocument();
+    expect(screen.queryByText("You stopped this answer.")).not.toBeInTheDocument();
+
+    chat.push("done", done({ text: "Finished." }));
+    chat.close();
+    expect(await convo().findByText("Finished.")).toBeInTheDocument();
+    expect(screen.queryByText(/Something went wrong/)).not.toBeInTheDocument();
+  });
+
+  it("a question sent before history arrives still shows history first", async () => {
+    let releaseHistory!: () => void;
+    const historyGate = new Promise<void>((resolve) => {
+      releaseHistory = resolve;
+    });
+    server.use(
+      http.get("/api/status", () => HttpResponse.json(OPEN)),
+      http.get("/api/chat/history", async () => {
+        await historyGate;
+        return HttpResponse.json([
+          {
+            id: "u1",
+            role: "user",
+            text: "Earlier question?",
+            refused: false,
+            created_at: "2026-11-15T10:00:00Z",
+            citations: [],
+          },
+          {
+            id: "a1",
+            role: "assistant",
+            text: "Earlier answer.",
+            refused: false,
+            created_at: "2026-11-15T10:00:01Z",
+            citations: [],
+          },
+        ] satisfies TurnOut[]);
+      }),
+    );
+    useChatAnswer(done({ text: "New answer." }));
+    const user = userEvent.setup();
+    renderPanel();
+
+    await ask(user, "New question?");
+    expect(await convo().findByText("New answer.")).toBeInTheDocument();
+
+    releaseHistory();
+    expect(await convo().findByText("Earlier question?")).toBeInTheDocument();
+    const order = convo()
+      .getAllByText(/^(Earlier question\?|Earlier answer\.|New question\?|New answer\.)$/)
+      .map((el) => el.textContent);
+    expect(order).toEqual(["Earlier question?", "Earlier answer.", "New question?", "New answer."]);
   });
 
   it("demo reset clears the conversation", async () => {
