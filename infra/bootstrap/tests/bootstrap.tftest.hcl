@@ -1168,4 +1168,29 @@ run "fork_gate" {
     condition     = strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "|| HEAD_REPO=\"\"")
     error_message = "An API failure leaves HEAD_REPO empty, so the gate refuses (fail closed)."
   }
+
+  # Fix round 2: no interpreter that imports from the cwd (a fork's json.py).
+  assert {
+    condition = (
+      !strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "python") &&
+      strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "| jq -er .head.repo.full_name)")
+    )
+    error_message = "The fork gate parses with jq only; no python3 anywhere in the PR spec."
+  }
+
+  assert {
+    condition = can(regex(
+      "if ! command -v jq >/dev/null 2>&1; then\\s*echo \"Refusing: jq is required[^\\n]*\\n\\s*exit 1\\s*fi",
+      aws_codebuild_project.this["pr"].source[0].buildspec,
+    ))
+    error_message = "Without jq the gate aborts (fail closed), with no fallback."
+  }
+
+  assert {
+    condition = (
+      can(regex("(?s)install:.*?GATE_DIR=\\$\\(mktemp -d\\) && cd \"\\$GATE_DIR\".*?api\\.github\\.com.*?jq -er", aws_codebuild_project.this["pr"].source[0].buildspec)) &&
+      can(regex("(?s)head repo verified[^\\n]*\\n\\s*cd \"\\$CODEBUILD_SRC_DIR\"", aws_codebuild_project.this["pr"].source[0].buildspec))
+    )
+    error_message = "The gate moves to an empty temp directory before fetching and parsing, and returns to the checkout only after it passes."
+  }
 }

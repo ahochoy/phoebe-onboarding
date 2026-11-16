@@ -54,10 +54,15 @@ Terraform:
   therefore checks the PR's head repo before any repo code runs. It reads the
   PR from GitHub's public REST API (`repos/<github_repo>/pulls/$N`, 20 s
   timeout) and aborts unless `.head.repo.full_name` equals `github_repo`. It
-  parses with jq, or python3 if jq is missing. It fails closed: an API error,
-  rate limit or deleted fork leaves the value empty, and the build stops. The
-  checkout happens before the phases, but nothing from it executes before
-  this check.
+  fails closed: an API error, rate limit or deleted fork leaves the value
+  empty, and the build stops.
+  - **jq only.** It parses with jq and aborts if jq is missing. There is no
+    python fallback, because `python3 -c` puts the cwd (the fork's checkout)
+    first on `sys.path`, so a planted `json.py` would run and could fake the
+    answer.
+  - **Neutral directory.** The gate runs from a fresh `mktemp -d` directory and
+    returns to `$CODEBUILD_SRC_DIR` only after it passes. The checkout happens
+    before the phases, but nothing from it executes before this check.
 - **The invalidation** in both specs needs `staging_distribution_id`. It is
   empty (invalidation skipped) until the first staging deploy; then the owner
   sets it and re-applies.

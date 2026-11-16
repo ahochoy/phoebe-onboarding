@@ -22,23 +22,26 @@ phases:
       # Fork gate (I3), before any repo code runs: owner actions on a fork PR
       # (reopen, a maintainer-edit push) pass the actor filter, so check the
       # PR's head repo through GitHub's public API. Fail closed on any error.
+      # It runs from an empty directory and uses only jq (no interpreter that
+      # would import modules from the cwd, i.e. the fork's checkout).
       - |
+        GATE_DIR=$(mktemp -d) && cd "$GATE_DIR" || { echo "Refusing: no neutral directory for the fork gate"; exit 1; }
         N="$${CODEBUILD_WEBHOOK_TRIGGER#pr/}"
         case "$N" in
           ''|*[!0-9]*) echo "Refusing: CODEBUILD_WEBHOOK_TRIGGER is not pr/<digits>"; exit 1 ;;
         esac
-        if command -v jq >/dev/null 2>&1; then
-          PARSE='jq -er .head.repo.full_name'
-        else
-          PARSE='python3 -c "import json,sys; print(json.load(sys.stdin)[\"head\"][\"repo\"][\"full_name\"])"'
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "Refusing: jq is required for the fork gate"
+          exit 1
         fi
         HEAD_REPO=$(curl -fsS --max-time 20 -H "Accept: application/vnd.github+json" \
-          "https://api.github.com/repos/$PHOEBE_GITHUB_REPO/pulls/$N" | sh -c "$PARSE") || HEAD_REPO=""
+          "https://api.github.com/repos/$PHOEBE_GITHUB_REPO/pulls/$N" | jq -er .head.repo.full_name) || HEAD_REPO=""
         if [ "$HEAD_REPO" != "$PHOEBE_GITHUB_REPO" ]; then
           echo "Refusing: PR $N head repo is '$HEAD_REPO', not $PHOEBE_GITHUB_REPO (fork PRs never build here)"
           exit 1
         fi
         echo "PR $N head repo verified: $HEAD_REPO"
+        cd "$CODEBUILD_SRC_DIR"
       - |
         (
           set -e
