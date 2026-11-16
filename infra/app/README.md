@@ -13,7 +13,7 @@ All names start with `phoebe-<env>`.
 | `data.tf` | Aurora PostgreSQL Serverless v2 cluster `phoebe-<env>` (0–2 ACU, auto-pause 300 s, Data API on, encrypted, managed master-user secret, no public access; deletion protection and a final snapshot in production only). DynamoDB `phoebe-<env>-sessions` and `phoebe-<env>-state` (on demand, `pk` hash key, TTL on `expires_at`). `infra/ai` remote state. |
 | `storage.tf` | S3 `phoebe-<env>-uploads-<account_id>` (all public-access blocks, SSE-S3, objects expire after 2 days) and `phoebe-<env>-site-<account_id>` (all public-access blocks, SSE-S3; Task 6 adds the CloudFront OAC bucket policy). |
 | `queue.tf` | SQS `phoebe-<env>-jobs` (visibility 720 s) with DLQ `phoebe-<env>-jobs-dlq` (maxReceiveCount 3, 14-day retention). Event source mappings for the worker and the DLQ handler, both `ReportBatchItemFailures`. |
-| `lambdas.tf` | Six arm64 image Lambdas from `phoebe-api@<digest>`: `api` (image CMD, Lambda Web Adapter, response-streaming function URL with auth NONE, reserved concurrency 5), `worker` (120 s, reserved 2), `dlq`, `sweeper`, `ops`, `budget` (each `python -m awslambdaric phoebe.lambdas.<name>.handler`). Log groups with retention. The origin secret `phoebe-<env>-origin-secret`. |
+| `lambdas.tf` | Six arm64 image Lambdas, all from ECR repo `phoebe-api` pinned by digest. `api` runs the `api` image (image CMD: uvicorn behind the Lambda Web Adapter; response-streaming function URL with auth NONE; reserved concurrency 5). `worker` (120 s, reserved 2), `dlq`, `sweeper`, `ops` and `budget` run the `jobs` image (ENTRYPOINT `python -m awslambdaric`, command `phoebe.lambdas.<name>.handler`). Log groups with retention. The origin secret `phoebe-<env>-origin-secret`. |
 | `iam.tf` | One role per Lambda plus the scheduler role, each with the bootstrap permissions boundary and only the actions its code uses. |
 | `schedule.tf` | EventBridge Scheduler `phoebe-<env>-sweeper`, `rate(1 hour)`. |
 | `budget.tf` | Subscribes this env's budget Lambda to the bootstrap `phoebe-budget` topic. |
@@ -33,7 +33,8 @@ header needs it.
 | Variable | Notes |
 |---|---|
 | `env` | `staging` or `production`. |
-| `image_digest` | `sha256:<64 hex>`. Passed per deploy (`-var image_digest=...`); tags are rejected. |
+| `api_image_digest` | `sha256:<64 hex>` of the `api` image (`backend/Dockerfile --target api`, tag `<sha>`). Passed per deploy; tags are rejected. |
+| `jobs_image_digest` | `sha256:<64 hex>` of the `jobs` image (`--target jobs`, tag `<sha>-jobs`). Passed per deploy; tags are rejected. |
 | `boundary_policy_arn` | `arn:aws:iam::<account_id>:policy/phoebe-boundary` (bootstrap). |
 | `ai_state_bucket` | `phoebe-tfstate-<account_id>`; the `infra/ai` state is read from key `ai.tfstate`. |
 | `budget_topic_arn` | `arn:aws:sns:us-east-2:<account_id>:phoebe-budget` (bootstrap). |
@@ -57,8 +58,15 @@ bootstrap exists; Task 9 fills them in. They are ARNs and names, not secrets.
 cd infra/app
 terraform init -backend-config=envs/staging.s3.tfbackend \
   -backend-config=bucket=phoebe-tfstate-<account_id>
-terraform plan -var-file=envs/staging.tfvars -var image_digest=sha256:...
+terraform plan -var-file=envs/staging.tfvars \
+  -var api_image_digest=sha256:... -var jobs_image_digest=sha256:...
 ```
+
+Why two images (ruling R9): Lambda starts every extension in
+`/opt/extensions`. In the `api` image that is the Lambda Web Adapter, which
+waits for uvicorn on :8080 and then polls the Runtime API itself. In a
+non-HTTP Lambda it would hang init and compete with `awslambdaric`, so the
+`jobs` image leaves the adapter (and its `AWS_LWA_*` env) out.
 
 Applies run only in CodeBuild (Task 8) or under the Task 9 owner gate.
 

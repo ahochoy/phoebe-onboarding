@@ -1,9 +1,12 @@
-# One image (phoebe-api, pinned by digest) runs every Lambda. The API keeps the
-# image CMD (uvicorn behind the Lambda Web Adapter); the rest override it with
-# `python -m awslambdaric <handler>` (the image has no ENTRYPOINT to override).
+# Ruling R9: two images from one Dockerfile, both in ECR repo phoebe-api and
+# pinned by digest. The API runs the `api` target (Lambda Web Adapter extension,
+# uvicorn CMD). Every other Lambda runs the `jobs` target, which has no adapter
+# and ENTRYPOINT `python -m awslambdaric`; the Lambda passes only the handler.
 
 locals {
-  image_uri = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/phoebe-api@${var.image_digest}"
+  image_repo     = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/phoebe-api"
+  api_image_uri  = "${local.image_repo}@${var.api_image_digest}"
+  jobs_image_uri = "${local.image_repo}@${var.jobs_image_digest}"
 
   # Every Data API-backed handler builds the same deps as the API (runtime.deps),
   # so they share one backend configuration.
@@ -105,7 +108,7 @@ resource "aws_lambda_function" "this" {
   function_name = "${local.prefix}-${each.key}"
   role          = aws_iam_role.lambda[each.key].arn
   package_type  = "Image"
-  image_uri     = local.image_uri
+  image_uri     = each.value.handler == null ? local.api_image_uri : local.jobs_image_uri
   architectures = ["arm64"]
   timeout       = each.value.timeout
   memory_size   = each.value.memory
@@ -115,7 +118,7 @@ resource "aws_lambda_function" "this" {
   dynamic "image_config" {
     for_each = each.value.handler == null ? [] : [each.value.handler]
     content {
-      command = ["python", "-m", "awslambdaric", image_config.value]
+      command = [image_config.value]
     }
   }
 

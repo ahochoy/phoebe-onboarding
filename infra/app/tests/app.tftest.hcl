@@ -152,7 +152,8 @@ override_resource {
 
 variables {
   env                      = "staging"
-  image_digest             = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  api_image_digest         = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  jobs_image_digest        = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
   boundary_policy_arn      = "arn:aws:iam::123456789012:policy/phoebe-boundary"
   ai_state_bucket          = "phoebe-tfstate-123456789012"
   budget_topic_arn         = "arn:aws:sns:us-east-2:123456789012:phoebe-budget"
@@ -223,12 +224,28 @@ run "lambdas" {
     error_message = "Every Lambda is an arm64 container image."
   }
 
+  # Ruling R9: the API runs the `api` image (with the Lambda Web Adapter); every
+  # other Lambda runs the `jobs` image (awslambdaric, no adapter).
+  assert {
+    condition     = aws_lambda_function.this["api"].image_uri == "123456789012.dkr.ecr.us-east-2.amazonaws.com/phoebe-api@${var.api_image_digest}"
+    error_message = "The API Lambda runs the api image pinned by digest."
+  }
+
   assert {
     condition = alltrue([
-      for f in values(aws_lambda_function.this) :
-      f.image_uri == "123456789012.dkr.ecr.us-east-2.amazonaws.com/phoebe-api@${var.image_digest}"
+      for k, f in aws_lambda_function.this :
+      f.image_uri == "123456789012.dkr.ecr.us-east-2.amazonaws.com/phoebe-api@${var.jobs_image_digest}"
+      if k != "api"
+    ]) && length([for k, f in aws_lambda_function.this : k if k != "api"]) == 5
+    error_message = "Worker, DLQ, sweeper, ops and budget run the jobs image pinned by digest."
+  }
+
+  assert {
+    condition = alltrue([
+      for k, f in aws_lambda_function.this :
+      !endswith(f.image_uri, "@${var.api_image_digest}") if k != "api"
     ])
-    error_message = "Every Lambda runs phoebe-api pinned by digest."
+    error_message = "No jobs Lambda may run the api image (its adapter extension would hijack the runtime)."
   }
 
   assert {
@@ -265,9 +282,11 @@ run "lambdas" {
         ops     = "phoebe.lambdas.ops.handler"
         budget  = "phoebe.lambdas.budget.handler"
       } :
-      join(" ", aws_lambda_function.this[k].image_config[0].command) == "python -m awslambdaric ${h}"
+      length(aws_lambda_function.this[k].image_config[0].command) == 1 &&
+      aws_lambda_function.this[k].image_config[0].command[0] == h &&
+      length(coalesce(aws_lambda_function.this[k].image_config[0].entry_point, [])) == 0
     ])
-    error_message = "Non-API Lambdas run python -m awslambdaric <handler>."
+    error_message = "Jobs Lambdas pass only the handler; the jobs image's ENTRYPOINT is python -m awslambdaric."
   }
 
   assert {
@@ -664,14 +683,24 @@ run "rejects_unknown_env" {
   expect_failures = [var.env]
 }
 
-run "rejects_tag_instead_of_digest" {
+run "rejects_tag_instead_of_api_digest" {
   command = plan
 
   variables {
-    image_digest = "latest"
+    api_image_digest = "latest"
   }
 
-  expect_failures = [var.image_digest]
+  expect_failures = [var.api_image_digest]
+}
+
+run "rejects_tag_instead_of_jobs_digest" {
+  command = plan
+
+  variables {
+    jobs_image_digest = "abc123-jobs"
+  }
+
+  expect_failures = [var.jobs_image_digest]
 }
 
 run "rejects_other_envs_password_secret" {

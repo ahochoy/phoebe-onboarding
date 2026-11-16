@@ -7,4 +7,5 @@ env = "staging"
 # budget_topic_arn         = "arn:aws:sns:us-east-2:<account_id>:phoebe-budget"
 # password_hash_secret_arn = "arn:aws:secretsmanager:us-east-2:<account_id>:secret:phoebe-staging-password-hash-<suffix>"
 
-# image_digest is passed per deploy: -var image_digest=sha256:...
+# Image digests are passed per deploy:
+#   -var api_image_digest=sha256:... -var jobs_image_digest=sha256:...

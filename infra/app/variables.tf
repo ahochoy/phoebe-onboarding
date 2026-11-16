@@ -8,13 +8,23 @@ variable "env" {
   }
 }
 
-variable "image_digest" {
-  description = "Digest of the phoebe-api image every Lambda runs (sha256:<64 hex>). Never a tag."
+variable "api_image_digest" {
+  description = "Digest of the `api` image (Dockerfile target api, tag <sha>) the API Lambda runs. Never a tag."
   type        = string
 
   validation {
-    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.image_digest))
-    error_message = "image_digest must be sha256:<64 lowercase hex>, not a tag."
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.api_image_digest))
+    error_message = "api_image_digest must be sha256:<64 lowercase hex>, not a tag."
+  }
+}
+
+variable "jobs_image_digest" {
+  description = "Digest of the `jobs` image (Dockerfile target jobs, tag <sha>-jobs) the other Lambdas run. Never a tag."
+  type        = string
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.jobs_image_digest))
+    error_message = "jobs_image_digest must be sha256:<64 lowercase hex>, not a tag."
   }
 }
 
