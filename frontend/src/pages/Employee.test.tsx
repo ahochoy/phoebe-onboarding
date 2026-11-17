@@ -129,6 +129,7 @@ describe("Employee page", () => {
     renderApp("/employee");
     const chat = await screen.findByRole("region", { name: "Chat" });
     expect(screen.getByRole("main")).toHaveClass("max-w-screen-2xl");
+    expect(screen.getByRole("banner").firstElementChild).toHaveClass("max-w-screen-2xl");
     const grid = chat.closest('[class*="lg:grid-cols-"]');
     expect(grid).toHaveClass("lg:grid-cols-[20rem_minmax(0,1fr)_22rem]");
   });
