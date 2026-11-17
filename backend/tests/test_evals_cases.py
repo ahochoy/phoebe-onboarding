@@ -49,7 +49,9 @@ ONE = """
 
 
 def test_duplicate_ids_rejected(tmp_path: Path) -> None:
-    p = _write(tmp_path, ONE.format(id="a", cat="fact") + ONE.format(id="a", cat="list"))
+    p = _write(
+        tmp_path, ONE.format(id="a", cat="fact") + ONE.format(id="a", cat="list")
+    )
     with pytest.raises(ValueError, match="duplicate"):
         load_cases(p)
 
@@ -85,7 +87,9 @@ def test_question_set_shape() -> None:
             assert FORBIDDEN <= set(last.must_not_cite)
     hol = next(c for c in cases if c.id == "holidays-nov-dec")
     assert hol.category == "list"
-    assert hol.turns[-1].question == "What holidays do we have in November and December?"
+    assert (
+        hol.turns[-1].question == "What holidays do we have in November and December?"
+    )
     exp = hol.turns[-1].expect
     assert exp is not None and exp.answered
     assert exp.must_cite == ["Holiday Calendar 2026-27"]
