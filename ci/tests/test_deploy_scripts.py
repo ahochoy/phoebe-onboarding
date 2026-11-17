@@ -989,6 +989,7 @@ def test_lint_runs_actionlint() -> None:
 # ---- spend-limit mode: deploy pre-check and db-start.sh ----------------------------
 
 OPEN_ITEM = '{"pk":{"S":"control"},"state":{"S":"open"}}'
+PAUSED_ITEM = '{"pk":{"S":"control"},"state":{"S":"chat_paused"}}'
 
 
 def cluster_status(h: Harness, status: str) -> None:
@@ -1035,7 +1036,8 @@ def test_db_start_starts_waits_then_reopens(h: Harness) -> None:
     assert rds[2][2] == "db-cluster-available"
     assert has_pair(rds[2], "--db-cluster-identifier", "phoebe-production")
     assert has_pair(rds[3], "--table-name", "phoebe-production-state")
-    assert json.loads(rds[3][rds[3].index("--item") + 1]) == json.loads(OPEN_ITEM)
+    # By default it reopens browse-only: Budgets won't re-alert this month.
+    assert json.loads(rds[3][rds[3].index("--item") + 1]) == json.loads(PAUSED_ITEM)
     assert all(has_pair(a, "--region", "us-east-2") for a in rds)
 
 
@@ -1067,7 +1069,18 @@ def test_db_start_stops_if_the_wait_fails(h: Harness) -> None:
     assert not [a for a in h.argvs("aws") if a[0] == "dynamodb"]
 
 
-@pytest.mark.parametrize("args", [(), ("dev",), ("staging", "extra")])
+def test_db_start_open_reopens_fully(h: Harness) -> None:
+    cluster_status(h, "available")
+    r = h.run("db-start.sh", "production", "--open")
+    assert r.returncode == 0, r.stdout + r.stderr
+    put = next(a for a in h.argvs("aws") if a[:2] == ["dynamodb", "put-item"])
+    assert json.loads(put[put.index("--item") + 1]) == json.loads(OPEN_ITEM)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [(), ("dev",), ("staging", "extra"), ("--open", "staging"), ("staging", "-o")],
+)
 def test_db_start_rejects_bad_args(h: Harness, args: tuple[str, ...]) -> None:
     r = h.run("db-start.sh", *args)
     assert r.returncode != 0

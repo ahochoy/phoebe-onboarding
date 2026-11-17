@@ -23,3 +23,7 @@ frontend/playwright-report
 release-out/
 # make eval results (full answers; synthetic data, but kept local).
 backend/evals/results/
+# Saved Terraform plans from owner applies (e.g. infra/bootstrap/alerts.plan).
+# They can hold sensitive values, such as the alert email.
+*.plan
+*.tfplan

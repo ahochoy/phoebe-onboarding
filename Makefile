@@ -67,10 +67,11 @@ status:
 	@$(call control,status)
 
 # Restart an env after its database was stopped (spend limit): starts the Aurora
-# cluster, waits for it, then reopens the demo. Owner-run; it spends money.
+# cluster, waits for it, then reopens the demo browse-only (chat paused). OPEN=1
+# reopens fully. Owner-run; it spends money.
 db-start:
-	@[ -n "$(ENV)" ] || { echo "usage: make db-start ENV=staging|production" >&2; exit 2; }
-	bash ci/db-start.sh $(ENV)
+	@[ -n "$(ENV)" ] || { echo "usage: make db-start ENV=staging|production [OPEN=1]" >&2; exit 2; }
+	bash ci/db-start.sh $(ENV) $(if $(OPEN),--open)
 
 # Owner-gated live AWS check (costs money). NOT part of `make test` or CI.
 # Needs PHOEBE_LIVE_DATABASE_URL (database name ending in _live) and the
