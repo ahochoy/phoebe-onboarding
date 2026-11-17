@@ -245,7 +245,7 @@ describe("ChatPanel", () => {
       done({
         text: "I couldn't find that in your documents.",
         refused: true,
-        reason: "no_support",
+        reason: "1001",
         closest: [
           { document_id: "b1", title: "Benefits" },
           { document_id: "h1", title: "Handbook" },

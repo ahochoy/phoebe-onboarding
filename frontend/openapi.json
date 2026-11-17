@@ -447,10 +447,10 @@
             "anyOf": [
               {
                 "enum": [
-                  "no_support",
-                  "verification_failed",
-                  "blocked",
-                  "model_unavailable"
+                  "1001",
+                  "1204",
+                  "2307",
+                  "3115"
                 ],
                 "type": "string"
               },

@@ -21,7 +21,6 @@ from phoebe.chat.events import (
     DoneEvent,
     ErrorEvent,
     MetaEvent,
-    Reason,
 )
 from phoebe.chat.history import recent, visible_chunk_ids
 from phoebe.chat.models import (
@@ -32,6 +31,7 @@ from phoebe.chat.models import (
     Rewriter,
 )
 from phoebe.chat.prompt import build_messages
+from phoebe.chat.refusals import CODES, Reason, refusal_text
 from phoebe.chat.verify import Citation, verify
 from phoebe.config import Settings
 from phoebe.db import Database
@@ -43,7 +43,6 @@ from phoebe.sessions import log_id as default_log_id
 
 log = logging.getLogger(__name__)
 
-REFUSAL_TEXT = "I couldn't find that in your onboarding documents."
 SEARCH_K = 5
 SEARCH_CANDIDATES = 20
 CLOSEST_MAX = 3
@@ -80,7 +79,7 @@ class _Outcome:
         return DoneEvent(
             text=self.text,
             refused=self.reason is not None,
-            reason=self.reason,
+            reason=CODES[self.reason] if self.reason else None,
             citations=self.citations,
             closest=self.closest,
         ).model_dump(mode="json")
@@ -113,7 +112,9 @@ def _closest(passages: Sequence[Passage]) -> list[ClosestDoc]:
 
 
 def _refuse(reason: Reason, passages: Sequence[Passage] = ()) -> _Outcome:
-    return _Outcome(text=REFUSAL_TEXT, reason=reason, closest=_closest(passages))
+    return _Outcome(
+        text=refusal_text(reason), reason=reason, closest=_closest(passages)
+    )
 
 
 def _held(text: str) -> bool:

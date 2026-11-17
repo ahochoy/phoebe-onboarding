@@ -15,7 +15,8 @@ from phoebe.chat.models import (
     ModelUnavailable,
     NoGuardrail,
 )
-from phoebe.chat.service import REFUSAL_TEXT, ChatContext, ChatEvent, run_chat
+from phoebe.chat.refusals import CODES, NOT_FOUND_TEXT, Reason, refusal_text
+from phoebe.chat.service import ChatContext, ChatEvent, run_chat
 from phoebe.config import Settings
 from phoebe.documents import delete_document
 from phoebe.embed import EmbeddingUnavailable, HashEmbedder
@@ -112,13 +113,13 @@ def turns(db, sandbox: str = SB) -> list[dict[str, Any]]:
     )
 
 
-def assert_refused(events: list[ChatEvent], reason: str) -> dict[str, Any]:
+def assert_refused(events: list[ChatEvent], reason: Reason) -> dict[str, Any]:
     assert events[0].name == "meta"
     done = events[-1]
     assert done.name == "done", done
     assert done.data["refused"] is True
-    assert done.data["reason"] == reason
-    assert done.data["text"] == REFUSAL_TEXT
+    assert done.data["reason"] == CODES[reason]
+    assert done.data["text"] == refusal_text(reason)
     assert done.data["citations"] == []
     return done.data
 
@@ -166,7 +167,7 @@ def test_no_passages_refuses_no_support(seeded):
     assert isinstance(data["closest"], list) and len(data["closest"]) <= 3
     rows = turns(seeded)
     assert [r["refused"] for r in rows] == [False, True]
-    assert rows[1]["text"] == REFUSAL_TEXT
+    assert rows[1]["text"] == NOT_FOUND_TEXT
 
 
 def test_closest_is_distinct_documents_in_rank_order(seeded, monkeypatch):
@@ -261,7 +262,9 @@ def test_model_unavailable_refusal_is_persisted(seeded):
     assert_refused(events, "model_unavailable")
     rows = turns(seeded)
     assert [r["role"] for r in rows] == ["user", "assistant"]
-    assert rows[1]["refused"] is True and rows[1]["text"] == REFUSAL_TEXT
+    assert rows[1]["refused"] is True and rows[1]["text"] == refusal_text(
+        "model_unavailable"
+    )
     assert rows[1]["citations"] == []
 
 
@@ -377,7 +380,8 @@ def test_embedding_outage_refuses_model_unavailable_and_persists(seeded):
     assert_refused(events, "model_unavailable")
     rows = turns(seeded)
     assert [r["role"] for r in rows] == ["user", "assistant"]
-    assert rows[1]["refused"] is True and rows[1]["text"] == REFUSAL_TEXT
+    assert rows[1]["refused"] is True
+    assert rows[1]["text"] == refusal_text("model_unavailable")
 
 
 def test_blocked_question_never_replayed_to_rewriter_or_answer_model(seeded):
@@ -398,4 +402,4 @@ def test_blocked_question_never_replayed_to_rewriter_or_answer_model(seeded):
     run(ctx(seeded, rewriter=SpyRewriter(), answer=SpyAnswer()), PTO)
     assert seen["history"] == []
     assert bad not in json.dumps(seen["messages"])
-    assert REFUSAL_TEXT not in json.dumps(seen["messages"])
+    assert refusal_text("blocked") not in json.dumps(seen["messages"])
