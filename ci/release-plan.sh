@@ -58,6 +58,8 @@ require_git_tag "$RELEASE_TAG"
 log "release tag $RELEASE_TAG"
 
 mkdir -p "$OUT_DIR"
+# Absolute before the cd below: the buildspec passes a relative `release-out`.
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 cd "$REPO_ROOT/infra/app"
 tf_init production
 log "terraform plan (production, read-only, -lock=false)"

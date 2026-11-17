@@ -622,6 +622,20 @@ def test_release_plan_saves_plan_and_digests(h: Harness, tmp_path: Path) -> None
     }
 
 
+def test_release_plan_accepts_a_relative_out_dir(h: Harness) -> None:
+    """The buildspec passes `release-out`, relative to the build's working
+    directory. The script cds into infra/app before planning, so the path must
+    be made absolute first or Terraform can't write the plan (v0.1.0, run 1)."""
+    images_present(h)
+    release_tags(h, ["v1.2.3"])
+    r = h.run("release-plan.sh", "release-out", env=plan_env())
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = (h.tmp / "release-out").resolve()
+    plan = next(a for a in h.argvs("terraform") if a[0] == "plan")
+    assert f"-out={out}/production.tfplan" in plan
+    assert (out / "release.env").is_file()
+
+
 def test_release_plan_fails_without_a_tag_for_the_commit(
     h: Harness, tmp_path: Path
 ) -> None:
