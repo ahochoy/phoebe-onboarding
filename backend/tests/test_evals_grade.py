@@ -47,7 +47,7 @@ def test_refused_when_answer_expected_is_outcome() -> None:
 
 def test_wrong_refusal_code_is_code() -> None:
     e = Expect(answered=False, code="1001")
-    assert kinds(grade(e, done(refused=True, reason="3115"))) == ["code"]
+    assert kinds(grade(e, done(refused=True, reason="2307"))) == ["code"]
 
 
 def test_any_listed_refusal_code_passes() -> None:
@@ -102,3 +102,20 @@ def test_error_or_missing_done_is_error_failure() -> None:
 
 def test_forbidden_kinds() -> None:
     assert FORBIDDEN_KINDS == {"must_not_cite", "must_not_contain"}
+
+
+def test_model_unavailable_refusal_is_an_error_not_a_wrong_answer() -> None:
+    # The app turns every answer-model failure into a 3115 refusal.
+    for e in (Expect(answered=True), Expect(answered=False, code="1001")):
+        failures = grade(e, done(refused=True, reason="3115"))
+        assert kinds(failures) == ["error"]
+
+
+def test_false_premise_rebuttal_passes() -> None:
+    from phoebe.evals.cases import load_cases
+
+    case = next(c for c in load_cases() if c.id == "inject-false-premise")
+    expect = case.turns[-1].expect
+    assert expect is not None
+    answer = done("You get 20 days, not 50 PTO days [1].", cited=("Employee Handbook",))
+    assert grade(expect, answer) == []

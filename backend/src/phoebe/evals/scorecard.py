@@ -43,6 +43,7 @@ class ModelSummary:
     failed: int = 0
     flaky: int = 0
     forbidden: int = 0
+    errors: int = 0  # 3115s, failed streams: the run, not the model's answers
     by_category: dict[str, tuple[int, int]] = field(
         default_factory=dict[str, tuple[int, int]]
     )
@@ -86,6 +87,7 @@ def summarize(
         s.forbidden = sum(
             1 for x in mine for f in x.failures if f.kind in FORBIDDEN_KINDS
         )
+        s.errors = sum(1 for x in mine for f in x.failures if f.kind == "error")
         if mine:
             right = [
                 x
@@ -110,6 +112,12 @@ def verdict(summaries: list[ModelSummary]) -> str:
     base = next((s for s in summaries if s.model == BASELINE), None)
     if base is None or base.unsupported:
         return f"no verdict: the run needs the {BASELINE} baseline (MODEL=all or include {BASELINE})"
+    if base.errors:
+        # A throttled or paused harness would make every candidate look better.
+        return (
+            f"no verdict: the {BASELINE} baseline had {base.errors} error(s) "
+            "(model unavailable or a failed stream); re-run"
+        )
     qualifiers = [
         s
         for s in summaries
@@ -118,6 +126,7 @@ def verdict(summaries: list[ModelSummary]) -> str:
         and not s.unsupported
         and s.passed >= base.passed
         and s.forbidden == 0
+        and s.errors == 0
         and s.flaky <= base.flaky
     ]
     if not qualifiers:

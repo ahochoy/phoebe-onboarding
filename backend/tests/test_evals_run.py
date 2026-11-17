@@ -200,3 +200,26 @@ def test_main_treats_empty_make_variables_as_defaults(
 
 def _no_aws(*_: Any, **__: Any) -> Any:
     raise AssertionError("reached the app (and AWS)")
+
+
+def test_eval_settings_never_use_a_deployed_state_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from phoebe.evals.run import eval_settings
+
+    monkeypatch.setenv("PHOEBE_CONTROL_BACKEND", "dynamodb")
+    monkeypatch.setenv("PHOEBE_LIMITS_BACKEND", "dynamodb")
+    monkeypatch.setenv("PHOEBE_STATE_TABLE", "phoebe-production-state")
+    s = eval_settings("postgresql://x@localhost/phoebe_live", tmp_path)
+    assert s.control_backend == "file" and s.limits_backend == "memory"
+    assert Path(s.control_file).parent == tmp_path
+
+
+def test_candidates_get_a_larger_token_cap() -> None:
+    from phoebe.config import Settings
+    from phoebe.evals.candidates import CANDIDATES
+    from phoebe.evals.run import CANDIDATE_MAX_TOKENS, _answer_model
+
+    s = Settings(database_url="x", password_hash="x")  # pyright: ignore[reportCallIssue]
+    m = _answer_model(CANDIDATES["glm-5.3"], s)
+    assert m._max_tokens == CANDIDATE_MAX_TOKENS > s.answer_max_tokens  # type: ignore[attr-defined]

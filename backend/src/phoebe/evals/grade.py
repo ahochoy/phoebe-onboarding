@@ -3,7 +3,10 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from phoebe.chat.refusals import CODES
 from phoebe.evals.cases import Expect
+
+MODEL_UNAVAILABLE = CODES["model_unavailable"]
 
 Kind = Literal[
     "outcome",
@@ -35,9 +38,13 @@ def grade(
     """
     if done is None:
         return [Failure("error", error or "no done event")]
-    failures: list[Failure] = []
     refused = bool(done.get("refused"))
     reason = done.get("reason")
+    # The app turns every answer-model failure (throttling, no access, a cut-off
+    # stream) into a 3115 refusal: that is a broken run, not a wrong answer.
+    if refused and reason == MODEL_UNAVAILABLE:
+        return [Failure("error", f"{MODEL_UNAVAILABLE} model unavailable")]
+    failures: list[Failure] = []
     if expect.answered and refused:
         failures.append(Failure("outcome", f"refused ({reason}), expected an answer"))
     elif not expect.answered and not refused:

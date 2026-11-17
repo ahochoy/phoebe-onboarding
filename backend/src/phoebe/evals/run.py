@@ -13,6 +13,7 @@ settings `make live-check` needs (PHOEBE_LIVE_DATABASE_URL, PHOEBE_*).
 import json
 import os
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict
@@ -45,6 +46,8 @@ RESULTS_DIR = Path(__file__).resolve().parents[3] / "evals" / "results"
 PASSWORD = "eval-only"  # hashed below; never leaves this process
 # Raised in the eval's own Settings so a full run is never throttled.
 EVAL_CHAT_CAP = 100_000
+# max_tokens for candidates (reasoning models think before answering).
+CANDIDATE_MAX_TOKENS = 4_096
 
 
 class Recording:
@@ -173,12 +176,32 @@ def run_model(
     return results, False
 
 
+def eval_settings(url: str, scratch: Path) -> Settings:
+    """The eval app's settings: the live database, raised chat caps, and its own
+    in-process counters and kill switch. Explicit values beat PHOEBE_* env, so a
+    shell set up for a deployed env can never make an eval read or write that
+    env's state table (kill switch or counters)."""
+    return Settings(  # pyright: ignore[reportCallIssue]
+        database_url=url,
+        password_hash=hash_password(PASSWORD),
+        cookie_secure=False,
+        chat_per_session_hour=EVAL_CHAT_CAP,
+        chat_global_day=EVAL_CHAT_CAP,
+        limits_backend="memory",
+        control_backend="file",
+        control_file=scratch / "control.json",
+    )
+
+
 def _answer_model(c: Candidate, settings: Settings) -> AnswerModel:
     if c.harness:
         return make_models(settings)[0]
     assert c.model_id is not None
+    # Reasoning models spend output tokens on thinking before the answer; the
+    # app's cap (700) would cut them off. The answer itself is still limited by
+    # PHOEBE_ANSWER_MAX_CHARS in the app.
     return ConverseAnswerModel(
-        c.model_id, settings.aws_region, max_tokens=settings.answer_max_tokens
+        c.model_id, settings.aws_region, max_tokens=CANDIDATE_MAX_TOKENS
     )
 
 
@@ -196,13 +219,8 @@ def main(argv: list[str], env: Mapping[str, str] | None = None) -> int:
     if not confirm(est, yes=env.get("YES") == "1", stdin_isatty=sys.stdin.isatty()):
         return 2
 
-    settings = Settings(  # pyright: ignore[reportCallIssue]
-        database_url=url,
-        password_hash=hash_password(PASSWORD),
-        cookie_secure=False,
-        chat_per_session_hour=EVAL_CHAT_CAP,
-        chat_global_day=EVAL_CHAT_CAP,
-    )
+    scratch = Path(tempfile.mkdtemp(prefix="phoebe-eval-"))
+    settings = eval_settings(url, scratch)
     require_live_settings(settings)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     db = PsycopgDatabase(url)

@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from phoebe.evals.candidates import Candidate
+from phoebe.evals.candidates import CANDIDATES, Candidate
 from phoebe.evals.cases import Case
 
 # Rough sizes of one chat turn's answer call: the system prompt plus up to
@@ -24,8 +24,11 @@ GUARDRAIL_UNITS = (1, 3)
 @dataclass
 class Estimate:
     calls: int
-    usd_low: float
+    usd_low: float  # known prices only: a floor, not a range
     usd_high: float
+    # Every model priced at the highest known price, with long answers: an
+    # assumption, stated as such, never a price for a model.
+    usd_worst: float = 0.0
     unknown_prices: list[str] = field(default_factory=list[str])
 
 
@@ -45,21 +48,35 @@ def estimate(cases: list[Case], models: list[Candidate], repeat: int) -> Estimat
             answer_cost(m, IN_TOKENS[1], OUT_TOKENS[1])
             + GUARDRAIL_UNITS[1] * GUARDRAIL_USD_PER_UNIT
         )
+    known = [m for m in CANDIDATES.values() if m.price_known]
+    top_in = max((m.usd_per_mtok_in for m in known), default=0.0)
+    top_out = max((m.usd_per_mtok_out for m in known), default=0.0)
+    per_turn_worst = (
+        IN_TOKENS[1] * top_in + OUT_TOKENS[1] * top_out
+    ) / 1_000_000 + GUARDRAIL_UNITS[1] * GUARDRAIL_USD_PER_UNIT
     return Estimate(
         calls=turns * len(models),
         usd_low=low,
         usd_high=high,
+        usd_worst=turns * len(models) * per_turn_worst,
         unknown_prices=[m.name for m in models if not m.price_known],
     )
 
 
 def describe(est: Estimate) -> str:
-    line = (
-        f"{est.calls} chat calls, estimated ${est.usd_low:.2f} to ${est.usd_high:.2f}"
-    )
+    line = f"{est.calls} chat calls, at least ${est.usd_low:.2f}"
     if est.unknown_prices:
-        line += f" (plus {', '.join(est.unknown_prices)}: price unknown)"
-    return line + ". This spends from the shared account spend limit."
+        line += (
+            f" (no listed price for {', '.join(est.unknown_prices)}); worst case about "
+            f"${est.usd_worst:.2f} if every model cost the highest known price"
+        )
+    else:
+        line += f", up to about ${est.usd_high:.2f}"
+    return (
+        line
+        + ". Each model also re-embeds the seed documents (Titan, price unlisted)."
+        + " This spends from the shared account spend limit."
+    )
 
 
 def confirm(

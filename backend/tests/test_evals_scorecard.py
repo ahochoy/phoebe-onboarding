@@ -145,3 +145,27 @@ def test_render_lists_failing_cases_and_verdict() -> None:
     assert "c haiku outcome: refused (1204), expected an answer" in out
     assert "verdict: switch candidate: glm-5.3" in out
     assert "price unknown" in out  # haiku's price is not listed
+
+
+ERROR = Failure("error", "turn 1: 3115 model unavailable")
+
+
+def test_no_verdict_when_the_baseline_has_errors() -> None:
+    res = [r("haiku", "a", fail=ERROR), r("haiku", "b"), *all_pass("glm-5.3")]
+    v = verdict(summarize(res, models("haiku", "glm-5.3")))
+    assert v.startswith("no verdict") and "error" in v
+
+
+def test_candidate_with_errors_does_not_qualify() -> None:
+    res = base([r("glm-5.3", "a"), r("glm-5.3", "b"), r("glm-5.3", "c", fail=ERROR)])
+    # glm-5.3 passes as many as haiku (2) but errored once: not a fair result.
+    res = [x for x in res if not (x.model == "haiku" and x.case_id == "c")]
+    res.append(r("haiku", "c", fail=OUTCOME))
+    assert verdict(summarize(res, models("haiku", "glm-5.3"))).startswith(
+        "keep Haiku 4.5"
+    )
+
+
+def test_errors_are_counted() -> None:
+    s = by_name([r("haiku", "a", fail=ERROR)], "haiku")["haiku"]
+    assert s.errors == 1

@@ -92,3 +92,13 @@ def test_confirm_asks_on_tty() -> None:
 def test_confirm_refuses_without_tty_or_yes() -> None:
     est = estimate([ONE_TURN], resolve("haiku"), repeat=1)
     assert not confirm(est, yes=False, stdin_isatty=False, ask=lambda _: "y")
+
+
+def test_describe_says_at_least_and_gives_a_worst_case() -> None:
+    from phoebe.evals.cost import describe
+
+    est = estimate([ONE_TURN], resolve("all"), repeat=1)
+    text = describe(est)
+    assert "at least $" in text
+    assert "worst case" in text and "highest known price" in text
+    assert est.usd_worst > est.usd_high
