@@ -420,7 +420,7 @@ def test_chat_never_cites_outside_groups(
 def test_chat_stops_citing_doc_moved_outside_groups(
     db: PsycopgDatabase, seeded_client: TestClient
 ) -> None:
-    q = "Who is Mei Tanaka, my onboarding buddy on the Platform team?"
+    q = "Who is Jordan Moore, my onboarding buddy on the Platform team?"
     doc = _doc_id(db, "Team Breakdown")
     cited, _ = _done_doc_ids(chat(seeded_client, {"question": q}).text)
     assert doc in cited  # visible: it answers the question

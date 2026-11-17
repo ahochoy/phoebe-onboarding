@@ -17,15 +17,19 @@ people:
     name: Alex Rivera
     team: platform
     start_date: 2026-11-02
-    manager: Jordan Lee
-    buddy: Mei Tanaka
+    manager: Melinda Grant
+    manager_role: Engineering Manager, Platform
+    buddy: Jordan Moore
+    buddy_role: Senior Engineer
     completed: [hr-paperwork, setup-2fa, sign-conduct, laptop-setup, repo-access, meet-buddy]
   - id: sam-chen
     name: Sam Chen
     team: payments
     start_date: 2026-10-27
     manager: Elena Petrova
+    manager_role: Engineering Manager, Payments
     buddy: Marcus Webb
+    buddy_role: Software Engineer
     completed:
       [hr-paperwork, enroll-benefits, setup-2fa, read-handbook, security-training,
        sign-conduct, laptop-setup, repo-access, dev-environment, read-eng-practices,
@@ -35,7 +39,9 @@ people:
     team: sales-east
     start_date: 2026-11-10
     manager: Rafael Ortiz
+    manager_role: Sales Manager, East
     buddy: Keisha Brooks
+    buddy_role: Account Executive
     completed: []
 
 tasks:

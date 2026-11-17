@@ -21,6 +21,8 @@ export const ME: Me = {
   start_date: "2026-11-10",
   manager: "Sam Lee",
   buddy: "Jo Park",
+  manager_role: "Engineering Manager, Platform",
+  buddy_role: "Senior Engineer",
   day_number: 5,
 };
 

@@ -644,6 +644,17 @@
             ],
             "title": "Buddy"
           },
+          "buddy_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buddy Role"
+          },
           "day_number": {
             "title": "Day Number",
             "type": "integer"
@@ -670,6 +681,17 @@
               }
             ],
             "title": "Manager"
+          },
+          "manager_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manager Role"
           },
           "name": {
             "title": "Name",
@@ -699,6 +721,8 @@
           "start_date",
           "manager",
           "buddy",
+          "manager_role",
+          "buddy_role",
           "day_number"
         ],
         "title": "Me",

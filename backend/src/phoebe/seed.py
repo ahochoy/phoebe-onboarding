@@ -95,8 +95,10 @@ def _insert_people(
     for p in manifest["people"]:
         tx.execute(
             """
-            insert into people (id, name, team_id, start_date, manager, buddy)
-            values (:id, :name, :team, :start, :manager, :buddy)
+            insert into people (id, name, team_id, start_date, manager, buddy,
+                                manager_role, buddy_role)
+            values (:id, :name, :team, :start, :manager, :buddy,
+                    :manager_role, :buddy_role)
             """,
             {
                 "id": p["id"],
@@ -105,6 +107,8 @@ def _insert_people(
                 "start": p["start_date"],
                 "manager": p.get("manager"),
                 "buddy": p.get("buddy"),
+                "manager_role": p.get("manager_role"),
+                "buddy_role": p.get("buddy_role"),
             },
         )
         for key in p.get("completed", []):
