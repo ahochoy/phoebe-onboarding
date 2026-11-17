@@ -207,6 +207,57 @@ def test_budget_handler_overwrites_corrupt_state(aws_env, monkeypatch):
         assert DynamoDBControlStore(TABLE, client=client).get() == "chat_paused"
 
 
+def _db_stopped_event(event_id="RDS-EVENT-0150"):
+    return {
+        "source": "aws.rds",
+        "detail-type": "RDS DB Cluster Event",
+        "detail": {
+            "EventID": event_id,
+            "SourceIdentifier": "phoebe-staging",
+            "Message": "SECRET EVENT BODY",
+        },
+    }
+
+
+@mock_aws
+@pytest.mark.parametrize("start", ["open", "chat_paused", "closed"])
+def test_db_stopped_event_closes_from_any_state(aws_env, monkeypatch, start):
+    client = _table()
+    monkeypatch.setenv("PHOEBE_STATE_TABLE", TABLE)
+    DynamoDBControlStore(TABLE, client=client).set(start)
+    assert budget_handler.handler(_db_stopped_event(), None) == {"state": "closed"}
+    assert DynamoDBControlStore(TABLE, client=client).get() == "closed"
+
+
+@mock_aws
+def test_db_stopped_event_is_idempotent(aws_env, monkeypatch):
+    client = _table()
+    monkeypatch.setenv("PHOEBE_STATE_TABLE", TABLE)
+    for _ in range(2):  # EventBridge delivers at least once
+        assert budget_handler.handler(_db_stopped_event(), None) == {"state": "closed"}
+    assert DynamoDBControlStore(TABLE, client=client).get() == "closed"
+
+
+@mock_aws
+def test_db_stopped_event_logs_metadata_only(aws_env, monkeypatch, caplog):
+    _table()
+    monkeypatch.setenv("PHOEBE_STATE_TABLE", TABLE)
+    with caplog.at_level("INFO"):
+        budget_handler.handler(_db_stopped_event(), None)
+    assert "RDS-EVENT-0150" in caplog.text and "phoebe-staging" in caplog.text
+    assert "SECRET" not in caplog.text
+
+
+@mock_aws
+def test_unrelated_rds_event_changes_nothing(aws_env, monkeypatch):
+    client = _table()
+    monkeypatch.setenv("PHOEBE_STATE_TABLE", TABLE)
+    DynamoDBControlStore(TABLE, client=client).set("open")
+    out = budget_handler.handler(_db_stopped_event("RDS-EVENT-0151"), None)
+    assert out == {"state": "open"}
+    assert DynamoDBControlStore(TABLE, client=client).get() == "open"
+
+
 def test_cli_dynamodb_without_table_exits_cleanly(tmp_path: Path):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("PHOEBE_", "AWS_"))}
     env["PHOEBE_CONTROL_BACKEND"] = "dynamodb"
