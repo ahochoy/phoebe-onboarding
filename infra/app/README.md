@@ -105,13 +105,15 @@ Applies run only in CodeBuild (Task 8) or under the Task 9 owner gate.
 `migrate` then `seed_if_empty` (stops on a function error or an `error`
 result), `npm ci` + `npm run build` with base `/`, the site sync below, the two
 seed sources to `seed-sources/`, an invalidation of `/*` (waited for), then
+`ci/smoke.sh <site_url> <api_function_url>`. It never applies `infra/ai` (R12).
+
 **Re-seeding staging.** Deploys only seed an empty database, so a changed seed
 does not reach a database that already has one. To reload it by hand, invoke the
 ops Lambda with `{"task":"reseed"}`. It deletes every visitor's sandbox data
 (rows and uploaded blobs) and then reloads the seed. It is staging-only, and
 `ci/deploy.sh` never calls it.
-
-`ci/smoke.sh <site_url> <api_function_url>`. It never applies `infra/ai` (R12).
+Run it during a quiet period: a visitor writing during the run can make
+`load_seed` fail on a foreign key. Re-running is safe.
 
 `ci/smoke.sh` checks, through CloudFront: `/api/health` is 200 `{"status":"ok"}`;
 `/` is the SPA (root element); `/api/status` is 200 JSON; a direct call to the
