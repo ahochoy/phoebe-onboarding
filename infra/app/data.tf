@@ -50,9 +50,11 @@ resource "aws_rds_cluster" "main" {
   backup_retention_period   = local.production ? 7 : 1
   copy_tags_to_snapshot     = true
 
+  # 1 ACU is plenty for this demo, and a low peak keeps the project spend limit's
+  # projection calm: it extrapolates from bursts, not from what was spent.
   serverlessv2_scaling_configuration {
     min_capacity             = 0
-    max_capacity             = 2
+    max_capacity             = 1
     seconds_until_auto_pause = 300
   }
 

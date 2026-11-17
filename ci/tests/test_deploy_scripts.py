@@ -1098,3 +1098,52 @@ def test_deploy_proceeds_when_cluster_does_not_exist_yet(h: Harness) -> None:
     deploy_ok(h)
     r = h.run("deploy.sh", "staging", API, JOBS)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+CLOSED_ITEM = '{"pk":{"S":"control"},"state":{"S":"closed"}}'
+
+
+def test_db_stop_closes_the_demo_then_stops(h: Harness) -> None:
+    cluster_status(h, "available")
+    r = h.run("db-stop.sh", "staging")
+    assert r.returncode == 0, r.stdout + r.stderr
+    calls = [a for a in h.argvs("aws") if a[0] in ("rds", "dynamodb")]
+    assert [a[:2] for a in calls] == [
+        ["rds", "describe-db-clusters"],
+        ["dynamodb", "put-item"],
+        ["rds", "stop-db-cluster"],
+    ]
+    # Closed first, so no visitor hits a database that is shutting down.
+    assert json.loads(calls[1][calls[1].index("--item") + 1]) == json.loads(CLOSED_ITEM)
+    assert has_pair(calls[1], "--table-name", "phoebe-staging-state")
+    assert has_pair(calls[2], "--db-cluster-identifier", "phoebe-staging")
+    assert all(has_pair(a, "--region", "us-east-2") for a in calls)
+    assert "make db-start ENV=staging" in r.stdout
+
+
+@pytest.mark.parametrize("status", ["stopped", "stopping"])
+def test_db_stop_is_a_no_op_when_already_stopping_or_stopped(
+    h: Harness, status: str
+) -> None:
+    cluster_status(h, status)
+    r = h.run("db-stop.sh", "staging")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not [a for a in h.argvs("aws") if "stop-db-cluster" in a]
+
+
+@pytest.mark.parametrize("status", ["starting", "modifying", "backing-up"])
+def test_db_stop_refuses_mid_transition(h: Harness, status: str) -> None:
+    cluster_status(h, status)
+    r = h.run("db-stop.sh", "staging")
+    assert r.returncode != 0
+    assert status in r.stdout + r.stderr
+    assert not [
+        a for a in h.argvs("aws") if a[0] == "dynamodb" or "stop-db-cluster" in a
+    ]
+
+
+@pytest.mark.parametrize("args", [(), ("dev",), ("staging", "extra")])
+def test_db_stop_rejects_bad_args(h: Harness, args: tuple[str, ...]) -> None:
+    r = h.run("db-stop.sh", *args)
+    assert r.returncode != 0
+    assert h.calls() == []

@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check eval fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e tf-check deploy-check db-start
+.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check eval fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e tf-check deploy-check db-start db-stop
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -72,6 +72,12 @@ status:
 db-start:
 	@[ -n "$(ENV)" ] || { echo "usage: make db-start ENV=staging|production [OPEN=1]" >&2; exit 2; }
 	bash ci/db-start.sh $(ENV) $(if $(OPEN),--open)
+
+# Park an env's database while it is idle (usually staging): closes the demo,
+# then stops the Aurora cluster. Undo with make db-start ENV=...
+db-stop:
+	@[ -n "$(ENV)" ] || { echo "usage: make db-stop ENV=staging|production" >&2; exit 2; }
+	bash ci/db-stop.sh $(ENV)
 
 # Owner-gated live AWS check (costs money). NOT part of `make test` or CI.
 # Needs PHOEBE_LIVE_DATABASE_URL (database name ending in _live) and the
