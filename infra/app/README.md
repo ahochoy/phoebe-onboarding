@@ -211,6 +211,18 @@ Aurora when it is reached. Phoebe degrades before that and recovers by hand:
    7 days, but the demo stays closed until the command runs. Deploys refuse a
    stopped or stopping cluster with the same instruction.
 
+**Keeping the peaks low.** The spend limit appears to project from recent
+bursts, not from what has been spent (2026-11-17: $1.58 gross for the month
+tripped it). Three settings keep bursts small:
+
+- Aurora scales to at most **1 ACU** (`data.tf`), not 2.
+- The AgentCore harnesses end an idle runtime session after **60 seconds**
+  (`infra/ai`), not 30 minutes. Every chat opens a new session, and an idle one
+  bills its memory.
+- **`make db-stop ENV=staging`** parks staging while it is not in use: it closes
+  the demo, then stops the cluster. `make db-start ENV=staging` brings it back,
+  and a deploy to a stopped staging stops early with that instruction.
+
 ### Release behaviour to know (production)
 
 - **Partial deploy recovery: re-run the pipeline from Plan.** If

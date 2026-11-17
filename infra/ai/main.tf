@@ -229,10 +229,12 @@ resource "aws_bedrockagentcore_harness" "haiku" {
     disabled {}
   }
 
+  # Every chat opens a fresh runtime session, and an idle session bills its
+  # memory until the idle timeout: one minute, not 30, keeps that cost small.
   environment {
     agentcore_runtime_environment {
       lifecycle_configuration {
-        idle_runtime_session_timeout = 1800
+        idle_runtime_session_timeout = 60
         max_lifetime                 = 14400
       }
 
@@ -274,10 +276,12 @@ resource "aws_bedrockagentcore_harness" "nova" {
     disabled {}
   }
 
+  # Every chat opens a fresh runtime session, and an idle session bills its
+  # memory until the idle timeout: one minute, not 30, keeps that cost small.
   environment {
     agentcore_runtime_environment {
       lifecycle_configuration {
-        idle_runtime_session_timeout = 1800
+        idle_runtime_session_timeout = 60
         max_lifetime                 = 14400
       }
 

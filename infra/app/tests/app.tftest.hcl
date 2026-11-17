@@ -199,10 +199,10 @@ run "aurora" {
   assert {
     condition = (
       aws_rds_cluster.main.serverlessv2_scaling_configuration[0].min_capacity == 0 &&
-      aws_rds_cluster.main.serverlessv2_scaling_configuration[0].max_capacity == 2 &&
+      aws_rds_cluster.main.serverlessv2_scaling_configuration[0].max_capacity == 1 &&
       aws_rds_cluster.main.serverlessv2_scaling_configuration[0].seconds_until_auto_pause == 300
     )
-    error_message = "Serverless v2 scaling must be 0..2 ACU with auto-pause after 300 s."
+    error_message = "Serverless v2 scaling must be 0..1 ACU (a low peak keeps the spend limit's projection calm) with auto-pause after 300 s."
   }
 
   assert {
