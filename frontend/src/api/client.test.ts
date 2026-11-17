@@ -202,6 +202,10 @@ describe("messageFor", () => {
     expect(messageFor(new ApiError(503, "demo_closed"))).toBe(
       "The Phoebe demo is temporarily offline. Please check back later.",
     );
+    // A stopped database (spend limit) reads as the demo being offline.
+    expect(messageFor(new ApiError(503, "database_stopped"))).toBe(
+      "The Phoebe demo is temporarily offline. Please check back later.",
+    );
     const limit = "Rate limit exceeded. Please wait for sessions to refresh.";
     expect(messageFor(new ApiError(429, "chat_paused"))).toBe(limit);
     expect(messageFor(new ApiError(429, "too_many_attempts"))).toBe(limit);

@@ -3,6 +3,7 @@ import { ApiError } from "../api/client";
 // The only place API error codes become user-facing copy. Plain sentences that
 // say what happened; no jokes.
 const RATE_LIMIT = "Rate limit exceeded. Please wait for sessions to refresh.";
+const OFFLINE = "The Phoebe demo is temporarily offline. Please check back later.";
 
 const MESSAGES: Record<string, string> = {
   invalid_password: "That password didn't work.",
@@ -20,7 +21,9 @@ const MESSAGES: Record<string, string> = {
   invalid_request: "Some of the information entered is not valid. Check it and try again.",
   too_many_attempts: RATE_LIMIT,
   chat_paused: RATE_LIMIT,
-  demo_closed: "The Phoebe demo is temporarily offline. Please check back later.",
+  demo_closed: OFFLINE,
+  // The database is stopped (the spend limit): offline until the owner restarts it.
+  database_stopped: OFFLINE,
   unsupported_type: "That file type is not supported.",
   database_unavailable: "Phoebe's database is waking up. Try again in a few seconds.",
   embedder_mismatch: "Phoebe's document index needs rebuilding. Try again later.",

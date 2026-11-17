@@ -10,12 +10,13 @@ const bubble =
   "z-50 max-w-xs rounded-md border border-warn/40 bg-white px-3 py-2 text-sm text-ink shadow-md";
 
 /**
- * Shown only while a limit applies. The pill is one button: hover and keyboard
+ * Shown only while a rate-limit cap applies; a spend pause shows SpendBanner
+ * instead (never both). The pill is one button: hover and keyboard
  * focus open the Tooltip, a tap (touch has no hover) opens the Popover.
  */
 export function StatusPill() {
-  const { limited } = useStatus();
-  if (!limited) return null;
+  const { paused, capped } = useStatus();
+  if (!capped || paused) return null;
   return (
     <Tooltip.Provider delayDuration={150}>
       <Popover.Root>

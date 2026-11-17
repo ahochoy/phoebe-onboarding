@@ -13,6 +13,11 @@ const CAP_REASONS: ReadonlySet<StatusOut["reasons"][number]> = new Set([
 
 export interface UseStatus {
   status: StatusOut | undefined;
+  /** Paused by the spend budget (or `make pause`): the spend banner shows. */
+  paused: boolean;
+  /** A per-session or global rate-limit cap applies: the pill shows. */
+  capped: boolean;
+  /** Either of the two. */
   limited: boolean;
   chatAvailable: boolean;
   uploadAvailable: boolean;
@@ -28,12 +33,13 @@ export function useStatus(): UseStatus {
     refetchOnWindowFocus: true,
   });
   const status = query.data;
-  const limited =
-    status !== undefined &&
-    (status.state === "chat_paused" || status.reasons.some((r) => CAP_REASONS.has(r)));
+  const paused = status?.state === "chat_paused";
+  const capped = status !== undefined && status.reasons.some((r) => CAP_REASONS.has(r));
   return {
     status,
-    limited,
+    paused,
+    capped,
+    limited: paused || capped,
     chatAvailable: status?.chat_available ?? false,
     uploadAvailable: status?.upload_available ?? false,
     refresh: () => {
