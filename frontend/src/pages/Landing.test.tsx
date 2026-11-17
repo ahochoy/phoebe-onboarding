@@ -70,13 +70,16 @@ describe("Landing", () => {
     const { router } = renderApp("/");
     await user.type(await screen.findByLabelText(/password/i), "secret{Enter}");
     try {
-      // The state is held, not transient, so a generous timeout only absorbs slow renders.
-      expect(
-        await screen.findByText("Getting Phoebe ready…", {}, { timeout: 4000 }),
-      ).toBeInTheDocument();
-      await waitFor(() => expect(router.state.location.pathname).toBe("/employee"), {
-        timeout: 4000,
-      });
+      // Landing also shows "Getting Phoebe ready…" for a moment (the login resets
+      // `me`) before it navigates away. A node found there is detached when Landing
+      // unmounts, so check the route and the employee page's held copy together.
+      await waitFor(
+        () => {
+          expect(router.state.location.pathname).toBe("/employee");
+          expect(screen.getByText("Getting Phoebe ready…")).toBeInTheDocument();
+        },
+        { timeout: 4000 },
+      );
       expect(screen.queryByText("Alex Rivera")).not.toBeInTheDocument();
     } finally {
       release();
