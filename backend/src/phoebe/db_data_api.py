@@ -21,14 +21,16 @@ from uuid import UUID
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
-from phoebe.db import Database, DatabaseUnavailable
+from phoebe.db import Database, DatabaseStopped, DatabaseUnavailable
 
 _log = logging.getLogger("phoebe.db")
 
-__all__ = ["DataApiDatabase", "DatabaseUnavailable", "encode_params"]
+__all__ = ["DataApiDatabase", "DatabaseStopped", "DatabaseUnavailable", "encode_params"]
 
 # Error codes on the rds-data client (all arrive as `ClientError`).
 _RESUMING = "DatabaseResumingException"
+# Sent for a stopped cluster ("... is in stopped state"); it never resumes by itself.
+_STOPPED = "InvalidResourceStateException"
 _STATEMENT_TIMEOUT = "StatementTimeoutException"
 _OUTAGE = frozenset(
     {
@@ -199,6 +201,9 @@ class DataApiDatabase(Database):
                 ):
                     timeouts += 1
                     _log.info("statement timeout op=%s retry=%d", op, timeouts)
+                elif code == _STOPPED:
+                    _log.warning("database stopped op=%s", op)
+                    raise DatabaseStopped("stopped") from None
                 elif code in _OUTAGE:
                     _log.warning("database unavailable op=%s code=%s", op, code)
                     raise DatabaseUnavailable(code) from None
@@ -230,6 +235,9 @@ class DataApiDatabase(Database):
             if code == _RESUMING:
                 _log.info("database resuming op=wake")
                 return False
+            if code == _STOPPED:
+                _log.warning("database stopped op=wake")
+                raise DatabaseStopped("stopped") from None
             if code in _OUTAGE:
                 _log.warning("database unavailable op=wake code=%s", code)
                 raise DatabaseUnavailable(code) from None

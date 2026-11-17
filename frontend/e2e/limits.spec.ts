@@ -1,6 +1,8 @@
 import { composer, expect, loggedIn, setControl, showPanel, test } from "./fixtures";
 
 const PILL = "Rate limit exceeded. Please wait for sessions to refresh.";
+const BANNER =
+  "Chat and uploads are paused to keep this demo within its spending limit. Everything else works as usual.";
 const OFFLINE = "The Phoebe demo is temporarily offline. Please check back later.";
 
 // The kill switch is global to the stack, so this runs alone, after every other test,
@@ -14,10 +16,12 @@ test.afterEach(async () => {
 test("make pause, kill and open reach the UI", { tag: "@once" }, async ({ page }) => {
   await loggedIn(page);
 
-  // Pause: the pill shows, chat is disabled, tasks still save.
+  // Pause: the spend banner shows (not the rate-limit pill), chat is disabled, tasks
+  // still save.
   await setControl("pause");
   await page.reload();
-  await expect(page.getByRole("button", { name: PILL, exact: true })).toBeVisible();
+  await expect(page.getByText(BANNER)).toBeVisible();
+  await expect(page.getByRole("button", { name: PILL })).toHaveCount(0);
   await showPanel(page, "Chat");
   await expect(composer(page)).toBeDisabled();
 
@@ -53,7 +57,7 @@ test("make pause, kill and open reach the UI", { tag: "@once" }, async ({ page }
   await expect(page.getByLabel("Demo password")).toBeVisible();
   await expect(page.getByText(OFFLINE)).toHaveCount(0);
   await loggedIn(page);
-  await expect(page.getByRole("button", { name: PILL })).toHaveCount(0);
+  await expect(page.getByText(BANNER)).toHaveCount(0);
   await showPanel(page, "Chat");
   await expect(composer(page)).toBeEnabled();
 });

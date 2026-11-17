@@ -172,9 +172,8 @@ can be checked offline):
   (`AWSServiceRoleForBudgetsSpendLimitMember`) called `StopDBCluster` on
   staging. A stopped cluster is not the 0 ACU auto-pause: the Data API returns
   `InvalidResourceStateException ... is in stopped state`, and `ops migrate`
-  fails the deploy. Raising the limit does not restart the cluster; start it
-  (`aws rds start-db-cluster --db-cluster-identifier phoebe-<env>`) and wait
-  for `available` before re-running the build.
+  failed the deploy. Raising the limit does not restart the cluster. Spend-limit
+  mode (below, #19) now handles this; restart with `make db-start ENV=<env>`.
 - **v0.1.1 released** from `de7d908`: plan `56 to add, 0 to change, 0 to
   destroy`; migrate applied 001 to 004; seed loaded 6 groups, 3 people, 21
   tasks, 12 documents, 123 chunks; smoke OK; images tagged `release-v0.1.1`
@@ -187,6 +186,27 @@ can be checked offline):
   `https://d3l53cq2s2ex7m.cloudfront.net/`. CloudFront has no alternate domain:
   a request with that Host header gets CloudFront's 403. Serving the domain
   directly would need an ACM certificate in us-east-1 plus `aliases`.
+
+### Spend-limit mode
+
+The account's spend limit ($30 a month, shared with other projects) stops
+Aurora when it is reached. Phoebe degrades before that and recovers by hand:
+
+1. **At 70% of the account budget** both budgets publish to their
+   `phoebe-budget-<env>` topics, and each env's budget Lambda sets
+   `chat_paused`. Chat, search, uploads and links stop; tasks, documents and
+   admin keep working, and a banner says why. The production budget also emails
+   the owner (`alert_email`, passed at bootstrap apply time).
+2. **If the cluster stops anyway** (RDS-EVENT-0150), `phoebe-<env>-db-stopped`
+   (infra/bootstrap) invokes the budget Lambda, which sets `closed` so the
+   landing page shows the offline copy, and emails the owner through
+   `phoebe-alerts`. Until then the API answers `503 database_stopped`, which the
+   app also shows as offline.
+3. **To restart**, once the limit allows: `make db-start ENV=<env>`. It starts
+   the cluster (unless it is already available), waits for `available`, then
+   sets the kill switch to `open`. AWS restarts a stopped cluster by itself after
+   7 days, but the demo stays closed until the command runs. Deploys refuse a
+   stopped or stopping cluster with the same instruction.
 
 ### Release behaviour to know (production)
 

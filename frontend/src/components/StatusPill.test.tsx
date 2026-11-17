@@ -5,6 +5,8 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import type { StatusOut } from "../api/types";
 import { OPEN, PAUSED } from "../test/fixtures";
+
+const CAPPED: StatusOut = { ...OPEN, reasons: ["global_chat_limit"] };
 import { makeClient } from "../test/render";
 import { server } from "../test/server";
 import { StatusPill } from "./StatusPill";
@@ -37,9 +39,11 @@ describe("StatusPill", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("shows exact copy when chat_paused", async () => {
-    setup(PAUSED);
-    expect(await screen.findByRole("button", { name: COPY })).toBeInTheDocument();
+  it("hidden when chat_paused: the spend banner says it instead", async () => {
+    const hits = setup(PAUSED);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(hits()).toBeGreaterThan(0);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("shows for a cap reason even when the state is open", async () => {
@@ -48,14 +52,14 @@ describe("StatusPill", () => {
   });
 
   it("tooltip opens on hover with exact copy", async () => {
-    setup(PAUSED);
+    setup(CAPPED);
     const user = userEvent.setup();
     await user.hover(await screen.findByRole("button", { name: COPY }));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(TIP);
   });
 
   it("tooltip opens on keyboard focus with exact copy", async () => {
-    setup(PAUSED);
+    setup(CAPPED);
     const user = userEvent.setup();
     await screen.findByRole("button", { name: COPY });
     await user.tab();
@@ -63,7 +67,7 @@ describe("StatusPill", () => {
   });
 
   it("tap opens the popover with exact copy", async () => {
-    setup(PAUSED);
+    setup(CAPPED);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: COPY }));
     const dialog = await screen.findByRole("dialog");

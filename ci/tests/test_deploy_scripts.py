@@ -984,3 +984,104 @@ def test_lint_runs_actionlint() -> None:
         "actionlint download must be checksum-pinned"
     )
     assert os.access(CI / "actionlint.sh", os.X_OK)
+
+
+# ---- spend-limit mode: deploy pre-check and db-start.sh ----------------------------
+
+OPEN_ITEM = '{"pk":{"S":"control"},"state":{"S":"open"}}'
+
+
+def cluster_status(h: Harness, status: str) -> None:
+    h.rule("aws", match=["rds", "describe-db-clusters"], stdout=f"{status}\n")
+
+
+@pytest.mark.parametrize("status", ["stopped", "stopping"])
+def test_deploy_stops_when_cluster_stopped(h: Harness, status: str) -> None:
+    cluster_status(h, status)
+    deploy_ok(h)
+    r = h.run("deploy.sh", "staging", API, JOBS)
+    assert r.returncode != 0
+    assert "run make db-start ENV=staging" in r.stdout + r.stderr
+    assert not [a for a in h.argvs("aws") if a[:2] == ["lambda", "invoke"]]
+    # Before terraform: a production apply would spend the approved plan.
+    assert h.calls("terraform") == []
+    describe = next(a for a in h.argvs("aws") if "describe-db-clusters" in a)
+    assert has_pair(describe, "--db-cluster-identifier", "phoebe-staging")
+    assert has_pair(describe, "--region", "us-east-2")
+
+
+def test_deploy_proceeds_when_cluster_available(h: Harness) -> None:
+    cluster_status(h, "available")
+    deploy_ok(h)
+    r = h.run("deploy.sh", "staging", API, JOBS)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert h.index("aws", "rds", "describe-db-clusters") < h.index(
+        "aws", "lambda", "invoke"
+    )
+
+
+def test_db_start_starts_waits_then_reopens(h: Harness) -> None:
+    cluster_status(h, "stopped")
+    r = h.run("db-start.sh", "production")
+    assert r.returncode == 0, r.stdout + r.stderr
+    rds = [a for a in h.argvs("aws") if a[0] in ("rds", "dynamodb")]
+    assert [a[:2] for a in rds] == [
+        ["rds", "describe-db-clusters"],
+        ["rds", "start-db-cluster"],
+        ["rds", "wait"],
+        ["dynamodb", "put-item"],
+    ]
+    assert has_pair(rds[1], "--db-cluster-identifier", "phoebe-production")
+    assert rds[2][2] == "db-cluster-available"
+    assert has_pair(rds[2], "--db-cluster-identifier", "phoebe-production")
+    assert has_pair(rds[3], "--table-name", "phoebe-production-state")
+    assert json.loads(rds[3][rds[3].index("--item") + 1]) == json.loads(OPEN_ITEM)
+    assert all(has_pair(a, "--region", "us-east-2") for a in rds)
+
+
+def test_db_start_skips_start_when_available(h: Harness) -> None:
+    cluster_status(h, "available")
+    r = h.run("db-start.sh", "staging")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not [a for a in h.argvs("aws") if "start-db-cluster" in a]
+    put = next(a for a in h.argvs("aws") if a[:2] == ["dynamodb", "put-item"])
+    assert has_pair(put, "--table-name", "phoebe-staging-state")
+
+
+def test_db_start_refuses_while_stopping(h: Harness) -> None:
+    cluster_status(h, "stopping")
+    r = h.run("db-start.sh", "staging")
+    assert r.returncode != 0
+    assert "still stopping" in r.stdout + r.stderr
+    assert not [
+        a for a in h.argvs("aws") if a[0] == "dynamodb" or "start-db-cluster" in a
+    ]
+
+
+def test_db_start_stops_if_the_wait_fails(h: Harness) -> None:
+    # Never reopen a demo whose database did not come back.
+    cluster_status(h, "stopped")
+    h.rule("aws", match=["rds", "wait"], exit=255, stderr="Waiter failed")
+    r = h.run("db-start.sh", "staging")
+    assert r.returncode != 0
+    assert not [a for a in h.argvs("aws") if a[0] == "dynamodb"]
+
+
+@pytest.mark.parametrize("args", [(), ("dev",), ("staging", "extra")])
+def test_db_start_rejects_bad_args(h: Harness, args: tuple[str, ...]) -> None:
+    r = h.run("db-start.sh", *args)
+    assert r.returncode != 0
+    assert h.calls() == []
+
+
+def test_deploy_proceeds_when_cluster_does_not_exist_yet(h: Harness) -> None:
+    # A first deploy creates the cluster in terraform apply.
+    h.rule(
+        "aws",
+        match=["rds", "describe-db-clusters"],
+        exit=254,
+        stderr="An error occurred (DBClusterNotFoundFault)",
+    )
+    deploy_ok(h)
+    r = h.run("deploy.sh", "staging", API, JOBS)
+    assert r.returncode == 0, r.stdout + r.stderr
