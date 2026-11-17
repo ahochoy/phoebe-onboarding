@@ -35,7 +35,7 @@ The dev server and `vite preview` proxy `/api` to `http://localhost:$PHOEBE_PORT
 
 ### End-to-end tests
 
-The Playwright suite drives the built app against the real local stack, with axe accessibility checks, in five projects: `chromium`, `firefox`, `webkit`, `mobile-safari` (iPhone 15) and `mobile-chrome` (Pixel 8).
+The Playwright suite drives the built app against the real local stack, with axe accessibility checks, in five browser projects: `chromium`, `firefox`, `webkit`, `mobile-safari` (iPhone 15) and `mobile-chrome` (Pixel 8). It covers each critical journey once, in the browsers where it can fail differently; logic and API behaviour live in the Vitest and pytest suites. Each test's tag picks its projects (see `frontend/playwright.config.ts`): `@all` (login and session), `@desktop` (keyboard-only journey), `@mobile` (bottom tabs and sheets), `@journey` and `@axe` (one desktop and one phone), `@once` (chromium only).
 
 ```sh
 (cd frontend && npx playwright install chromium firefox webkit)   # once
@@ -45,9 +45,9 @@ make e2e         # build, serve with `vite preview` on :4173, run every project
 
 - `make stack-e2e` is `make stack` with higher caps: the suite logs in once per test, which the default login throttle (10 per IP per 15 minutes) would block. Run plain `make stack` afterwards to go back to the defaults.
 - Set `PHOEBE_PORT` for both commands if the API is not on 8080. Playwright reads the password from `PHOEBE_DEV_PASSWORD`, which the Makefile exports.
-- The kill-switch tests (`e2e/limits.spec.ts`) run `make pause`, `make kill` and `make open`. They run after the rest, one browser at a time, and always leave the demo `open`.
+- The kill-switch test (`e2e/limits.spec.ts`) runs `make pause`, `make kill` and `make open`. It runs once, in chromium, after every other test, and always leaves the demo `open`; a global setup also reopens it before each run.
 - Every test logs in to its own sandbox and wipes it when done. The report lands in `frontend/playwright-report/`.
-- The offline stack (extractive answers, hash embeddings) answers nearly every question with a citation, so an off-topic question is not refused locally. The suite checks that it never cites another team's documents instead; the refusal UI is covered by the component tests.
+- The offline stack (extractive answers, hash embeddings) answers nearly every question with a citation, so refusals are covered by the pytest and component tests, not here.
 - Playwright runs locally for now; it joins CI in Plan 5.
 
 ## Configuration

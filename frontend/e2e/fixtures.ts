@@ -160,3 +160,18 @@ export async function setControl(state: ControlState): Promise<void> {
     )
     .toBe(EXPECTED[state]);
 }
+
+/** Switches to the Admin view and opens one of its tabs. */
+export async function openAdminTab(page: Page, name: string): Promise<void> {
+  await page.getByRole("radio", { name: "Admin" }).click();
+  const tab = page.getByRole("tablist", { name: "Admin sections" }).getByRole("tab", { name });
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+}
+
+/** Picks a group in a dialog's Group combobox. */
+export async function pickGroup(page: Page, dialog: Locator, group: string): Promise<void> {
+  await dialog.getByRole("combobox", { name: "Group" }).click();
+  await page.getByRole("option", { name: group, exact: true }).click();
+  await expect(dialog.getByRole("combobox", { name: "Group" })).toHaveText(group);
+}

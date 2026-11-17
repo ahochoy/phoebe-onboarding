@@ -316,6 +316,18 @@ def test_status_paused(db, tmp_path):
     assert not s["chat_available"] and not s["upload_available"]
 
 
+def test_task_completion_works_while_paused(seeded_client: TestClient):
+    # Pausing stops chat and uploads only; onboarding tasks keep saving.
+    c = seeded_client
+    c.app.state.deps.control = InMemoryControlStore("chat_paused")  # type: ignore[attr-defined]
+    assert c.get("/api/status").json()["state"] == "chat_paused"
+    t = next(x["id"] for x in c.get("/api/tasks?scope=mine").json() if not x["done"])
+    r = c.put(f"/api/tasks/{t}/completion", json={"done": True}, headers=CSRF)
+    assert r.status_code == 204
+    after = c.get("/api/tasks?scope=mine").json()
+    assert next(x for x in after if x["id"] == t)["done"] is True
+
+
 def test_limits_store_down_fails_closed(db, tmp_path):
     c = make_client(db, tmp_path, counters=DownCounters())
     r = login(c)

@@ -5,27 +5,24 @@ const CI = !!process.env.CI;
 
 // The built app is served by `vite preview`; its /api proxy points at the stack on PHOEBE_PORT.
 
+// Each test carries one tag that says where it runs; a test runs only where it can
+// fail differently. @all: every project. @desktop: the three desktop engines (keyboard).
+// @mobile: both phones (bottom tabs, sheets). @journey: one desktop and one phone.
+// @axe: one desktop and one phone (axe rules do not depend on the engine).
+// @once: chromium only.
 const browsers = [
-  { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-  { name: "firefox", use: { ...devices["Desktop Firefox"] } },
-  { name: "webkit", use: { ...devices["Desktop Safari"] } },
-  { name: "mobile-safari", use: { ...devices["iPhone 15"] } },
-  { name: "mobile-chrome", use: { ...devices["Pixel 8"] } },
+  {
+    name: "chromium",
+    use: { ...devices["Desktop Chrome"] },
+    grep: /@(all|desktop|journey|axe|once)\b/,
+  },
+  { name: "firefox", use: { ...devices["Desktop Firefox"] }, grep: /@(all|desktop)\b/ },
+  { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /@(all|desktop)\b/ },
+  { name: "mobile-safari", use: { ...devices["iPhone 15"] }, grep: /@(all|mobile|journey)\b/ },
+  { name: "mobile-chrome", use: { ...devices["Pixel 8"] }, grep: /@(all|mobile|axe)\b/ },
 ] satisfies Project[];
 
 const LIMITS = /limits\.spec\.ts$/;
-const MOBILE_ONLY = /mobile\.spec\.ts$/;
-
-// The kill switch is global to the stack, so limits.spec.ts must never overlap with any
-// other test. Every browser's ordinary suite runs first (in parallel); then each
-// browser's limits run, one browser after the other.
-const limitsProjects: Project[] = browsers.map((b, i) => ({
-  ...b,
-  name: `${b.name}-limits`,
-  testMatch: LIMITS,
-  workers: 1,
-  dependencies: i === 0 ? browsers.map((x) => x.name) : [`${browsers[i - 1]!.name}-limits`],
-}));
 
 export default defineConfig({
   testDir: "./e2e",
@@ -59,10 +56,15 @@ export default defineConfig({
     timeout: 60_000,
   },
   projects: [
-    ...browsers.map((b) => ({
-      ...b,
-      testIgnore: b.use.isMobile ? [LIMITS] : [LIMITS, MOBILE_ONLY],
-    })),
-    ...limitsProjects,
+    ...browsers.map((b) => ({ ...b, testIgnore: LIMITS })),
+    // The kill switch is global to the stack, so limits.spec.ts must never overlap with
+    // any other test: it runs alone, once, after every browser's suite.
+    {
+      name: "limits",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: LIMITS,
+      workers: 1,
+      dependencies: browsers.map((b) => b.name),
+    },
   ],
 });
