@@ -2,7 +2,10 @@
 
 Rules: every paragraph with text beyond single-line Markdown headings carries a
 valid `[P<n>]` label, every label names a real passage, and there is at least
-one label. Labels are plain text matches, so `[P1]` inside backticks counts.
+one label. One exception: the first paragraph may be an uncited lead-in (one
+line of at most LEAD_IN_MAX chars ending in ":", such as "Here are the
+holidays:") when another paragraph follows it; it introduces, it claims nothing.
+Labels are plain text matches, so `[P1]` inside backticks counts.
 Anything else is refused (None). Labels are renumbered by first appearance.
 """
 
@@ -19,6 +22,12 @@ _LABEL = re.compile(r"\[P(\d+)\]")
 _PARAGRAPHS = re.compile(r"\n\s*\n")
 _LEADING_BLANK = re.compile(r"\A(?:[ \t]*\r?\n)+")
 _HEADING = re.compile(r"[ ]{0,3}#{1,6}[ \t]+\S.*")
+LEAD_IN_MAX = 160
+
+
+def _is_lead_in(paragraph: str) -> bool:
+    line = paragraph.strip()
+    return "\n" not in line and len(line) <= LEAD_IN_MAX and line.endswith(":")
 
 
 class Citation(BaseModel):
@@ -45,7 +54,10 @@ def verify(answer: str, passages: Sequence[Passage]) -> Verified | None:
     labels = [int(m) for m in _LABEL.findall(stripped)]
     if not labels or any(not 1 <= n <= len(passages) for n in labels):
         return None
-    for paragraph in _PARAGRAPHS.split(stripped):
+    paragraphs = _PARAGRAPHS.split(stripped)
+    if len(paragraphs) > 1 and _is_lead_in(paragraphs[0]):
+        paragraphs = paragraphs[1:]
+    for paragraph in paragraphs:
         body = "\n".join(
             line
             for line in paragraph.splitlines()

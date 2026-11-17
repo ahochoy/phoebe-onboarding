@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { Children, createContext, type ReactNode, useContext, useMemo } from "react";
+import Markdown, { type Components } from "react-markdown";
 import type { ChatMessage } from "./reducer";
 
 type Cite = ChatMessage["citations"][number];
@@ -53,54 +54,122 @@ function withMarkers(
   return out;
 }
 
-/**
- * Plain-text answer rendering: blank lines split paragraphs and lines starting
- * with `#` become h3 headings. No HTML or Markdown is ever interpreted.
- */
-export function CitedText({ text, citations, settled, onOpen }: CitedTextProps) {
-  const byN = new Map(settled ? citations.map((c) => [c.n, c] as const) : []);
-  const blocks = toBlocks(text);
-  return (
-    <div className="space-y-2">
-      {blocks.map((block, i) => {
-        const key = `b${i}`;
-        return block.heading ? (
-          <h3 key={key} className="font-semibold">
-            {withMarkers(block.text, byN, onOpen, key)}
-          </h3>
-        ) : (
-          <p key={key} className="whitespace-pre-wrap">
-            {withMarkers(block.text, byN, onOpen, key)}
-          </p>
-        );
-      })}
-    </div>
+const ALLOWED = [
+  "p",
+  "strong",
+  "em",
+  "ul",
+  "ol",
+  "li",
+  "a",
+  "br",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+];
+const SAFE_URL = /^(https?:|mailto:)/i;
+
+function safeUrl(url: string): string {
+  return SAFE_URL.test(url) ? url : "";
+}
+
+interface Markers {
+  byN: Map<number, Cite>;
+  onOpen(citation: Cite): void;
+}
+
+const MarkersContext = createContext<Markers>({ byN: new Map(), onOpen: () => {} });
+
+/** Children with `[n]` markers in their direct text turned into source buttons. */
+function Cited({ children, prefix }: { children?: ReactNode; prefix: string }) {
+  const { byN, onOpen } = useContext(MarkersContext);
+  return Children.map(children, (child, i) =>
+    typeof child === "string" ? withMarkers(child, byN, onOpen, `${prefix}${i}`) : child,
   );
 }
 
-interface Block {
-  heading: boolean;
-  text: string;
+function Heading({ children }: { children?: ReactNode }) {
+  return (
+    <h3 className="font-semibold">
+      <Cited prefix="h">{children}</Cited>
+    </h3>
+  );
 }
 
-/** Blank lines end a paragraph; a `#` line is its own heading block. */
-function toBlocks(text: string): Block[] {
-  const blocks: Block[] = [];
-  let para: string[] = [];
-  const flush = () => {
-    if (para.length > 0) blocks.push({ heading: false, text: para.join("\n") });
-    para = [];
-  };
-  for (const line of text.split("\n")) {
-    if (line.trim() === "") {
-      flush();
-    } else if (line.startsWith("#")) {
-      flush();
-      blocks.push({ heading: true, text: line.replace(/^#+\s*/, "") });
-    } else {
-      para.push(line);
-    }
-  }
-  flush();
-  return blocks;
+// Module level on purpose: new component identities on each render would make
+// React remount the whole answer every time it re-renders.
+const COMPONENTS: Components = {
+  p: ({ children }) => (
+    <p>
+      <Cited prefix="p">{children}</Cited>
+    </p>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-semibold">
+      <Cited prefix="s">{children}</Cited>
+    </strong>
+  ),
+  em: ({ children }) => (
+    <em>
+      <Cited prefix="e">{children}</Cited>
+    </em>
+  ),
+  li: ({ children }) => (
+    <li>
+      <Cited prefix="l">{children}</Cited>
+    </li>
+  ),
+  ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
+  a: ({ href, children }) =>
+    href ? (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+        className="text-accent underline"
+      >
+        {children}
+      </a>
+    ) : (
+      <>{children}</>
+    ),
+  h1: Heading,
+  h2: Heading,
+  h3: Heading,
+  h4: Heading,
+  h5: Heading,
+  h6: Heading,
+};
+
+/**
+ * Answer rendering: a small Markdown subset (paragraphs, bold, italics, lists,
+ * headings as h3, http(s)/mailto links). Raw HTML is dropped, images and every
+ * other element are unwrapped to their text. `[n]` markers in any text become
+ * source buttons once the answer has settled.
+ */
+export function CitedText({ text, citations, settled, onOpen }: CitedTextProps) {
+  const byN = useMemo(
+    () => new Map(settled ? citations.map((c) => [c.n, c] as const) : []),
+    [citations, settled],
+  );
+  const markers = useMemo(() => ({ byN, onOpen }), [byN, onOpen]);
+  return (
+    <MarkersContext value={markers}>
+      <div className="space-y-2">
+        <Markdown
+          allowedElements={ALLOWED}
+          unwrapDisallowed
+          skipHtml
+          urlTransform={safeUrl}
+          components={COMPONENTS}
+        >
+          {text}
+        </Markdown>
+      </div>
+    </MarkersContext>
+  );
 }
