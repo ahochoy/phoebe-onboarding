@@ -204,7 +204,10 @@ Aurora when it is reached. Phoebe degrades before that and recovers by hand:
    app also shows as offline.
 3. **To restart**, once the limit allows: `make db-start ENV=<env>`. It starts
    the cluster (unless it is already available), waits for `available`, then
-   sets the kill switch to `open`. AWS restarts a stopped cluster by itself after
+   reopens browse-only (`chat_paused`, with the banner), because Budgets does not
+   alert at 70% again in the same month. `make db-start ENV=<env> OPEN=1`
+   reopens fully; run it later, with the cluster already up, to switch chat back
+   on (for example at the start of the next month). AWS restarts a stopped cluster by itself after
    7 days, but the demo stays closed until the command runs. Deploys refuse a
    stopped or stopping cluster with the same instruction.
 

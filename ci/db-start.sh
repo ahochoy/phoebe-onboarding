@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
-# ci/db-start.sh <staging|production>   (make db-start ENV=...)
+# ci/db-start.sh <staging|production> [--open]   (make db-start ENV=... [OPEN=1])
 #
 # Brings an env back after its Aurora cluster was stopped (the project's spend
 # limit, or by hand): starts the cluster unless it is already available, waits
-# for `available`, then reopens the demo (kill switch `open`). Run by the owner
+# for `available`, then reopens the demo. By default it reopens browse-only
+# (kill switch `chat_paused`, with the spend banner): the 70% budget alert does
+# not fire again in the same month, so nothing else would pause chat before the
+# limit. `--open` reopens fully (`open`); run it again with `--open` once the
+# cluster is up to switch chat back on. Run by the owner
 # from a terminal with their AWS credentials. Nothing runs this automatically:
 # starting the cluster spends money.
 set -euo pipefail
 # shellcheck source=ci/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-[ $# -eq 1 ] || die "usage: ci/db-start.sh <staging|production>"
+usage="usage: ci/db-start.sh <staging|production> [--open]"
+[ $# -eq 1 ] || [ $# -eq 2 ] || die "$usage"
 ENV_NAME="$1"
 require_env_name "$ENV_NAME"
+STATE="chat_paused"
+if [ $# -eq 2 ]; then
+  [ "$2" = "--open" ] || die "$usage"
+  STATE="open"
+fi
 
 REGION="us-east-2"
 CLUSTER="phoebe-$ENV_NAME"
@@ -39,5 +49,9 @@ aws rds wait db-cluster-available --db-cluster-identifier "$CLUSTER" --region "$
 
 # Same item as DynamoDBControlStore: pk=control.
 aws dynamodb put-item --table-name "$TABLE" --region "$REGION" \
-  --item '{"pk":{"S":"control"},"state":{"S":"open"}}'
-log "$ENV_NAME is open"
+  --item "{\"pk\":{\"S\":\"control\"},\"state\":{\"S\":\"$STATE\"}}"
+if [ "$STATE" = open ]; then
+  log "$ENV_NAME is open"
+else
+  log "$ENV_NAME is back, browse-only (chat_paused); run make db-start ENV=$ENV_NAME OPEN=1 to switch chat on"
+fi
