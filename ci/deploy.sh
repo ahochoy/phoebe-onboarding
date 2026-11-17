@@ -29,6 +29,18 @@ PLAN_FILE="${PHOEBE_PLAN_FILE:-}"
 
 log "deploy $ENV_NAME api=$API_DIGEST jobs=$JOBS_DIGEST"
 
+# A stopped cluster (the spend limit) never wakes by itself; say how to restart
+# before terraform runs (a production apply would use up the approved plan) and
+# rather than fail inside migrate. Never started from here: that spends money.
+DB_STATUS="$(aws rds describe-db-clusters --db-cluster-identifier "phoebe-$ENV_NAME" \
+  --query 'DBClusters[0].Status' --output text --region us-east-2 2>/dev/null)" ||
+  DB_STATUS="none" # not created yet: a first deploy creates it below
+case "$DB_STATUS" in
+  stopped | stopping)
+    die "database is $DB_STATUS (spend limit?): run make db-start ENV=$ENV_NAME, then re-run"
+    ;;
+esac
+
 # ---- 1. infra/app ------------------------------------------------------------------
 cd "$REPO_ROOT/infra/app"
 tf_init "$ENV_NAME"
@@ -77,16 +89,6 @@ invoke_ops() {
   log "ops $task: $(head -c 500 "$out")"
   rm -f "$out"
 }
-# A stopped cluster (the spend limit) never wakes by itself; say how to restart
-# rather than fail inside migrate. Never started from here: that spends money.
-DB_STATUS="$(aws rds describe-db-clusters --db-cluster-identifier "phoebe-$ENV_NAME" \
-  --query 'DBClusters[0].Status' --output text --region us-east-2)"
-case "$DB_STATUS" in
-  stopped | stopping)
-    die "database is $DB_STATUS (spend limit?): run make db-start ENV=$ENV_NAME, then re-run"
-    ;;
-esac
-
 invoke_ops migrate
 invoke_ops seed_if_empty
 

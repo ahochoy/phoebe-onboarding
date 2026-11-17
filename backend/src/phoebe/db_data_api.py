@@ -235,6 +235,9 @@ class DataApiDatabase(Database):
             if code == _RESUMING:
                 _log.info("database resuming op=wake")
                 return False
+            if code == _STOPPED:
+                _log.warning("database stopped op=wake")
+                raise DatabaseStopped("stopped") from None
             if code in _OUTAGE:
                 _log.warning("database unavailable op=wake code=%s", code)
                 raise DatabaseUnavailable(code) from None

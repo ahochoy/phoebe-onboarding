@@ -1003,6 +1003,8 @@ def test_deploy_stops_when_cluster_stopped(h: Harness, status: str) -> None:
     assert r.returncode != 0
     assert "run make db-start ENV=staging" in r.stdout + r.stderr
     assert not [a for a in h.argvs("aws") if a[:2] == ["lambda", "invoke"]]
+    # Before terraform: a production apply would spend the approved plan.
+    assert h.calls("terraform") == []
     describe = next(a for a in h.argvs("aws") if "describe-db-clusters" in a)
     assert has_pair(describe, "--db-cluster-identifier", "phoebe-staging")
     assert has_pair(describe, "--region", "us-east-2")
@@ -1070,3 +1072,16 @@ def test_db_start_rejects_bad_args(h: Harness, args: tuple[str, ...]) -> None:
     r = h.run("db-start.sh", *args)
     assert r.returncode != 0
     assert h.calls() == []
+
+
+def test_deploy_proceeds_when_cluster_does_not_exist_yet(h: Harness) -> None:
+    # A first deploy creates the cluster in terraform apply.
+    h.rule(
+        "aws",
+        match=["rds", "describe-db-clusters"],
+        exit=254,
+        stderr="An error occurred (DBClusterNotFoundFault)",
+    )
+    deploy_ok(h)
+    r = h.run("deploy.sh", "staging", API, JOBS)
+    assert r.returncode == 0, r.stdout + r.stderr

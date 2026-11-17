@@ -446,6 +446,12 @@ def test_database_stopped_is_a_database_unavailable() -> None:
     assert issubclass(DatabaseStopped, DatabaseUnavailable)
 
 
+def test_wake_on_a_stopped_cluster_is_database_stopped() -> None:
+    fake = FakeRds(client_error("InvalidResourceStateException"))
+    with pytest.raises(DatabaseStopped):
+        make_db(fake).wake()
+
+
 def test_wake_during_an_outage_is_unavailable() -> None:
     fake = FakeRds(client_error("DatabaseUnavailableException"))
     with pytest.raises(DatabaseUnavailable):
