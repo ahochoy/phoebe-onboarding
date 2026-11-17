@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e tf-check deploy-check db-start db-stop
+.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check eval fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e tf-check deploy-check db-start db-stop
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -84,6 +84,11 @@ db-stop:
 # PHOEBE_* AI settings; see infra/ai/README.md.
 live-check:
 	uv run python backend/scripts/live_chat_check.py
+
+# Owner-run chat evals (costs money; asks first unless YES=1). Same env as
+# live-check, plus MODEL, CASES, REPEAT. See README.md "Evals".
+eval:
+	MODEL="$(MODEL)" CASES="$(CASES)" REPEAT="$(REPEAT)" YES="$(YES)" uv run python -m phoebe.evals.run
 
 # Frontend (run from frontend/; Node version in frontend/.nvmrc).
 fe-install:

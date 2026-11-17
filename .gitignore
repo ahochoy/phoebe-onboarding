@@ -21,6 +21,8 @@ frontend/test-results
 frontend/playwright-report
 # Release plan artifact written by ci/release-plan.sh.
 release-out/
+# make eval results (full answers; synthetic data, but kept local).
+backend/evals/results/
 # Saved Terraform plans from owner applies (e.g. infra/bootstrap/alerts.plan).
 # They can hold sensitive values, such as the alert email.
 *.plan
