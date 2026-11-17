@@ -1,3 +1,4 @@
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -147,7 +148,8 @@ def test_seed_docs_name_the_new_people() -> None:
         for p in (SEED_DIR / "content").iterdir()
         if p.suffix in {".md", ".txt"}
     }
+    texts["manifest.yaml"] = (SEED_DIR / "manifest.yaml").read_text()
     for name, text in texts.items():
-        assert "Jordan Lee" not in text and "Mei" not in text, name
+        assert not re.search(r"\bMei\b|Jordan Lee", text), name
     team = texts["platform-team.md"]
     assert "Melinda Grant" in team and "Jordan Moore" in team

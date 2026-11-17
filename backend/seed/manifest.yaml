@@ -70,7 +70,7 @@ tasks:
      description: "You will shadow on-call in your second month."}
   # Platform (4)
   - {key: meet-buddy, group: platform, position: 1, title: Meet your onboarding buddy,
-     description: "Mei Tanaka will have lunch with you on your first day."}
+     description: "Jordan Moore will have lunch with you on your first day."}
   - {key: platform-tour, group: platform, position: 2, title: Take the Platform systems tour,
      description: "Beacon, Trellis, Lantern, Atlas and Kit at a high level."}
   - {key: first-pr, group: platform, position: 3, title: Ship your first pull request,
