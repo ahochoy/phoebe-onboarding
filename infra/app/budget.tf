@@ -16,3 +16,13 @@ resource "aws_sns_topic_subscription" "budget" {
 
   depends_on = [aws_lambda_permission.budget_sns]
 }
+
+# The db-stopped rule (infra/bootstrap alerts.tf) closes the demo through this
+# Lambda when the cluster stops, e.g. at the spend limit.
+resource "aws_lambda_permission" "budget_events" {
+  statement_id  = "AllowDbStoppedRule"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this["budget"].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = "arn:aws:events:${local.region}:${local.account_id}:rule/${local.prefix}-db-stopped"
+}

@@ -719,6 +719,16 @@ run "budget" {
     )
     error_message = "Only the budget topic may invoke the budget Lambda."
   }
+
+  assert {
+    condition = (
+      aws_lambda_permission.budget_events.principal == "events.amazonaws.com" &&
+      aws_lambda_permission.budget_events.action == "lambda:InvokeFunction" &&
+      aws_lambda_permission.budget_events.source_arn == "arn:aws:events:us-east-2:123456789012:rule/phoebe-staging-db-stopped" &&
+      aws_lambda_permission.budget_events.function_name == aws_lambda_function.this["budget"].function_name
+    )
+    error_message = "Only this env's db-stopped rule (infra/bootstrap) may invoke the budget Lambda through EventBridge."
+  }
 }
 
 run "outputs" {
