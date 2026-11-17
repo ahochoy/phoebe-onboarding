@@ -58,7 +58,13 @@ export function HomeTab() {
             to="/admin/documents"
             title="Documents"
             value={String(s.documents)}
-            detail={`${s.indexed} indexed · ${s.processing} processing · ${s.failed} failed`}
+            detail={[
+              `${s.indexed} indexed`,
+              s.processing > 0 ? `${s.processing} processing` : null,
+              s.failed > 0 ? `${s.failed} failed` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           />
           <Card
             to="/admin/groups"

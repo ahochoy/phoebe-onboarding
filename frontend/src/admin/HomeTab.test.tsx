@@ -46,6 +46,7 @@ describe("HomeTab", () => {
       http.get("/api/documents", () =>
         HttpResponse.json([
           makeDoc("a", "company"),
+          makeDoc("a2", "company"),
           makeDoc("b", "company", { status: "processing" }),
           makeDoc("c", "company", { status: "failed" }),
         ]),
@@ -58,10 +59,12 @@ describe("HomeTab", () => {
     const people = await screen.findByRole("link", { name: /People onboarding/ });
     expect(people).toHaveAttribute("href", "/admin/people");
     expect(within(people).getByText("2")).toBeInTheDocument();
+    expect(within(people).getByText("1 still onboarding · 75% average")).toBeInTheDocument();
 
     const docs = screen.getByRole("link", { name: /Documents/ });
     expect(docs).toHaveAttribute("href", "/admin/documents");
-    expect(await within(docs).findByText("3")).toBeInTheDocument();
+    expect(await within(docs).findByText("4")).toBeInTheDocument();
+    expect(within(docs).getByText("2 indexed · 1 processing · 1 failed")).toBeInTheDocument();
 
     const groups = screen.getByRole("link", { name: /Groups/ });
     expect(groups).toHaveAttribute("href", "/admin/groups");
@@ -70,6 +73,18 @@ describe("HomeTab", () => {
     const tasks = screen.getByRole("link", { name: /Task completion/ });
     expect(tasks).toHaveAttribute("href", "/admin/people");
     expect(await within(tasks).findByText("75%")).toBeInTheDocument();
+  });
+
+  it("omits processing and failed when there are none", async () => {
+    server.use(
+      http.get("/api/documents", () =>
+        HttpResponse.json([makeDoc("a", "company"), makeDoc("b", "company")]),
+      ),
+    );
+    renderHome();
+    const docs = await screen.findByRole("link", { name: /Documents/ });
+    expect(await within(docs).findByText("2 indexed")).toBeInTheDocument();
+    expect(docs).not.toHaveTextContent(/processing|failed/);
   });
 
   it("shows an error for a failed query", async () => {
