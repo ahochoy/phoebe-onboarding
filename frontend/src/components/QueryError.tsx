@@ -1,3 +1,4 @@
+import { PhoebeArt } from "./PhoebeArt";
 import { messageFor, STALE_COPY } from "../lib/messages";
 
 /**
@@ -16,8 +17,11 @@ export function QueryError({ error, stale = false }: { error: unknown; stale?: b
     );
   }
   return (
-    <p role="alert" className="text-sm font-medium text-danger">
-      {messageFor(error)}
-    </p>
+    <div className="flex items-center gap-3">
+      <PhoebeArt pose="oops-error" size={48} />
+      <p role="alert" className="text-sm font-medium text-danger">
+        {messageFor(error)}
+      </p>
+    </div>
   );
 }

@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { apiGet, apiSend } from "../api/client";
 import type { DocumentOut } from "../api/types";
 import { formatStart } from "../lib/dates";
+import { PhoebeArt } from "../components/PhoebeArt";
 import { QueryError } from "../components/QueryError";
 import { PAUSED_COPY } from "../lib/messages";
 import { useStatus } from "../state/status";
@@ -127,7 +128,10 @@ export function DocumentsTab() {
         <QueryError error={error} stale={data !== undefined} />
       )}
       {!data ? null : data.length === 0 ? (
-        <p className="text-sm text-ink/80">No documents yet.</p>
+        <div className="flex items-center gap-3">
+          <PhoebeArt pose="pointing" size={96} />
+          <p className="text-sm text-ink/80">No documents yet.</p>
+        </div>
       ) : (
         // The row buttons are focusable, so keyboard users can scroll the table sideways.
         <div className="overflow-x-auto rounded-md border border-ink/20 bg-white">

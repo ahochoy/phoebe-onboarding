@@ -4,7 +4,7 @@ import { Navigate, Outlet, useNavigate } from "react-router";
 import { ApiError, onSessionExpired } from "../api/client";
 import { ChatRuntimeProvider } from "../chat/ChatRuntimeProvider";
 import { Header } from "../components/Header";
-import { Mascot } from "../components/Mascot";
+import { PetalLoader } from "../components/PetalLoader";
 import { WelcomeSplash } from "../components/WelcomeSplash";
 import { messageFor } from "../lib/messages";
 import { nudgeWake } from "../lib/wake";
@@ -35,8 +35,7 @@ export function SessionGate() {
   if (me.isPending) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3">
-        <Mascot size={64} />
-        <p role="status">Getting Phoebe ready…</p>
+        <PetalLoader size={64} label="Getting Phoebe ready…" />
       </main>
     );
   }

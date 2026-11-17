@@ -19,9 +19,13 @@ describe("Landing", () => {
     const { container } = renderApp("/");
     expect(await screen.findByLabelText(/password/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /enter|start|sign in/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Phoebe" })).toBeInTheDocument();
-    expect(screen.getByText(/onboarding/i)).toBeInTheDocument();
-    expect(container.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(
+      screen.getByRole("heading", {
+        name: "Welcome to Larkspur Labs. I'm Phoebe, your onboarding guide.",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/ask a question and get answers/i)).toBeInTheDocument();
+    expect(container.querySelector('img[aria-hidden="true"][alt=""]')).not.toBeNull();
   });
 
   it('wrong password shows "That password didn\'t work." and the field keeps focus', async () => {

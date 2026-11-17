@@ -1,4 +1,5 @@
 import type { DocumentOut, GroupKind } from "../api/types";
+import { PhoebeArt } from "../components/PhoebeArt";
 import { QueryError } from "../components/QueryError";
 import { groupByTier, TIER_ORDER } from "../lib/tiers";
 import { DocIcon } from "./DocIcon";
@@ -60,7 +61,10 @@ export function DocumentsPanel() {
     return (
       <div className="space-y-2">
         <QueryError error={error} stale />
-        <p className="text-sm text-ink/80">There are no documents for you yet.</p>
+        <div className="flex items-center gap-3">
+          <PhoebeArt pose="pointing" size={96} />
+          <p className="text-sm text-ink/80">There are no documents for you yet.</p>
+        </div>
       </div>
     );
   }
