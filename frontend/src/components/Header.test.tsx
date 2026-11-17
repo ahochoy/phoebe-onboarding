@@ -18,6 +18,14 @@ describe("Header", () => {
     expect(await screen.findByText("Acme Corp")).toBeInTheDocument();
   });
 
+  it("shows the Larkspur Labs logo and the Phoebe name", async () => {
+    useSession();
+    renderApp("/employee");
+    const header = within(await screen.findByRole("banner"));
+    expect(header.getByRole("img", { name: "Larkspur Labs" })).toBeInTheDocument();
+    expect(header.getByText("Phoebe")).toBeInTheDocument();
+  });
+
   it("hides the persona block in admin mode", async () => {
     useSession();
     renderApp("/admin/people");

@@ -6,7 +6,9 @@
 
   --color-ink: #1f1a17;
   --color-surface: #faf7f4;
-  --color-accent: #5c4033; /* phoebe slate-brown, ~9:1 on surface */
+  --color-accent: #0b2772; /* Larkspur navy */
+  --color-highlight: #665ae1; /* petal violet; 4.5:1+ on white */
+  --color-highlight-soft: #eef0fe; /* petal tint for hover and active backgrounds */
   --color-ok: #166534;
   --color-warn: #8a4b00;
   --color-danger: #b42318;

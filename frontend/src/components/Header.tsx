@@ -3,10 +3,10 @@ import { ToggleGroup } from "radix-ui";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { apiGet, apiSend } from "../api/client";
+import logo from "../assets/brand/larkspur-logo.svg";
 import type { GroupNode } from "../api/types";
 import { formatStart } from "../lib/dates";
 import { clearHadSession, forgetSession, useMe } from "../session/useMe";
-import { Mascot } from "./Mascot";
 import { ResetDialog } from "./ResetDialog";
 import { StatusPill } from "./StatusPill";
 
@@ -44,7 +44,8 @@ export function Header() {
     <header className="border-b border-ink/15 bg-white">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
         <div className="flex items-center gap-2">
-          <Mascot size={36} />
+          <img src={logo} alt="Larkspur Labs" className="h-7 w-auto" />
+          <span aria-hidden="true" className="h-6 w-px bg-ink/20" />
           <span className="text-lg font-semibold">Phoebe</span>
           {company && <span className="text-sm text-ink/80">{company}</span>}
         </div>
