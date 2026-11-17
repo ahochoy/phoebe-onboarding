@@ -100,6 +100,38 @@ availability. The source of truth is `backend/src/phoebe/chat/refusals.py`.
 | 2307 | `blocked` | The guardrail blocked the question or the answer. |
 | 3115 | `model_unavailable` | The embedding, answer or guardrail model call failed. |
 
+## Evals
+
+`make eval` runs a fixed question set (`backend/evals/questions.yaml`, about 30
+cases) through the real chat pipeline and grades every answer without an AI
+judge: answered or refused with the right code, which documents it cites or
+must never cite or offer, and the facts it must contain. It is owner-run from
+a terminal, never in CI, and it **costs money**: it prints the number of calls
+and an estimated cost, then asks before calling AWS (`YES=1` skips the
+question). Every run spends from the account's shared spend limit, and at 70%
+of the budget the demo pauses chat.
+
+```sh
+make eval                          # the production Haiku harness only
+make eval MODEL=all                # haiku, haiku-direct and every candidate
+make eval MODEL=haiku,glm-5.3 CASES=list,fact REPEAT=3
+```
+
+- **Environment:** the same as `make live-check`: `PHOEBE_LIVE_DATABASE_URL` (a database whose name ends in `_live`; it is migrated and seeded) and the live `PHOEBE_*` AI settings. It runs the app in-process and never touches staging or production.
+- **Models:**
+  - `haiku` is the production harness.
+  - `haiku-direct` sends Haiku 4.5 through the same direct Bedrock ConverseStream call as the candidates. It is a control: it shows how far that call shifts results from the harness.
+  - The candidates are `kimi-k3.1`, `glm-5.3` and `gpt-oss-120b`.
+  - Prices live in `backend/src/phoebe/evals/candidates.py`, with their source and date. A price the Bedrock pricing page does not list is shown as "price unknown", never guessed.
+- **Isolation:** every case logs in fresh, so it gets its own session and history. Follow-up questions play their earlier turns for real.
+- **Output:** a table per model (passed, failed, flaky, forbidden hits, refusal accuracy, latency, cost per answer, and pass counts by category), then one line per failing check. The full answers go to `backend/evals/results/<time>-<model>.jsonl`, which is git-ignored.
+- **Verdict (quality first):** a candidate qualifies only if, on the same run:
+  1. it passes at least as many cases as `haiku`;
+  2. it has zero forbidden citations and leaks;
+  3. it has no more flaky cases than `haiku`.
+
+  The cheapest qualifier wins, and latency breaks a tie. Otherwise the verdict is "keep Haiku 4.5". A switch still goes through a real staging harness and an `infra/ai` change.
+
 ## Design
 
 See [`docs/superpowers/specs/2026-11-09-phoebe-design.md`](docs/superpowers/specs/2026-11-09-phoebe-design.md).

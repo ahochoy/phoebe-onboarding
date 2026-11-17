@@ -21,3 +21,5 @@ frontend/test-results
 frontend/playwright-report
 # Release plan artifact written by ci/release-plan.sh.
 release-out/
+# make eval results (full answers; synthetic data, but kept local).
+backend/evals/results/
