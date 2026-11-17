@@ -155,6 +155,38 @@ can be checked offline):
    shows the "waking up" copy (`503 database_unavailable`) rather than a 502,
    and `/api/health` stays 200 without resuming the cluster.
 
+### Rollout results (v0.1.1, 2026-11-17)
+
+- **R21, server half: pass.** With staging Aurora paused at 0 ACU, `/api/health`
+  returned 200 three times (3.7 s on a cold start, then 0.26 s) and the cluster
+  stayed at 0 ACU. The browser half (the "waking up" copy) is an owner check.
+- **Login throttle: pass.** Ten wrong passwords from one IPv4 address got 401,
+  the 11th and 12th got 429 `too_many_attempts`. **IPv6 keying: not verified**
+  (the local tooling blocked the request); R22's parsing is unit-tested only.
+- **R26 (idle stays idle): pending.** It needs about 25 hours with no traffic.
+- **v0.1.0 never deployed.** Its Plan stage failed with "Failed to write plan
+  file": `ci/release-plan.sh` received a relative output directory and wrote to
+  it after `cd infra/app`. Fixed in #15 (absolute path, plus a regression test).
+  Plan is read-only, so nothing reached production.
+- **Spend limit stops Aurora.** At 07:07 UTC the project's spend limit
+  (`AWSServiceRoleForBudgetsSpendLimitMember`) called `StopDBCluster` on
+  staging. A stopped cluster is not the 0 ACU auto-pause: the Data API returns
+  `InvalidResourceStateException ... is in stopped state`, and `ops migrate`
+  failed the deploy. Raising the limit does not restart the cluster. Spend-limit
+  mode (below, #19) now handles this; restart with `make db-start ENV=<env>`.
+- **v0.1.1 released** from `de7d908`: plan `56 to add, 0 to change, 0 to
+  destroy`; migrate applied 001 to 004; seed loaded 6 groups, 3 people, 21
+  tasks, 12 documents, 123 chunks; smoke OK; images tagged `release-v0.1.1`
+  and `release-v0.1.1-jobs`. Production runs Titan embeddings, the Haiku
+  harness (shared with staging), the Bedrock rewriter and guardrail v1. The
+  owner changed the production password before approving and confirmed a
+  cited Markdown answer on production.
+- **Custom domain.** `phoebe-onboarding.hochoy.dev` is a proxied Cloudflare
+  record with a 302 redirect rule (path and query string kept) to
+  `https://d3l53cq2s2ex7m.cloudfront.net/`. CloudFront has no alternate domain:
+  a request with that Host header gets CloudFront's 403. Serving the domain
+  directly would need an ACM certificate in us-east-1 plus `aliases`.
+
 ### Spend-limit mode
 
 The account's spend limit ($30 a month, shared with other projects) stops
