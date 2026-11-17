@@ -110,3 +110,43 @@ def test_verify_heading_requires_ascii_space_after_hashes() -> None:
 def test_verify_heading_allows_at_most_three_leading_spaces() -> None:
     assert verify("    # uncited\n\nA [P1].", _passages(1)) is None
     assert verify("   # Heading\n\nA [P1].", _passages(1)) is not None
+
+
+LEAD_IN = (
+    "Based on the Holiday Calendar, here are the holidays in November and December:"
+)
+
+
+def test_verify_accepts_uncited_lead_in_before_cited_paragraph() -> None:
+    answer = f"{LEAD_IN}\n\n**November 2026:** Thanksgiving Day (November 26). [P2]"
+    out = verify(answer, _passages(2))
+    assert isinstance(out, Verified)
+    assert out.text.startswith(LEAD_IN)
+    assert [c.chunk_id for c in out.citations] == ["c2"]
+
+
+def test_verify_rejects_lead_in_with_nothing_after_it() -> None:
+    assert verify(f"A [P1].\n\n{LEAD_IN}", _passages(2)) is None
+    assert verify(LEAD_IN, _passages(2)) is None
+
+
+def test_verify_lead_in_only_at_the_start() -> None:
+    answer = f"A [P1].\n\n{LEAD_IN}\n\nB [P2]."
+    assert verify(answer, _passages(2)) is None
+
+
+def test_verify_rejects_uncited_paragraph_without_colon() -> None:
+    answer = "Here are the holidays.\n\nThanksgiving Day. [P1]"
+    assert verify(answer, _passages(1)) is None
+
+
+def test_verify_lead_in_must_be_one_short_line() -> None:
+    two_lines = "Thanksgiving is a holiday.\nHere are the rest:\n\nB [P1]."
+    assert verify(two_lines, _passages(1)) is None
+    long_line = "x" * 200 + ":\n\nB [P1]."
+    assert verify(long_line, _passages(1)) is None
+
+
+def test_verify_lead_in_still_needs_a_cited_follow_up() -> None:
+    answer = f"{LEAD_IN}\n\nThanksgiving Day.\n\nB [P1]."
+    assert verify(answer, _passages(1)) is None
