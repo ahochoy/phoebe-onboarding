@@ -41,6 +41,14 @@ class DatabaseUnavailable(Exception):
     """
 
 
+class DatabaseStopped(DatabaseUnavailable):
+    """The cluster is stopped (the spend limit, or a manual stop). Unlike a paused
+    cluster it never wakes by itself: the owner runs `make db-start`.
+
+    The API maps it to `503 database_stopped`.
+    """
+
+
 class Database(Protocol):
     def fetch(
         self, sql: str, params: Mapping[str, Any] | None = None
