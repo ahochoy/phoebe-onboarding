@@ -4,8 +4,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { apiSend } from "../api/client";
 import logo from "../assets/brand/larkspur-logo.svg";
-import { formatStart } from "../lib/dates";
-import { clearHadSession, forgetSession, useMe } from "../session/useMe";
+import { clearHadSession, forgetSession } from "../session/useMe";
 import { ResetDialog } from "./ResetDialog";
 import { StatusPill } from "./StatusPill";
 
@@ -13,7 +12,6 @@ const toggleItem =
   "inline-flex min-h-8 min-w-16 cursor-pointer items-center justify-center rounded-md px-3 py-1 text-sm font-medium data-[state=on]:bg-accent data-[state=on]:text-white";
 
 export function Header() {
-  const me = useMe();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -36,22 +34,7 @@ export function Header() {
   return (
     <header className="border-b border-ink/15 bg-white">
       <div className="mx-auto flex max-w-screen-2xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
-        <div className="flex items-center gap-2">
-          <img src={logo} alt="Larkspur Labs" className="h-7 w-auto" />
-          <span aria-hidden="true" className="h-6 w-px bg-ink/20" />
-          <span className="text-lg font-semibold">Phoebe</span>
-        </div>
-
-        {mode === "employee" && me.data && (
-          <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
-            <span className="font-medium">{me.data.name}</span>
-            <span>{me.data.team_name}</span>
-            <span aria-hidden="true">·</span>
-            <span>{`Started ${formatStart(me.data.start_date)}`}</span>
-            <span aria-hidden="true">·</span>
-            <span>{`Day ${me.data.day_number}`}</span>
-          </div>
-        )}
+        <img src={logo} alt="Larkspur Labs" className="h-7 w-auto" />
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <StatusPill />

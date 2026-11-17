@@ -115,7 +115,7 @@ describe("Employee page", () => {
     expect(screen.getByLabelText("Ask Phoebe a question")).toHaveValue("hello");
   });
 
-  it("persona card shows manager and buddy; the sticky strip shows Day N and start date", async () => {
+  it("the profile card shows Day N and start date; the people list shows manager and buddy", async () => {
     setWide(true);
     renderEmployee();
     const card = await screen.findByRole("group", { name: "About you" });
@@ -131,6 +131,6 @@ describe("Employee page", () => {
     expect(screen.getByRole("main")).toHaveClass("max-w-screen-2xl");
     expect(screen.getByRole("banner").firstElementChild).toHaveClass("max-w-screen-2xl");
     const grid = chat.closest('[class*="lg:grid-cols-"]');
-    expect(grid).toHaveClass("lg:grid-cols-[20rem_minmax(0,1fr)_22rem]");
+    expect(grid).toHaveClass("lg:grid-cols-[30rem_minmax(0,1fr)_22rem]");
   });
 });

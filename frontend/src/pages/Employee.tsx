@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { ChatPanel } from "../chat/ChatPanel";
 import { DocumentsPanel } from "../documents/DocumentsPanel";
 import { ViewerProvider } from "../documents/ViewerProvider";
-import { DayStrip, PersonaCard } from "../employee/PersonaCard";
+import { PersonaCard, ProfileCard } from "../employee/PersonaCard";
 import { TasksPanel } from "../employee/TasksPanel";
 import { LG_UP, useMediaQuery } from "../lib/useMediaQuery";
 
@@ -55,12 +55,12 @@ export function Employee() {
       <Tabs.Root
         value={tab}
         onValueChange={(v) => setTab(v as TabId)}
-        className="flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[20rem_minmax(0,1fr)_22rem] lg:gap-4"
+        className="flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[30rem_minmax(0,1fr)_22rem] lg:gap-4"
       >
         {panel(
           "tasks",
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
-            <DayStrip />
+            <ProfileCard />
             <PersonaCard />
             <TasksPanel />
           </div>,

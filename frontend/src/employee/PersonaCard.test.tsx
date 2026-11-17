@@ -6,14 +6,14 @@ import { ME, useSession } from "../test/fixtures";
 import { makeClient } from "../test/render";
 import { server } from "../test/server";
 import { initials } from "./photos";
-import { DayStrip, PersonaCard } from "./PersonaCard";
+import { PersonaCard, ProfileCard } from "./PersonaCard";
 
 function useCard(me: Partial<typeof ME> = {}) {
   useSession();
   server.use(http.get("/api/me", () => HttpResponse.json({ ...ME, ...me })));
   return render(
     <QueryClientProvider client={makeClient()}>
-      <DayStrip />
+      <ProfileCard />
       <PersonaCard />
     </QueryClientProvider>,
   );
@@ -52,11 +52,27 @@ describe("PersonaCard", () => {
   });
 });
 
-describe("DayStrip", () => {
-  it("is sticky and shows the day and start date", async () => {
+describe("ProfileCard", () => {
+  it("is a sticky white card with the name, team, day and start date", async () => {
     useCard();
-    const day = await screen.findByText(/^Day 5/);
-    expect(day).toHaveTextContent("Day 5 · Started Nov 10, 2026");
-    expect(day.closest(".sticky")).not.toBeNull();
+    const card = await screen.findByRole("group", { name: "Your profile" });
+    expect(card).toHaveClass("sticky", "bg-white");
+    expect(card).toHaveTextContent("Alex Rivera");
+    expect(card).toHaveTextContent("Platform");
+    expect(card).toHaveTextContent("Day 5 · Started Nov 10, 2026");
+  });
+});
+
+describe("PersonaCard layout", () => {
+  it("lists the manager above the buddy, each as one row with the avatar on the left", async () => {
+    const { container } = useCard();
+    const people = await screen.findByRole("group", { name: "About you" });
+    expect(people).not.toHaveClass("bg-white");
+    const rows = people.querySelectorAll(":scope > div");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Melinda Grant");
+    expect(rows[1]).toHaveTextContent("Jordan Moore");
+    rows.forEach((row) => expect(row).toHaveClass("flex-row"));
+    expect(rows[0]?.firstElementChild).toBe(container.querySelector('img[src*="melinda-grant"]'));
   });
 });
