@@ -29,21 +29,20 @@ describe("initials", () => {
 
 describe("PersonaCard", () => {
   it("shows photos, names and roles for the manager and the buddy", async () => {
-    useCard();
-    const photo = await screen.findByRole("img", { name: "Melinda Grant" });
-    expect(photo.getAttribute("src")).toContain("melinda-grant");
+    const { container } = useCard();
+    await screen.findByText("Melinda Grant");
+    expect(container.querySelector('img[src*="melinda-grant"]')).toBeInTheDocument();
     expect(screen.getByText("Engineering Manager, Platform")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Jordan Moore" })).toBeInTheDocument();
+    expect(container.querySelector('img[src*="jordan-moore"]')).toBeInTheDocument();
     expect(screen.getByText("Jordan Moore")).toBeInTheDocument();
     expect(screen.getByText("Senior Engineer")).toBeInTheDocument();
   });
 
   it("falls back to initials when a person has no photo", async () => {
-    useCard({ manager: "Elena Petrova", manager_role: null });
-    const fallback = await screen.findByLabelText("Elena Petrova");
-    expect(fallback).toHaveTextContent("EP");
-    expect(fallback.tagName).toBe("SPAN");
-    expect(screen.queryByRole("img", { name: "Melinda Grant" })).not.toBeInTheDocument();
+    const { container } = useCard({ manager: "Elena Petrova", manager_role: null });
+    expect(await screen.findByText("Elena Petrova")).toBeInTheDocument();
+    expect(screen.getByText("EP")).toBeInTheDocument();
+    expect(container.querySelector('img[src*="melinda-grant"]')).not.toBeInTheDocument();
     expect(screen.queryByText("null")).not.toBeInTheDocument();
   });
 

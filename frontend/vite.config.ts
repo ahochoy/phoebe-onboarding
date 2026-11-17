@@ -5,7 +5,8 @@ import { defineConfig, type Plugin } from "vite";
 
 const apiTarget = `http://localhost:${process.env.PHOEBE_PORT ?? 8080}`;
 
-// Adds og:image only when VITE_SITE_ORIGIN is set (production deploys); PR previews omit it.
+// Adds og:image only when VITE_SITE_ORIGIN is set. ci/deploy.sh sets it for staging and production;
+// PR previews build without it, so they omit the tag.
 function ogImage(base: string): Plugin {
   return {
     name: "phoebe-og-image",

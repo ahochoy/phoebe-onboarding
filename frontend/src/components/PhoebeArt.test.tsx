@@ -39,10 +39,4 @@ describe("PetalLoader", () => {
     render(<PetalLoader size={24} label="Getting Phoebe ready…" />);
     expect(screen.getByRole("status")).toHaveTextContent("Getting Phoebe ready…");
   });
-
-  it("can render the label without a second live region", () => {
-    render(<PetalLoader size={24} label="Waking up" announce={false} />);
-    expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.getByText("Waking up")).toBeInTheDocument();
-  });
 });

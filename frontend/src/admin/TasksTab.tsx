@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { apiSend } from "../api/client";
 import type { TaskView } from "../api/types";
 import { useTasks } from "../employee/useTasks";
+import { PhoebeArt } from "../components/PhoebeArt";
 import { QueryError } from "../components/QueryError";
 import { isWebUrl } from "../lib/links";
 import { messageFor } from "../lib/messages";
@@ -193,7 +194,10 @@ export function TasksTab() {
         <QueryError error={error} stale={data !== undefined} />
       )}
       {!data ? null : data.length === 0 ? (
-        <p className="text-sm text-ink/80">No tasks yet.</p>
+        <div className="flex items-center gap-3">
+          <PhoebeArt pose="pointing" size={96} />
+          <p className="text-sm text-ink/80">No tasks yet.</p>
+        </div>
       ) : (
         <div className="space-y-5">
           {sections(data).map((s) => (

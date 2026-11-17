@@ -1,10 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { ToggleGroup } from "radix-ui";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { apiGet, apiSend } from "../api/client";
+import { apiSend } from "../api/client";
 import logo from "../assets/brand/larkspur-logo.svg";
-import type { GroupNode } from "../api/types";
 import { formatStart } from "../lib/dates";
 import { clearHadSession, forgetSession, useMe } from "../session/useMe";
 import { ResetDialog } from "./ResetDialog";
@@ -19,12 +18,6 @@ export function Header() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [loggingOut, setLoggingOut] = useState(false);
-
-  const groups = useQuery({
-    queryKey: ["groups"],
-    queryFn: () => apiGet<GroupNode[]>("/api/groups"),
-  });
-  const company = (groups.data?.find((g) => g.kind === "company") ?? groups.data?.[0])?.name;
 
   const mode = pathname.startsWith("/admin") ? "admin" : "employee";
 
@@ -47,7 +40,6 @@ export function Header() {
           <img src={logo} alt="Larkspur Labs" className="h-7 w-auto" />
           <span aria-hidden="true" className="h-6 w-px bg-ink/20" />
           <span className="text-lg font-semibold">Phoebe</span>
-          {company && <span className="text-sm text-ink/80">{company}</span>}
         </div>
 
         {mode === "employee" && me.data && (

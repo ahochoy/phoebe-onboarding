@@ -1,5 +1,6 @@
 import { Check, Circle } from "lucide-react";
 import type { GroupKind, TaskView } from "../api/types";
+import { PhoebeArt } from "../components/PhoebeArt";
 import { groupByTier, TIER_ORDER } from "../lib/tiers";
 
 function tierTitle(kind: GroupKind, tasks: TaskView[]): string {
@@ -22,7 +23,10 @@ export function PersonChecklist({ name, tasks }: { name: string; tasks: TaskView
         {`${name}'s checklist`}
       </h3>
       {visible.length === 0 ? (
-        <p className="text-sm text-ink/80">No tasks yet.</p>
+        <div className="flex items-center gap-3">
+          <PhoebeArt pose="pointing" size={96} />
+          <p className="text-sm text-ink/80">No tasks yet.</p>
+        </div>
       ) : (
         visible.map((kind) => (
           <div key={kind}>

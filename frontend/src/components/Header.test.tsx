@@ -15,7 +15,6 @@ describe("Header", () => {
     expect(header.getByText("Platform")).toBeInTheDocument();
     expect(header.getByText(/Nov 10, 2026/)).toBeInTheDocument();
     expect(header.getByText("Day 5")).toBeInTheDocument();
-    expect(await screen.findByText("Acme Corp")).toBeInTheDocument();
   });
 
   it("shows the Larkspur Labs logo and the Phoebe name", async () => {

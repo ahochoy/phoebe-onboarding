@@ -4,6 +4,7 @@ import { Navigate, Outlet, useNavigate } from "react-router";
 import { ApiError, onSessionExpired } from "../api/client";
 import { ChatRuntimeProvider } from "../chat/ChatRuntimeProvider";
 import { Header } from "../components/Header";
+import { PhoebeArt } from "../components/PhoebeArt";
 import { PetalLoader } from "../components/PetalLoader";
 import { WelcomeSplash } from "../components/WelcomeSplash";
 import { messageFor } from "../lib/messages";
@@ -47,6 +48,7 @@ export function SessionGate() {
     }
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3 p-4 text-center">
+        <PhoebeArt pose="oops-error" size={96} />
         <p role="alert">{messageFor(err)}</p>
         <button
           type="button"

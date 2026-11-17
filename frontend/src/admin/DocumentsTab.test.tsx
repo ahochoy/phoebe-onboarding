@@ -148,6 +148,16 @@ describe("DocumentsTab", () => {
       }
     });
 
+    it("section headers show the count as (3) with no stray space", async () => {
+      mockList();
+      renderTab();
+      await screen.findByText("Handbook");
+      const header = screen.getByRole("button", { name: "Acme Corp (3 documents)" });
+      const visible = header.cloneNode(true) as HTMLElement;
+      visible.querySelectorAll(".sr-only").forEach((el) => el.remove());
+      expect(visible.textContent?.replace(/\s+/g, " ").trim()).toBe("Acme Corp (3)");
+    });
+
     it("collapsing Platform hides its documents, and the choice survives a remount", async () => {
       mockList();
       const user = userEvent.setup();

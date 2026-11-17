@@ -37,8 +37,10 @@ function Section({
           <span>
             {node.group.name}{" "}
             <span className="font-normal text-ink/70">
-              ({node.count}{" "}
-              <span className="sr-only">{node.count === 1 ? "document" : "documents"}</span>)
+              <span aria-hidden="true">({node.count})</span>
+              <span className="sr-only">
+                ({node.count} {node.count === 1 ? "document" : "documents"})
+              </span>
             </span>
           </span>
         </Collapsible.Trigger>

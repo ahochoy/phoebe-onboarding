@@ -16,18 +16,17 @@ export function PersonAvatar({
       {photo ? (
         <img
           src={photo}
-          alt={name}
+          alt=""
           width={64}
           height={64}
           className="size-16 rounded-full object-cover"
         />
       ) : (
         <span
-          role="img"
-          aria-label={name}
+          aria-hidden="true"
           className="flex size-16 items-center justify-center rounded-full bg-highlight-soft text-lg font-semibold text-accent"
         >
-          <span aria-hidden="true">{initials(name)}</span>
+          {initials(name)}
         </span>
       )}
       <p className="text-xs uppercase tracking-wide text-ink/70">{label}</p>
