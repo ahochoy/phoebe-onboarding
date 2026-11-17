@@ -1,3 +1,5 @@
+import { ChevronDown } from "lucide-react";
+import { Collapsible } from "radix-ui";
 import type { DocumentOut, GroupKind } from "../api/types";
 import { PhoebeArt } from "../components/PhoebeArt";
 import { QueryError } from "../components/QueryError";
@@ -77,16 +79,29 @@ export function DocumentsPanel() {
         const docs = tiers[kind];
         const headingId = `docs-tier-${kind}`;
         return (
-          <section key={kind} aria-labelledby={headingId}>
-            <h3 id={headingId} className="mb-1 text-sm font-semibold text-accent">
-              {tierTitle(kind, docs)}
-            </h3>
-            <ul>
-              {docs.map((doc) => (
-                <DocRow key={doc.id} doc={doc} onOpen={() => viewer.open(doc.id)} />
-              ))}
-            </ul>
-          </section>
+          <Collapsible.Root key={kind} defaultOpen asChild>
+            <section aria-labelledby={headingId}>
+              <h3 className="mb-1 text-sm font-semibold text-accent">
+                <Collapsible.Trigger
+                  id={headingId}
+                  className="group flex min-h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-left hover:bg-highlight-soft"
+                >
+                  {tierTitle(kind, docs)}
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180"
+                  />
+                </Collapsible.Trigger>
+              </h3>
+              <Collapsible.Content>
+                <ul>
+                  {docs.map((doc) => (
+                    <DocRow key={doc.id} doc={doc} onOpen={() => viewer.open(doc.id)} />
+                  ))}
+                </ul>
+              </Collapsible.Content>
+            </section>
+          </Collapsible.Root>
         );
       })}
     </div>

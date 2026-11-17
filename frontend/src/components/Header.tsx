@@ -33,7 +33,7 @@ export function Header() {
 
   return (
     <header className="border-b border-ink/15 bg-white">
-      <div className="mx-auto flex max-w-screen-2xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
+      <div className="mx-auto flex max-w-[120rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
         <img src={logo} alt="Larkspur Labs" className="h-7 w-auto" />
 
         <div className="ml-auto flex flex-wrap items-center gap-2">

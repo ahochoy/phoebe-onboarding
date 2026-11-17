@@ -128,9 +128,9 @@ describe("Employee page", () => {
     setWide(true);
     renderApp("/employee");
     const chat = await screen.findByRole("region", { name: "Chat" });
-    expect(screen.getByRole("main")).toHaveClass("max-w-screen-2xl");
-    expect(screen.getByRole("banner").firstElementChild).toHaveClass("max-w-screen-2xl");
+    expect(screen.getByRole("main")).toHaveClass("max-w-[120rem]");
+    expect(screen.getByRole("banner").firstElementChild).toHaveClass("max-w-[120rem]");
     const grid = chat.closest('[class*="lg:grid-cols-"]');
-    expect(grid).toHaveClass("lg:grid-cols-[30rem_minmax(0,1fr)_22rem]");
+    expect(grid).toHaveClass("lg:grid-cols-[30rem_minmax(0,1fr)_20rem]", "lg:gap-6");
   });
 });

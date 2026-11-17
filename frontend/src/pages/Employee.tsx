@@ -55,7 +55,7 @@ export function Employee() {
       <Tabs.Root
         value={tab}
         onValueChange={(v) => setTab(v as TabId)}
-        className="flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[30rem_minmax(0,1fr)_22rem] lg:gap-4"
+        className="flex h-full min-h-0 flex-col lg:grid lg:grid-cols-[30rem_minmax(0,1fr)_20rem] lg:gap-6"
       >
         {panel(
           "tasks",
