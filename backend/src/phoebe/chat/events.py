@@ -1,13 +1,10 @@
 """Wire shapes of the chat SSE events, shared by the service and the OpenAPI
 export. Field order is the wire order; the JSON must not change shape."""
 
-from typing import Literal
-
 from pydantic import BaseModel
 
+from phoebe.chat.refusals import RefusalCode
 from phoebe.chat.verify import Citation
-
-Reason = Literal["no_support", "verification_failed", "blocked", "model_unavailable"]
 
 
 class MetaEvent(BaseModel):
@@ -26,7 +23,8 @@ class ClosestDoc(BaseModel):
 class DoneEvent(BaseModel):
     text: str
     refused: bool
-    reason: Reason | None
+    # The public refusal code (see chat/refusals.py), never the internal name.
+    reason: RefusalCode | None
     citations: list[Citation]
     closest: list[ClosestDoc]
 

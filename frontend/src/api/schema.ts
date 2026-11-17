@@ -537,7 +537,7 @@ export interface components {
             /** Closest */
             closest: components["schemas"]["ClosestDoc"][];
             /** Reason */
-            reason: ("no_support" | "verification_failed" | "blocked" | "model_unavailable") | null;
+            reason: ("1001" | "1204" | "2307" | "3115") | null;
             /** Refused */
             refused: boolean;
             /** Text */

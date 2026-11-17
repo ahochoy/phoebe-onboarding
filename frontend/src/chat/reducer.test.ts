@@ -58,7 +58,7 @@ describe("chatReducer", () => {
     const refusal: DoneEvent = {
       text: "I couldn't find that in your documents.",
       refused: true,
-      reason: "no_support",
+      reason: "1001",
       citations: [],
       closest: [{ document_id: "d2", title: "Benefits" }],
     };
@@ -67,7 +67,7 @@ describe("chatReducer", () => {
       text: "I couldn't find that in your documents.",
       status: "done",
       refused: true,
-      reason: "no_support",
+      reason: "1001",
       citations: [],
       closest: [{ document_id: "d2", title: "Benefits" }],
     });

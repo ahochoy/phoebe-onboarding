@@ -75,7 +75,7 @@ Settings are `PHOEBE_*` environment variables. Every default works offline: noth
 | `PHOEBE_HISTORY_EXCHANGES` | `3` | Earlier question/answer pairs given to the rewriter and the answer model. |
 | `PHOEBE_HISTORY_TURN_MAX_CHARS` | `2000` | Each history turn is truncated to this length. |
 | `PHOEBE_ANSWER_MAX_TOKENS` | `700` | `max_tokens` for the answer model. |
-| `PHOEBE_ANSWER_MAX_CHARS` | `6000` | An answer longer than this is stopped and refused (`verification_failed`). |
+| `PHOEBE_ANSWER_MAX_CHARS` | `6000` | An answer longer than this is stopped and refused (`verification_failed`, code 1204). |
 | `PHOEBE_REFUSAL_MIN_SIMILARITY` | (per embedder) | Top similarity below which chat refuses with `no_support`; unset uses 0.05 for `hash` and 0.25 for `titan`. |
 | `PHOEBE_ANSWER_BACKEND` | `extractive` | Answer model: `extractive` (offline, quotes the best passage) or `harness` (Bedrock AgentCore harness). |
 | `PHOEBE_HARNESS_ARN` | (unset) | Harness ARN, required for the `harness` backend. AWS only. |
@@ -84,6 +84,21 @@ Settings are `PHOEBE_*` environment variables. Every default works offline: noth
 | `PHOEBE_REWRITE_MAX_TOKENS` | `64` | `max_tokens` for the rewriter. |
 | `PHOEBE_GUARDRAIL_ID` | (unset) | Bedrock guardrail id; with `PHOEBE_GUARDRAIL_VERSION` it turns on input and output checks. AWS only. |
 | `PHOEBE_GUARDRAIL_VERSION` | (unset) | Bedrock guardrail version. AWS only. |
+
+## Chat refusal codes
+
+When Phoebe refuses, the visitor sees a short message with a numeric code in
+parentheses, and the `done` event's `reason` field carries the same code. The
+internal reason name appears only in the API logs (`refused=<reason>`). The
+leading digit groups codes: 1xxx answer quality, 2xxx safety, 3xxx
+availability. The source of truth is `backend/src/phoebe/chat/refusals.py`.
+
+| Code | Reason | When |
+|------|--------|------|
+| 1001 | `no_support` | Search found nothing relevant, or the model answered NO_ANSWER. The message ("I couldn't find that in your onboarding documents.") shows no code. |
+| 1204 | `verification_failed` | The answer failed the citation check or ran past `PHOEBE_ANSWER_MAX_CHARS`. |
+| 2307 | `blocked` | The guardrail blocked the question or the answer. |
+| 3115 | `model_unavailable` | The embedding, answer or guardrail model call failed. |
 
 ## Design
 
