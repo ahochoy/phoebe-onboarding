@@ -116,7 +116,7 @@ describe("DocumentsTab", () => {
     server.use(http.get("/api/groups", () => HttpResponse.json(TREE)));
   });
 
-  it("list shows title, type, group, purpose, last updated, status", async () => {
+  it("rows show title, type, purpose, last updated and status", async () => {
     mockList();
     renderTab();
     await screen.findByText("Handbook");
@@ -244,7 +244,6 @@ describe("DocumentsTab", () => {
       const note = await screen.findByText(/This may be out of date\./);
       expect(note).toHaveAttribute("role", "status");
       expect(note).toHaveTextContent(messageFor(new ApiError(500, "internal_error")));
-      expect(screen.getByText("Handbook")).toBeInTheDocument();
       expect(screen.getByText("Handbook")).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 

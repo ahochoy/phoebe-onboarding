@@ -1,13 +1,13 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { apiGet, apiSend } from "../api/client";
+import { apiSend } from "../api/client";
 import type { DocumentOut, GroupNode, TaskView } from "../api/types";
 import { useTasks } from "../employee/useTasks";
 import { QueryError } from "../components/QueryError";
 import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
-import { useAdminDocuments } from "./DocumentsTab";
 import { iconButton } from "./formParts";
+import { useAdminDocuments, useGroups } from "./queries";
 import { childKind, GroupDialog, invalidateGroupViews, type GroupMode } from "./GroupDialog";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -144,13 +144,6 @@ function Contents({
       </div>
     </section>
   );
-}
-
-export function useGroups() {
-  return useQuery({
-    queryKey: ["groups"],
-    queryFn: () => apiGet<GroupNode[]>("/api/groups"),
-  });
 }
 
 export function GroupsTab() {

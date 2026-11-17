@@ -1,7 +1,7 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Info, Link as LinkIcon, Loader2, Pencil, Trash2, Upload } from "lucide-react";
 import { useId, useState } from "react";
-import { apiGet, apiSend } from "../api/client";
+import { apiSend } from "../api/client";
 import type { DocumentOut } from "../api/types";
 import { formatStart } from "../lib/dates";
 import { PhoebeArt } from "../components/PhoebeArt";
@@ -11,11 +11,9 @@ import { useStatus } from "../state/status";
 import { AddDocumentDialog, type AddMode } from "./AddDocumentDialog";
 import { EditDocumentDialog } from "./EditDocumentDialog";
 import { DocumentTree } from "./DocumentTree";
-import { useGroups } from "./GroupsTab";
+import { useAdminDocuments, useGroups } from "./queries";
 import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
 import { buttonClass, iconButton } from "./formParts";
-
-const POLL_MS = 3000;
 
 const TYPE_LABELS: Record<DocumentOut["doc_type"], string> = {
   pdf: "PDF",
@@ -24,16 +22,6 @@ const TYPE_LABELS: Record<DocumentOut["doc_type"], string> = {
   web: "Web page",
   google_doc: "Google Doc",
 };
-
-export function useAdminDocuments() {
-  return useQuery({
-    queryKey: ["documents", "all"],
-    queryFn: () => apiGet<DocumentOut[]>("/api/documents?scope=all"),
-    // Indexing happens in the background: keep asking while anything is still processing.
-    refetchInterval: (query) =>
-      query.state.data?.some((d) => d.status === "processing") ? POLL_MS : false,
-  });
-}
 
 function StatusCell({ doc }: { doc: DocumentOut }) {
   if (doc.status === "processing") {

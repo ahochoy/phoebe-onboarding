@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { QueryError } from "../components/QueryError";
-import { useAdminDocuments } from "./DocumentsTab";
-import { useGroups } from "./GroupsTab";
+import { useAdminDocuments, useGroups } from "./queries";
 import { usePeople } from "./PeopleTab";
 import { summarize } from "./summary";
 

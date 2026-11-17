@@ -7,8 +7,6 @@ import { buildDocTree, groupIds, loadCollapsed, saveCollapsed, type DocTreeNode 
 const HEADINGS = ["h3", "h4", "h5", "h6"] as const;
 const OTHER_ID = "__other__";
 
-const plural = (n: number) => `${n} document${n === 1 ? "" : "s"}`;
-
 function Section({
   node,
   depth,
@@ -31,17 +29,17 @@ function Section({
       className={depth > 0 ? "ml-4 border-l border-ink/15 pl-2" : ""}
     >
       <Heading className="text-sm font-semibold">
-        <Collapsible.Trigger
-          aria-label={`${node.group.name} (${plural(node.count)})`}
-          className="flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left hover:bg-highlight-soft"
-        >
+        <Collapsible.Trigger className="flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left hover:bg-highlight-soft">
           <ChevronDown
             aria-hidden="true"
             className={`size-4 shrink-0 text-accent transition-transform ${open ? "" : "-rotate-90"}`}
           />
-          <span>{node.group.name}</span>
-          <span aria-hidden="true" className="font-normal text-ink/70">
-            ({node.count})
+          <span>
+            {node.group.name}{" "}
+            <span className="font-normal text-ink/70">
+              ({node.count}{" "}
+              <span className="sr-only">{node.count === 1 ? "document" : "documents"}</span>)
+            </span>
           </span>
         </Collapsible.Trigger>
       </Heading>
