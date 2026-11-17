@@ -150,3 +150,15 @@ def test_verify_lead_in_must_be_one_short_line() -> None:
 def test_verify_lead_in_still_needs_a_cited_follow_up() -> None:
     answer = f"{LEAD_IN}\n\nThanksgiving Day.\n\nB [P1]."
     assert verify(answer, _passages(1)) is None
+
+
+def test_verify_accepts_markdown_list_answer() -> None:
+    answer = (
+        "Here are the holidays in November and December:\n\n"
+        "- **Election Day** (November 3): optional, two paid hours to vote [P2]\n"
+        "- **Thanksgiving Day** (November 26): office closed [P2]\n"
+        "- **Winter break** begins December 24 [P1]"
+    )
+    out = verify(answer, _passages(2))
+    assert isinstance(out, Verified)
+    assert "- **Thanksgiving Day** (November 26): office closed [1]" in out.text
