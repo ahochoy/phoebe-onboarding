@@ -155,6 +155,27 @@ can be checked offline):
    shows the "waking up" copy (`503 database_unavailable`) rather than a 502,
    and `/api/health` stays 200 without resuming the cluster.
 
+### Spend-limit mode
+
+The account's spend limit ($30 a month, shared with other projects) stops
+Aurora when it is reached. Phoebe degrades before that and recovers by hand:
+
+1. **At 70% of the account budget** both budgets publish to their
+   `phoebe-budget-<env>` topics, and each env's budget Lambda sets
+   `chat_paused`. Chat, search, uploads and links stop; tasks, documents and
+   admin keep working, and a banner says why. The production budget also emails
+   the owner (`alert_email`, passed at bootstrap apply time).
+2. **If the cluster stops anyway** (RDS-EVENT-0150), `phoebe-<env>-db-stopped`
+   (infra/bootstrap) invokes the budget Lambda, which sets `closed` so the
+   landing page shows the offline copy, and emails the owner through
+   `phoebe-alerts`. Until then the API answers `503 database_stopped`, which the
+   app also shows as offline.
+3. **To restart**, once the limit allows: `make db-start ENV=<env>`. It starts
+   the cluster (unless it is already available), waits for `available`, then
+   sets the kill switch to `open`. AWS restarts a stopped cluster by itself after
+   7 days, but the demo stays closed until the command runs. Deploys refuse a
+   stopped or stopping cluster with the same instruction.
+
 ### Release behaviour to know (production)
 
 - **Partial deploy recovery: re-run the pipeline from Plan.** If

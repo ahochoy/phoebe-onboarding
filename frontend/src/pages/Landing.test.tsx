@@ -93,4 +93,32 @@ describe("Landing", () => {
     ).toBeInTheDocument();
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
   });
+  it("shows the offline panel when the session check fails with database_stopped", async () => {
+    server.use(
+      http.get("/api/me", () => HttpResponse.json({ detail: "database_stopped" }, { status: 503 })),
+      http.get("/api/status", () => HttpResponse.json(OPEN)),
+    );
+    renderApp("/");
+    expect(
+      await screen.findByText("The Phoebe demo is temporarily offline. Please check back later."),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+  });
+
+  it("switches to the offline panel when login returns database_stopped", async () => {
+    signedOut();
+    server.use(
+      http.post("/api/login", () =>
+        HttpResponse.json({ detail: "database_stopped" }, { status: 503 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp("/");
+    await user.type(await screen.findByLabelText(/password/i), "anything");
+    await user.click(screen.getByRole("button", { name: /enter/i }));
+    expect(
+      await screen.findByText("The Phoebe demo is temporarily offline. Please check back later."),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+  });
 });

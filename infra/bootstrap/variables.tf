@@ -37,12 +37,24 @@ variable "staging_distribution_id" {
 }
 
 variable "monthly_budget_usd" {
-  description = "Monthly account cost budget in USD. 80% of actual spend alerts the phoebe-budget topic."
+  description = "Monthly account cost budget in USD: the project's spend limit, shared with other projects in the account. 70% of actual spend alerts the phoebe-budget topics, which pause chat and uploads."
   type        = number
-  default     = 20
+  default     = 30
 
   validation {
     condition     = var.monthly_budget_usd > 0
     error_message = "monthly_budget_usd must be positive."
+  }
+}
+
+variable "alert_email" {
+  description = "Owner email for spend alerts (the production budget at 70%, and a stopped database). Pass TF_VAR_alert_email at apply time; never commit it. Null sends no email."
+  type        = string
+  default     = null
+  sensitive   = true
+
+  validation {
+    condition     = var.alert_email == null || can(regex("^[^@\\s]+@[^@\\s]+$", var.alert_email))
+    error_message = "alert_email must be an email address, or null."
   }
 }

@@ -54,10 +54,12 @@ resource "aws_budgets_budget" "account" {
 
   notification {
     comparison_operator       = "GREATER_THAN"
-    threshold                 = 80
+    threshold                 = 70
     threshold_type            = "PERCENTAGE"
     notification_type         = "ACTUAL"
     subscriber_sns_topic_arns = [aws_sns_topic.budget[each.key].arn]
+    # Both budgets trip together; one email is enough.
+    subscriber_email_addresses = each.key == "production" && var.alert_email != null ? [var.alert_email] : null
   }
 
   depends_on = [aws_sns_topic_policy.budget]

@@ -34,7 +34,13 @@ from phoebe.chat.models import (
 )
 from phoebe.config import Settings, resolve_secrets
 from phoebe.control import ControlStore, InMemoryControlStore, make_control
-from phoebe.db import ClosableDatabase, Database, DatabaseUnavailable, PsycopgDatabase
+from phoebe.db import (
+    ClosableDatabase,
+    Database,
+    DatabaseStopped,
+    DatabaseUnavailable,
+    PsycopgDatabase,
+)
 from phoebe.db_data_api import DataApiDatabase
 from phoebe.embed import Embedder, make_embedder
 from phoebe.ingest.pipeline import index_document
@@ -115,6 +121,12 @@ def _install_error_handlers(app: FastAPI) -> None:
         if exc.headers:
             resp.headers.update(exc.headers)
         return resp
+
+    @app.exception_handler(DatabaseStopped)
+    async def _db_stopped(request: Request, _: DatabaseStopped) -> Response:
+        route = getattr(request.scope.get("route"), "path", None) or "-"
+        _log.warning("database stopped route=%s", route)
+        return _error(503, "database_stopped")
 
     @app.exception_handler(DatabaseUnavailable)
     async def _db_unavailable(request: Request, _: DatabaseUnavailable) -> Response:

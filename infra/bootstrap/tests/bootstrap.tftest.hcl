@@ -83,6 +83,13 @@ override_resource {
 }
 
 override_resource {
+  target = aws_sns_topic.alerts
+  values = {
+    arn = "arn:aws:sns:us-east-2:123456789012:phoebe-alerts"
+  }
+}
+
+override_resource {
   target = aws_sns_topic.budget["production"]
   values = {
     arn = "arn:aws:sns:us-east-2:123456789012:phoebe-budget-production"
@@ -1102,12 +1109,12 @@ run "state_ecr_budget" {
         b.name == "phoebe-monthly-${env}" &&
         b.budget_type == "COST" &&
         b.time_unit == "MONTHLY" &&
-        tonumber(b.limit_amount) == 20 &&
+        tonumber(b.limit_amount) == 30 &&
         b.limit_unit == "USD" &&
         length(b.cost_filter) == 0
       ])
     )
-    error_message = "One monthly account-wide cost budget per env topic, at monthly_budget_usd (default 20)."
+    error_message = "One monthly account-wide cost budget per env topic, at monthly_budget_usd (default 30, the project's spend limit)."
   }
 
   assert {
@@ -1115,13 +1122,13 @@ run "state_ecr_budget" {
       for env, b in aws_budgets_budget.account :
       length(b.notification) == 1 && alltrue([
         for n in b.notification :
-        n.threshold == 80 && n.threshold_type == "PERCENTAGE" && n.notification_type == "ACTUAL" &&
+        n.threshold == 70 && n.threshold_type == "PERCENTAGE" && n.notification_type == "ACTUAL" &&
         n.comparison_operator == "GREATER_THAN" &&
         toset(n.subscriber_sns_topic_arns) == toset(["arn:aws:sns:us-east-2:123456789012:phoebe-budget-${env}"]) &&
         try(length(n.subscriber_email_addresses), 0) == 0
       ])
     ])
-    error_message = "Each budget alerts at 80% actual to its own env topic only (Budgets allows one SNS subscriber per notification; no email addresses)."
+    error_message = "Each budget alerts at 70% actual to its own env topic only (Budgets allows one SNS subscriber per notification); no email without alert_email."
   }
 
   assert {
@@ -1305,5 +1312,89 @@ run "fork_gate" {
       can(regex("(?s)head repo verified[^\\n]*\\n\\s*cd \"\\$CODEBUILD_SRC_DIR\"", aws_codebuild_project.this["pr"].source[0].buildspec))
     )
     error_message = "The gate moves to an empty temp directory before fetching and parsing, and returns to the checkout only after it passes."
+  }
+}
+
+
+# ---- Spend-limit alerts (Plan 5 item 1) ----------------------------------------------
+
+run "alert_email_wired_when_set" {
+  command = apply
+
+  variables {
+    alert_email = "owner@example.com"
+  }
+
+  assert {
+    condition = (
+      toset(one(aws_budgets_budget.account["production"].notification).subscriber_email_addresses) ==
+      toset(["owner@example.com"]) &&
+      try(length(one(aws_budgets_budget.account["staging"].notification).subscriber_email_addresses), 0) == 0
+    )
+    error_message = "With alert_email set, only the production budget emails it (both budgets trip together)."
+  }
+
+  assert {
+    condition = (
+      length(aws_sns_topic_subscription.alert_email) == 1 &&
+      aws_sns_topic_subscription.alert_email[0].protocol == "email" &&
+      aws_sns_topic_subscription.alert_email[0].topic_arn == "arn:aws:sns:us-east-2:123456789012:phoebe-alerts"
+    )
+    error_message = "With alert_email set, phoebe-alerts has one email subscription."
+  }
+}
+
+run "alert_email_optional" {
+  command = apply
+
+  assert {
+    condition     = length(aws_sns_topic_subscription.alert_email) == 0
+    error_message = "Without alert_email there is no email subscription."
+  }
+}
+
+run "db_stopped_rules" {
+  command = apply
+
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] :
+      aws_cloudwatch_event_rule.db_stopped[env].name == "phoebe-${env}-db-stopped" &&
+      jsondecode(aws_cloudwatch_event_rule.db_stopped[env].event_pattern) == {
+        source        = ["aws.rds"]
+        "detail-type" = ["RDS DB Cluster Event"]
+        detail = {
+          EventID          = ["RDS-EVENT-0150"]
+          SourceIdentifier = ["phoebe-${env}"]
+        }
+      }
+    ])
+    error_message = "Each env has phoebe-<env>-db-stopped on RDS-EVENT-0150 for its own cluster."
+  }
+
+  assert {
+    condition = alltrue([
+      for env in ["staging", "production"] :
+      aws_cloudwatch_event_target.db_stopped_lambda[env].rule == "phoebe-${env}-db-stopped" &&
+      aws_cloudwatch_event_target.db_stopped_lambda[env].arn == "arn:aws:lambda:us-east-2:123456789012:function:phoebe-${env}-budget" &&
+      aws_cloudwatch_event_target.db_stopped_email[env].rule == "phoebe-${env}-db-stopped" &&
+      aws_cloudwatch_event_target.db_stopped_email[env].arn == "arn:aws:sns:us-east-2:123456789012:phoebe-alerts" &&
+      strcontains(aws_cloudwatch_event_target.db_stopped_email[env].input_transformer[0].input_template, "make db-start ENV=${env}")
+    ])
+    error_message = "Each rule targets its env's budget Lambda and the alerts topic, whose message names make db-start."
+  }
+
+  assert {
+    condition = anytrue([
+      for s in jsondecode(aws_sns_topic_policy.alerts.policy).Statement :
+      s.Effect == "Allow" && s.Principal.Service == "events.amazonaws.com" &&
+      contains(flatten([s.Action]), "SNS:Publish") &&
+      s.Resource == "arn:aws:sns:us-east-2:123456789012:phoebe-alerts" &&
+      toset(flatten([s.Condition.ArnEquals["aws:SourceArn"]])) == toset([
+        "arn:aws:events:us-east-2:123456789012:rule/phoebe-staging-db-stopped",
+        "arn:aws:events:us-east-2:123456789012:rule/phoebe-production-db-stopped",
+      ])
+    ])
+    error_message = "Only the two db-stopped rules may publish to phoebe-alerts."
   }
 }

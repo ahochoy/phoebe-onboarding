@@ -16,6 +16,7 @@ from phoebe.chat.history import list_turns
 from phoebe.config import Settings
 from phoebe.db import (
     Database,
+    DatabaseStopped,
     DatabaseUnavailable,
     PsycopgDatabase,
     json_column,
@@ -422,6 +423,33 @@ def test_wake_does_not_wait_for_a_resuming_cluster() -> None:
     assert make_db(fake, sleeps).wake() is False
     assert len(fake.calls) == 1
     assert sleeps == []
+
+
+def test_stopped_cluster_maps_to_database_stopped() -> None:
+    # The spend limit stops the cluster; it never wakes by itself, so no retry.
+    fake = FakeRds(client_error("InvalidResourceStateException"))
+    with pytest.raises(DatabaseStopped):
+        make_db(fake).fetch("select 1")
+    assert fake.ops() == ["ExecuteStatement"]
+
+
+def test_stopped_cluster_maps_to_database_stopped_inside_transaction() -> None:
+    fake = FakeRds(
+        {"transactionId": "tx-1"}, client_error("InvalidResourceStateException")
+    )
+    with pytest.raises(DatabaseStopped), make_db(fake).transaction() as tx:
+        tx.execute("insert into t values (1)")
+
+
+def test_database_stopped_is_a_database_unavailable() -> None:
+    # Workers retry it, and every existing `except DatabaseUnavailable` still applies.
+    assert issubclass(DatabaseStopped, DatabaseUnavailable)
+
+
+def test_wake_on_a_stopped_cluster_is_database_stopped() -> None:
+    fake = FakeRds(client_error("InvalidResourceStateException"))
+    with pytest.raises(DatabaseStopped):
+        make_db(fake).wake()
 
 
 def test_wake_during_an_outage_is_unavailable() -> None:
@@ -845,6 +873,21 @@ def test_database_unavailable_maps_to_503(logged_in: TestClient) -> None:
         del deps.db.fetch
     assert r.status_code == 503
     assert r.json() == {"detail": "database_unavailable"}
+
+
+def test_database_stopped_maps_to_503_database_stopped(logged_in: TestClient) -> None:
+    deps: Any = logged_in.app.state.deps  # type: ignore[attr-defined]
+
+    def stopped(*_: Any, **__: Any) -> Any:
+        raise DatabaseStopped("stopped")
+
+    deps.db.fetch = stopped
+    try:
+        r = logged_in.get("/api/documents")
+    finally:
+        del deps.db.fetch
+    assert r.status_code == 503
+    assert r.json() == {"detail": "database_stopped"}
 
 
 # ---- uuid primary-key lookups --------------------------------------------

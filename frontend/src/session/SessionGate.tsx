@@ -6,6 +6,7 @@ import { ChatRuntimeProvider } from "../chat/ChatRuntimeProvider";
 import { Header } from "../components/Header";
 import { PhoebeArt } from "../components/PhoebeArt";
 import { PetalLoader } from "../components/PetalLoader";
+import { SpendBanner } from "../components/SpendBanner";
 import { WelcomeSplash } from "../components/WelcomeSplash";
 import { messageFor } from "../lib/messages";
 import { nudgeWake } from "../lib/wake";
@@ -63,6 +64,7 @@ export function SessionGate() {
 
   return (
     <div className="flex h-dvh flex-col">
+      <SpendBanner />
       <Header />
       <main className="mx-auto min-h-0 w-full max-w-[120rem] flex-1 overflow-y-auto p-4">
         {/* Session-scoped, so the conversation and any answer in progress survive
