@@ -12,62 +12,27 @@ Output is pass/fail per check plus citation titles. It never prints question
 or answer text. Exit status is non-zero if any check fails.
 """
 
-import json
-import os
 import sys
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from fastapi.testclient import TestClient
 
-from phoebe.api.app import Deps, create_app
 from phoebe.auth import hash_password
-from phoebe.chat.models import make_models
 from phoebe.config import Settings
-from phoebe.control import make_control
 from phoebe.db import PsycopgDatabase
-from phoebe.embed import make_embedder
-from phoebe.jobs import InlineJobQueue
-from phoebe.limits import make_counters
-from phoebe.migrate import apply_migrations
-from phoebe.seed import MIGRATIONS_DIR, load_seed
-from phoebe.sessions import InMemorySessionStore
-from phoebe.storage import LocalBlobStore
+from phoebe.evals.live import (
+    CSRF,
+    build_app,
+    live_database_url,
+    parse_sse,
+    require_live_settings,
+)
 
-CSRF = {"X-Phoebe-Csrf": "1"}
 PASSWORD = "live-check-only"  # hashed below; never leaves this process
 
 Q_PTO = "How many PTO days do I get?"
 Q_FOLLOW_UP = "And can I carry them over?"
 Q_OUT_OF_SCOPE = "What's the Sales East quota?"
-
-
-def live_database_url() -> str:
-    url = os.environ.get("PHOEBE_LIVE_DATABASE_URL", "")
-    if not url:
-        raise SystemExit("PHOEBE_LIVE_DATABASE_URL is not set")
-    name = urlparse(url).path.lstrip("/")
-    if not name.endswith("_live"):
-        raise SystemExit("refusing: the database name must end in _live")
-    return url
-
-
-def parse_sse(raw: str) -> list[tuple[str, dict[str, Any]]] | None:
-    """Parse SSE frames; None if any frame is malformed (treated as a failure)."""
-    out: list[tuple[str, dict[str, Any]]] = []
-    for frame in raw.strip().split("\n\n"):
-        head, _, data = frame.partition("\n")
-        if not head.startswith("event: ") or not data.startswith("data: "):
-            return None
-        try:
-            payload = json.loads(data.removeprefix("data: "))
-        except json.JSONDecodeError:
-            return None
-        if not isinstance(payload, dict):
-            return None
-        out.append((head.removeprefix("event: "), payload))  # pyright: ignore[reportUnknownArgumentType]
-    return out
 
 
 def ask(client: TestClient, question: str) -> dict[str, Any] | None:
@@ -129,47 +94,6 @@ def check_out_of_scope(report: Report, done: dict[str, Any] | None) -> None:
     report.check("out-of-scope: no citations", not done["citations"])
 
 
-def require_live_settings(settings: Settings) -> None:
-    """Refuse offline defaults, which would exercise fakes and report ALL PASS."""
-    missing = [
-        name
-        for name, ok in (
-            ("PHOEBE_EMBEDDER=titan", settings.embedder == "titan"),
-            ("PHOEBE_ANSWER_BACKEND=harness", settings.answer_backend == "harness"),
-            ("PHOEBE_HARNESS_ARN", bool(settings.harness_arn)),
-            ("PHOEBE_REWRITER_BACKEND=bedrock", settings.rewriter_backend == "bedrock"),
-            ("PHOEBE_GUARDRAIL_ID", bool(settings.guardrail_id)),
-            ("PHOEBE_GUARDRAIL_VERSION", bool(settings.guardrail_version)),
-        )
-        if not ok
-    ]
-    if missing:
-        raise SystemExit("refusing: live settings required: " + ", ".join(missing))
-
-
-def build_client(db: PsycopgDatabase, settings: Settings) -> TestClient:
-    embedder = make_embedder(settings)
-    apply_migrations(db, MIGRATIONS_DIR)
-    seeded = load_seed(db, embedder, settings.seed_dir)
-    print(f"seeded documents={seeded.documents} chunks={seeded.chunks}")
-    answer, rewriter, guardrail = make_models(settings)
-    blobs = LocalBlobStore(Path(settings.blob_dir))
-    deps = Deps(
-        db,
-        InMemorySessionStore(),
-        blobs,
-        embedder,
-        InlineJobQueue(lambda _doc_id: None),
-        settings,
-        counters=make_counters(settings),
-        control=make_control(settings),
-        answer=answer,
-        rewriter=rewriter,
-        guardrail=guardrail,
-    )
-    return TestClient(create_app(deps))
-
-
 def main() -> int:
     url = live_database_url()
     settings = Settings(  # pyright: ignore[reportCallIssue]
@@ -184,7 +108,7 @@ def main() -> int:
     report = Report()
     db = PsycopgDatabase(url)
     try:
-        client = build_client(db, settings)
+        client = TestClient(build_app(db, settings))
         r = client.post("/api/login", json={"password": PASSWORD}, headers=CSRF)
         report.check("login", r.status_code == 204)
         if r.status_code == 204:
