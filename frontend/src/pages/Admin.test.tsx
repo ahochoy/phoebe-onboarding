@@ -31,7 +31,7 @@ describe("Admin shell", () => {
     window.matchMedia = realMatchMedia;
   });
 
-  it("vertical tabs People & Progress, Documents, Tasks, Groups; URL follows selection", async () => {
+  it("vertical tabs Home, People & Progress, Documents, Tasks, Groups; URL follows selection", async () => {
     setWide(true);
     const user = userEvent.setup();
     const { router } = renderApp("/admin/people");
@@ -39,12 +39,13 @@ describe("Admin shell", () => {
     expect(list).toHaveAttribute("aria-orientation", "vertical");
     const tabs = within(list).getAllByRole("tab");
     expect(tabs.map((t) => t.textContent)).toEqual([
+      "Home",
       "People & Progress",
       "Documents",
       "Tasks",
       "Groups",
     ]);
-    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
 
     await user.click(within(list).getByRole("tab", { name: "Tasks" }));
     expect(router.state.location.pathname).toBe("/admin/tasks");
@@ -72,17 +73,17 @@ describe("Admin shell", () => {
     expect(screen.getByRole("tab", { name: "Documents" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("an unknown tab redirects to People & Progress", async () => {
+  it("an unknown tab redirects to Home", async () => {
     setWide(true);
     const { router } = renderApp("/admin/nope");
     await screen.findByRole("tablist");
-    expect(router.state.location.pathname).toBe("/admin/people");
+    expect(router.state.location.pathname).toBe("/admin/home");
   });
 
-  it("/admin redirects to People & Progress", async () => {
+  it("/admin redirects to Home", async () => {
     setWide(true);
     const { router } = renderApp("/admin");
     await screen.findByRole("tablist");
-    expect(router.state.location.pathname).toBe("/admin/people");
+    expect(router.state.location.pathname).toBe("/admin/home");
   });
 });

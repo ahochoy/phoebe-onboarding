@@ -689,7 +689,12 @@ def test_splitter_comments() -> None:
     assert split_statements("-- only a comment;\n/* and another; */") == []
 
 
-EXPECTED_STATEMENTS = {"001_init.sql": 13, "002_sandboxes.sql": 1, "003_chat.sql": 3}
+EXPECTED_STATEMENTS = {
+    "001_init.sql": 13,
+    "002_sandboxes.sql": 1,
+    "003_chat.sql": 3,
+    "004_people_roles.sql": 1,
+}
 
 
 def test_every_migration_file_splits_into_the_expected_statements() -> None:

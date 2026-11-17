@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { ApiError, apiSend } from "../api/client";
-import { Mascot } from "../components/Mascot";
+import { PhoebeArt } from "../components/PhoebeArt";
 import { WELCOME_KEY } from "../components/WelcomeSplash";
 import { messageFor } from "../lib/messages";
 import { hadSession, markHadSession, useMe } from "../session/useMe";
@@ -54,8 +54,10 @@ export function Landing() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-4 p-4 text-center">
-      <Mascot size={96} />
-      <h1 className="text-3xl font-semibold">Phoebe</h1>
+      <PhoebeArt pose="waving" size={192} />
+      <h1 className="text-3xl font-semibold">
+        Welcome to Larkspur Labs. I&apos;m Phoebe, your onboarding guide.
+      </h1>
       <p className="text-base">
         Your AI onboarding guide: ask a question and get answers drawn from your team&apos;s own
         documents.

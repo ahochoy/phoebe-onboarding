@@ -35,10 +35,7 @@ test("an uploaded Markdown file is indexed and shows in the employee Documents p
   await dialog.getByRole("button", { name: "Upload" }).click();
   await expect(dialog).toBeHidden();
 
-  const row = page
-    .getByRole("table", { name: "Documents" })
-    .getByRole("row")
-    .filter({ has: page.getByRole("cell", { name: title, exact: true }) });
+  const row = page.getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
   await expect(row.getByText("Indexed ✓")).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole("radio", { name: "Employee" }).click();

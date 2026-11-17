@@ -30,7 +30,6 @@ describe("Reset my demo", () => {
     await user.click(await screen.findByRole("button", { name: "Reset my demo" }));
     expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
     expect(seen.posts).toBe(0);
-    await screen.findByText("Acme Corp");
     const before = { ...calls };
 
     await user.click(screen.getByRole("button", { name: "Yes, reset" }));
@@ -39,7 +38,6 @@ describe("Reset my demo", () => {
     expect(seen.posts).toBe(1);
     expect(seen.csrf).toBe("1");
     expect(calls.me).toBeGreaterThan(before.me);
-    expect(calls.groups).toBeGreaterThan(before.groups);
     expect(calls.status).toBeGreaterThan(before.status);
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     off();

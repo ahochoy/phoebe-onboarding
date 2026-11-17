@@ -7,22 +7,16 @@ import { renderApp } from "../test/render";
 import { server } from "../test/server";
 
 describe("Header", () => {
-  it("shows Alex Rivera, Platform, start date and Day 5", async () => {
+  it("shows only the Larkspur Labs logo on the left: no tool name or persona details", async () => {
     useSession();
     renderApp("/employee");
     const header = within(await screen.findByRole("banner"));
-    expect(await header.findByText("Alex Rivera")).toBeInTheDocument();
-    expect(header.getByText("Platform")).toBeInTheDocument();
-    expect(header.getByText(/Nov 10, 2026/)).toBeInTheDocument();
-    expect(header.getByText("Day 5")).toBeInTheDocument();
-    expect(await screen.findByText("Acme Corp")).toBeInTheDocument();
-  });
-
-  it("hides the persona block in admin mode", async () => {
-    useSession();
-    renderApp("/admin/people");
-    expect(await screen.findByRole("heading", { name: "People & Progress" })).toBeInTheDocument();
-    expect(screen.queryByText("Alex Rivera")).not.toBeInTheDocument();
+    expect(header.getByRole("img", { name: "Larkspur Labs" })).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Chat" });
+    expect(header.queryByText("Phoebe")).not.toBeInTheDocument();
+    expect(header.queryByText("Alex Rivera")).not.toBeInTheDocument();
+    expect(header.queryByText(/Day 5/)).not.toBeInTheDocument();
+    expect(header.queryByText(/Nov 10, 2026/)).not.toBeInTheDocument();
   });
 
   it("toggle moves with arrow keys and selecting changes the route", async () => {
@@ -36,7 +30,7 @@ describe("Header", () => {
     const admin = screen.getByRole("radio", { name: "Admin" });
     expect(admin).toHaveFocus();
     await user.keyboard("{Enter}");
-    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/people"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/home"));
     expect(screen.getByRole("radio", { name: "Admin" })).toBeChecked();
     await user.click(screen.getByRole("radio", { name: "Employee" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/employee"));

@@ -17,6 +17,8 @@ class Persona(BaseModel):
     start_date: date
     manager: str | None
     buddy: str | None
+    manager_role: str | None
+    buddy_role: str | None
 
 
 def get_persona(db: Database) -> Persona:
@@ -25,7 +27,8 @@ def get_persona(db: Database) -> Persona:
         """
         select p.id, p.name, p.team_id, t.name as team_name,
                d.id as department_id, d.name as department_name,
-               p.start_date, p.manager, p.buddy
+               p.start_date, p.manager, p.buddy,
+               p.manager_role, p.buddy_role
         from people p
         join groups t on t.id = p.team_id
         join groups d on d.id = t.parent_id

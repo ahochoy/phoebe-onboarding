@@ -1,6 +1,6 @@
 # First-Week Schedule for Platform
 
-This schedule is a guide, not a rulebook. Your manager, Jordan Lee, and your buddy, Mei Tanaka, will adapt it to you. Every meeting below is on your calendar already. All times are Pacific.
+This schedule is a guide, not a rulebook. Your manager, Melinda Grant, and your buddy, Jordan Moore, will adapt it to you. Every meeting below is on your calendar already. All times are Pacific.
 
 ## Before you start
 
@@ -10,13 +10,13 @@ You should already have a welcome email with your laptop shipping details and a 
 
 ### Morning
 
-- 9:30 Welcome call with Jordan Lee. A relaxed hello, and a chance to ask anything.
+- 9:30 Welcome call with Melinda Grant. A relaxed hello, and a chance to ask anything.
 - 10:00 People Operations orientation, including your I-9 and payroll forms.
 - 11:00 Laptop setup with Tomas Silva from IT and Platform. Install the device management profile and set up the password manager.
 
 ### Afternoon
 
-- 13:00 Lunch with Mei Tanaka, your buddy. If you are remote, Mei will send you a food delivery voucher.
+- 13:00 Lunch with Jordan Moore, your buddy. If you are remote, Jordan will send you a food delivery voucher.
 - 14:00 Set up single sign-on and two-factor authentication. This is required before you can reach the internal services.
 - 15:30 Read the Employee Handbook. We know it is long, so skim it and mark anything that surprises you.
 
@@ -24,19 +24,19 @@ You should already have a welcome email with your laptop shipping details and a 
 
 ### Morning
 
-- 9:30 Platform tour with Mei. We cover Beacon, Trellis, Lantern, Atlas, and Kit at a high level.
+- 9:30 Platform tour with Jordan. We cover Beacon, Trellis, Lantern, Atlas, and Kit at a high level.
 - 11:00 Get access to the main repositories on GitHub and clone the `kit` repository.
 
 ### Afternoon
 
 - 13:30 Work through the local development guide and run the test suite in `kit`.
-- 15:00 Your first one-on-one with Jordan. Jordan will talk about goals and what success looks like in your first 90 days.
+- 15:00 Your first one-on-one with Melinda. Melinda will talk about goals and what success looks like in your first 90 days.
 
 ## Day 3: Wednesday
 
 ### Morning
 
-- 9:30 Pairing session with Mei on a starter ticket. Pick something small. The goal is shipping, not perfection.
+- 9:30 Pairing session with Jordan on a starter ticket. Pick something small. The goal is shipping, not perfection.
 - 12:00 Team lunch at the Greenhouse in the Portland office, or a virtual lunch for remote folks.
 
 ### Afternoon
@@ -60,12 +60,12 @@ You should already have a welcome email with your laptop shipping details and a 
 
 ### Morning
 
-- 10:00 Get your first change reviewed and merged. Mei will go through the deploy with you, and you can watch it reach production in Beacon.
+- 10:00 Get your first change reviewed and merged. Jordan will go through the deploy with you, and you can watch it reach production in Beacon.
 
 ### Afternoon
 
 - 14:00 Team demos. You will not present this week, but you might like to say a quick hello.
-- 15:30 Weekly check-in with Jordan. Share what went well, what was confusing, and what you want to learn next week.
+- 15:30 Weekly check-in with Melinda. Share what went well, what was confusing, and what you want to learn next week.
 
 ## Tips for the week
 

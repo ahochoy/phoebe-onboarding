@@ -4,7 +4,8 @@ import { Navigate, Outlet, useNavigate } from "react-router";
 import { ApiError, onSessionExpired } from "../api/client";
 import { ChatRuntimeProvider } from "../chat/ChatRuntimeProvider";
 import { Header } from "../components/Header";
-import { Mascot } from "../components/Mascot";
+import { PhoebeArt } from "../components/PhoebeArt";
+import { PetalLoader } from "../components/PetalLoader";
 import { WelcomeSplash } from "../components/WelcomeSplash";
 import { messageFor } from "../lib/messages";
 import { nudgeWake } from "../lib/wake";
@@ -35,8 +36,7 @@ export function SessionGate() {
   if (me.isPending) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3">
-        <Mascot size={64} />
-        <p role="status">Getting Phoebe ready…</p>
+        <PetalLoader size={64} label="Getting Phoebe ready…" />
       </main>
     );
   }
@@ -48,6 +48,7 @@ export function SessionGate() {
     }
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3 p-4 text-center">
+        <PhoebeArt pose="oops-error" size={96} />
         <p role="alert">{messageFor(err)}</p>
         <button
           type="button"
@@ -63,7 +64,7 @@ export function SessionGate() {
   return (
     <div className="flex h-dvh flex-col">
       <Header />
-      <main className="mx-auto min-h-0 w-full max-w-6xl flex-1 overflow-y-auto p-4">
+      <main className="mx-auto min-h-0 w-full max-w-[120rem] flex-1 overflow-y-auto p-4">
         {/* Session-scoped, so the conversation and any answer in progress survive
             switching between the Employee and Admin views. */}
         <ChatRuntimeProvider>

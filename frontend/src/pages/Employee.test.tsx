@@ -5,7 +5,7 @@ import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LG_UP } from "../lib/useMediaQuery";
 import { useSession } from "../test/fixtures";
-import { makeClient } from "../test/render";
+import { makeClient, renderApp } from "../test/render";
 import { Employee } from "./Employee";
 
 vi.mock("../employee/TasksPanel", () => ({
@@ -115,13 +115,22 @@ describe("Employee page", () => {
     expect(screen.getByLabelText("Ask Phoebe a question")).toHaveValue("hello");
   });
 
-  it("persona card shows start date, manager, buddy and Day N", async () => {
+  it("the profile card shows Day N and start date; the people list shows manager and buddy", async () => {
     setWide(true);
     renderEmployee();
     const card = await screen.findByRole("group", { name: "About you" });
-    expect(within(card).getByText("Nov 10, 2026")).toBeInTheDocument();
-    expect(within(card).getByText("Sam Lee")).toBeInTheDocument();
-    expect(within(card).getByText("Jo Park")).toBeInTheDocument();
-    expect(within(card).getByText("Day 5")).toBeInTheDocument();
+    expect(within(card).getByText("Melinda Grant")).toBeInTheDocument();
+    expect(within(card).getByText("Jordan Moore")).toBeInTheDocument();
+    expect(screen.getByText("Day 5 · Started Nov 10, 2026")).toBeInTheDocument();
+  });
+
+  it("desktop uses the wider page and roomier sidebar columns", async () => {
+    setWide(true);
+    renderApp("/employee");
+    const chat = await screen.findByRole("region", { name: "Chat" });
+    expect(screen.getByRole("main")).toHaveClass("max-w-[120rem]");
+    expect(screen.getByRole("banner").firstElementChild).toHaveClass("max-w-[120rem]");
+    const grid = chat.closest('[class*="lg:grid-cols-"]');
+    expect(grid).toHaveClass("lg:grid-cols-[30rem_minmax(0,1fr)_20rem]", "lg:gap-6");
   });
 });

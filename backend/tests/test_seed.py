@@ -1,3 +1,4 @@
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -127,3 +128,28 @@ def test_load_seed_records_embedder_and_refuses_mismatch(db: Database) -> None:
     assert [r["value"] for r in rows] == ["hash-v1-1024"]
     with pytest.raises(EmbedderMismatch):
         load_seed(db, Titan(), SEED_DIR)
+
+
+def test_seed_persona_roles(db: Database) -> None:
+    from phoebe.persona import get_persona
+
+    load_seed(db, HashEmbedder(), SEED_DIR)
+    p = get_persona(db)
+    assert (p.manager, p.manager_role) == (
+        "Melinda Grant",
+        "Engineering Manager, Platform",
+    )
+    assert (p.buddy, p.buddy_role) == ("Jordan Moore", "Senior Engineer")
+
+
+def test_seed_docs_name_the_new_people() -> None:
+    texts = {
+        p.name: p.read_text()
+        for p in (SEED_DIR / "content").iterdir()
+        if p.suffix in {".md", ".txt"}
+    }
+    texts["manifest.yaml"] = (SEED_DIR / "manifest.yaml").read_text()
+    for name, text in texts.items():
+        assert not re.search(r"\bMei\b|Jordan Lee", text), name
+    team = texts["platform-team.md"]
+    assert "Melinda Grant" in team and "Jordan Moore" in team

@@ -45,11 +45,11 @@ describe("session", () => {
     expect(wakes).toBe(0);
   });
 
-  it("redirects /admin to /admin/people", async () => {
+  it("redirects /admin to /admin/home", async () => {
     useSession();
     const { router } = renderApp("/admin");
-    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/people"));
-    expect(await screen.findByRole("heading", { name: "People & Progress" })).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/home"));
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
   });
 
   it("401 session_expired anywhere returns to landing with the session-ended message", async () => {

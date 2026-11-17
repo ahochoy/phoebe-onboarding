@@ -2,6 +2,7 @@ import { Accordion, Checkbox, Progress } from "radix-ui";
 import { Check, ChevronDown, ExternalLink, PartyPopper } from "lucide-react";
 import { useState } from "react";
 import type { GroupKind, TaskView } from "../api/types";
+import { PhoebeArt } from "../components/PhoebeArt";
 import { QueryError } from "../components/QueryError";
 import { celebrate } from "../lib/celebrate";
 import { isWebUrl } from "../lib/links";
@@ -88,9 +89,12 @@ export function TasksPanel({ scope = "mine" }: { scope?: TaskScope }) {
           Tasks
         </h2>
         {total > 0 && done === total ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-ok px-3 py-1 text-sm font-semibold text-white">
-            <PartyPopper aria-hidden="true" className="size-4" />
-            All done!
+          <span className="inline-flex items-center gap-2">
+            <PhoebeArt pose="celebrating" size={64} />
+            <span className="inline-flex items-center gap-1 rounded-full bg-ok px-3 py-1 text-sm font-semibold text-white">
+              <PartyPopper aria-hidden="true" className="size-4" />
+              All done!
+            </span>
           </span>
         ) : null}
       </div>
@@ -121,7 +125,10 @@ export function TasksPanel({ scope = "mine" }: { scope?: TaskScope }) {
       ) : null}
 
       {total === 0 ? (
-        <p className="text-sm text-ink/80">No tasks yet.</p>
+        <div className="flex items-center gap-3">
+          <PhoebeArt pose="pointing" size={96} />
+          <p className="text-sm text-ink/80">No tasks yet.</p>
+        </div>
       ) : (
         <Accordion.Root type="multiple" defaultValue={visible} className="space-y-2">
           {visible.map((kind) => (

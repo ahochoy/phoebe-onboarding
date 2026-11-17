@@ -50,6 +50,24 @@ describe("DocumentsPanel", () => {
     expect(headings).toEqual(["Company", "Platform"]);
   });
 
+  it("each group header collapses and expands its documents", async () => {
+    server.use(
+      http.get("/api/documents", () =>
+        HttpResponse.json([makeDoc("c1", "company", { title: "Handbook" })]),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    const toggle = await screen.findByRole("button", { name: "Company" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Handbook")).toBeVisible();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Handbook")).not.toBeInTheDocument();
+    await user.click(toggle);
+    expect(screen.getByText("Handbook")).toBeVisible();
+  });
+
   it("clicking a row opens the viewer", async () => {
     server.use(
       http.get("/api/documents", () => HttpResponse.json([makeDoc("c1", "company")])),

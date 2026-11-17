@@ -84,7 +84,7 @@ invoke_ops seed_if_empty
 cd "$REPO_ROOT/frontend"
 log "frontend build (base /)"
 npm ci --no-audit --no-fund
-PHOEBE_BASE=/ npm run build
+VITE_SITE_ORIGIN="$SITE_URL" PHOEBE_BASE=/ npm run build
 
 DIST="$REPO_ROOT/frontend/dist"
 DEST="s3://$SITE_BUCKET"

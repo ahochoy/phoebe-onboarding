@@ -23,6 +23,7 @@ test("check a task, the count updates, and Admin People shows Alex's count +1", 
   const view = page.getByRole("radiogroup", { name: "View" });
 
   await view.getByRole("radio", { name: "Admin" }).click();
+  await page.getByRole("tab", { name: "People & Progress" }).click();
   await expect(page).toHaveURL(/\/admin\/people$/);
   const before = readCount(await alexRow(page).getByText(PROGRESS).textContent());
 
@@ -41,6 +42,7 @@ test("check a task, the count updates, and Admin People shows Alex's count +1", 
   await expect(progress).toHaveText(`${mine.done + 1} of ${mine.total} done`);
 
   await view.getByRole("radio", { name: "Admin" }).click();
+  await page.getByRole("tab", { name: "People & Progress" }).click();
   await expect(page).toHaveURL(/\/admin\/people$/);
   await expect(alexRow(page).getByText(PROGRESS)).toHaveText(
     `${before.done + 1} of ${before.total} done`,

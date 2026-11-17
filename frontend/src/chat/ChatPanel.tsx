@@ -1,7 +1,8 @@
 import { ComposerPrimitive, MessagePrimitive, ThreadPrimitive } from "@assistant-ui/react";
 import { AlertCircle, Info, SendHorizontal } from "lucide-react";
 import { useEffect, useId, useState } from "react";
-import { Mascot } from "../components/Mascot";
+import { PetalLoader } from "../components/PetalLoader";
+import { PhoebeArt, PhoebeAvatar } from "../components/PhoebeArt";
 import { useViewer } from "../documents/ViewerProvider";
 import { PAUSED_COPY, WAKING_COPY } from "../lib/messages";
 import { nudgeWake, WAKING_AFTER_MS } from "../lib/wake";
@@ -20,7 +21,7 @@ const SUGGESTED = [
 function Greeting() {
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
-      <Mascot size={56} />
+      <PhoebeArt pose="waving" size={96} />
       <p className="max-w-sm text-sm">
         Hi, I&apos;m Phoebe. Ask me anything about your onboarding documents and I&apos;ll answer
         with sources you can open.
@@ -61,17 +62,30 @@ function AssistantBody({ message }: { message: ChatMessage }) {
   const waking = useStillWaiting(silent, WAKING_AFTER_MS);
   if (message.status === "error") {
     return (
-      <p className="flex items-start gap-1.5 text-danger">
-        <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-        <span>{message.text}</span>
-      </p>
+      <div className="flex items-center gap-2">
+        <PhoebeArt pose="oops-error" size={48} />
+        <p className="flex items-start gap-1.5 text-danger">
+          <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <span>{message.text}</span>
+        </p>
+      </div>
     );
   }
   if (silent) {
+    // The polite region below only announces settled answers, so the waking
+    // notice is the one place this message is announced (PetalLoader's status).
+    if (waking) {
+      return (
+        <div className="text-ink/70">
+          <PetalLoader size={24} label={WAKING_COPY} />
+        </div>
+      );
+    }
     return (
-      <p className="text-ink/70 motion-safe:animate-pulse">
-        {waking ? WAKING_COPY : "Phoebe is thinking…"}
-      </p>
+      <div className="flex items-center gap-2 text-ink/70">
+        <PhoebeArt pose="thinking" size={32} />
+        <p className="motion-safe:animate-pulse">Phoebe is thinking…</p>
+      </div>
     );
   }
   const settled = message.status === "done";
@@ -105,7 +119,7 @@ function MessageView({ id }: { id: string }) {
     >
       {user ? null : (
         <span className="mt-1 shrink-0">
-          <Mascot size={28} />
+          <PhoebeAvatar size={28} />
         </span>
       )}
       <div

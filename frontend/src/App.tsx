@@ -3,6 +3,7 @@ import { useState } from "react";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { ApiError } from "./api/client";
+import { AboutPhoebe } from "./components/AboutPhoebe";
 import { routes } from "./routes";
 
 function makeQueryClient(): QueryClient {
@@ -25,6 +26,7 @@ export function App() {
   return (
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
+      <AboutPhoebe />
     </QueryClientProvider>
   );
 }

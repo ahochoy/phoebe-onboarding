@@ -413,3 +413,11 @@ def test_wipe_sandbox_logs_blob_delete_errors_by_type(
         assert logged_in.post("/api/reset", headers=CSRF).status_code == 204
     assert "blob delete failed OSError" in caplog.text
     assert key not in caplog.text and "disk on fire" not in caplog.text
+
+
+def test_me_includes_roles(seeded_client: TestClient) -> None:
+    body = seeded_client.get("/api/me").json()
+    assert body["manager"] == "Melinda Grant"
+    assert body["manager_role"] == "Engineering Manager, Platform"
+    assert body["buddy"] == "Jordan Moore"
+    assert body["buddy_role"] == "Senior Engineer"

@@ -1,4 +1,4 @@
-"""Operator tasks, invoked by hand: `{"task": "migrate" | "seed_if_empty" | "status"}`."""
+"""Operator tasks, invoked by hand: `{"task": "migrate" | "seed_if_empty" | "status" | "reseed"}`."""
 
 import logging
 from dataclasses import asdict
@@ -7,6 +7,7 @@ from typing import Any
 from phoebe.api.app import startup_check_embedder
 from phoebe.lambdas import runtime
 from phoebe.migrate import apply_migrations
+from phoebe.reseed import clear_visitors
 from phoebe.seed import MIGRATIONS_DIR, load_seed
 
 log = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ def _seed_groups(db: Any) -> int:
 
 def handler(event: Any, context: Any = None) -> dict[str, Any]:
     task = event.get("task") if isinstance(event, dict) else None
-    if task not in ("migrate", "seed_if_empty", "status"):
+    if task not in ("migrate", "seed_if_empty", "status", "reseed"):
         return {"error": "unknown_task"}
     d = runtime.deps()
     if task == "migrate":
@@ -35,6 +36,14 @@ def handler(event: Any, context: Any = None) -> dict[str, Any]:
         report = load_seed(d.db, d.embedder, d.settings.seed_dir)
         log.info("seed_if_empty seeded documents=%d", report.documents)
         return {"seeded": True, **asdict(report)}
+    if task == "reseed":
+        # Hand-run only (staging): deploys never call this. Visitor rows can
+        # reference seed rows, so they go first or the reload would fail.
+        startup_check_embedder(d.db, d.embedder)
+        cleared = clear_visitors(d.db, d.blobs)
+        report = load_seed(d.db, d.embedder, d.settings.seed_dir)
+        log.info("reseed visitors_cleared=%d documents=%d", cleared, report.documents)
+        return {"reseeded": True, "visitors_cleared": cleared, **asdict(report)}
     has_table = d.db.fetch("select to_regclass('public.schema_migrations')::text as t")[
         0
     ]["t"]

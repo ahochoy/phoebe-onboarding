@@ -604,6 +604,8 @@ export interface components {
         Me: {
             /** Buddy */
             buddy: string | null;
+            /** Buddy Role */
+            buddy_role: string | null;
             /** Day Number */
             day_number: number;
             /** Department Id */
@@ -614,6 +616,8 @@ export interface components {
             id: string;
             /** Manager */
             manager: string | null;
+            /** Manager Role */
+            manager_role: string | null;
             /** Name */
             name: string;
             /**

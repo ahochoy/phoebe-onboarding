@@ -10,7 +10,7 @@ export const routes: RouteObject[] = [
     element: <SessionGate />,
     children: [
       { path: "/employee", element: <Employee /> },
-      { path: "/admin", element: <Navigate to="/admin/people" replace /> },
+      { path: "/admin", element: <Navigate to="/admin/home" replace /> },
       { path: "/admin/:tab", element: <Admin /> },
     ],
   },

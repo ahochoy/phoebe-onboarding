@@ -205,6 +205,79 @@ def test_ops_seed_if_empty_seeds_then_noops(deps: Deps, db: Database) -> None:
     assert ops.handler({"task": "status"}, None)["seed_groups"] == groups
 
 
+def _seed_counts(db: Database) -> dict[str, int]:
+    return {
+        t: db.fetch(f"select count(*) n from {t}")[0]["n"]
+        for t in ("groups", "people", "tasks", "documents", "chunks")
+    }
+
+
+def test_reseed_clears_visitors_then_reloads(deps: Deps, db: Database) -> None:
+    ops.handler({"task": "seed_if_empty"}, None)
+    fresh = _seed_counts(db)
+    sid = "v" * 64
+    db.execute("insert into sandboxes (id) values (:sid)", {"sid": sid})
+    key = f"uploads/{sid}/a.md"
+    deps.blobs.put(key, b"# hi")
+    db.execute(
+        "insert into groups (id, name, kind, parent_id, session_id) "
+        "values ('mine', 'Mine', 'team', 'platform', :sid)",
+        {"sid": sid},
+    )
+    db.execute(
+        "insert into documents (session_id, title, doc_type, group_id, source_uri) "
+        "values (:sid, 'Mine', 'markdown', 'mine', :uri)",
+        {"sid": sid, "uri": f"blob://{key}"},
+    )
+    task = db.fetch("select id::text as id from tasks where session_id is null")[0][
+        "id"
+    ]
+    db.execute(
+        "insert into task_completions (person_id, task_id, session_id, done) "
+        "select id, :tid::uuid, :sid, true from people limit 1",
+        {"tid": task, "sid": sid},
+    )
+    db.execute(
+        "insert into chat_turns (session_id, role, text) values (:sid, 'user', 'q')",
+        {"sid": sid},
+    )
+    out = ops.handler({"task": "reseed"}, None)
+    assert out["reseeded"] is True and out["visitors_cleared"] == 1
+    for t in (
+        "chat_turns",
+        "task_completions",
+        "overrides",
+        "tasks",
+        "documents",
+        "groups",
+    ):
+        n = db.fetch(
+            f"select count(*) n from {t} where session_id = :sid", {"sid": sid}
+        )
+        assert n[0]["n"] == 0, t
+    assert db.fetch("select count(*) n from sandboxes")[0]["n"] == 0
+    with pytest.raises(KeyError):
+        deps.blobs.get(key)
+    assert _seed_counts(db) == fresh
+    assert out["groups"] == fresh["groups"]
+
+
+def test_reseed_clears_orphan_visitor_rows(deps: Deps, db: Database) -> None:
+    ops.handler({"task": "seed_if_empty"}, None)
+    db.execute(
+        "insert into overrides (session_id, entity_kind, entity_id, hidden) "
+        "values ('orphan', 'group', 'platform', true)"
+    )
+    out = ops.handler({"task": "reseed"}, None)
+    assert out["visitors_cleared"] == 1
+    assert db.fetch("select count(*) n from overrides")[0]["n"] == 0
+
+
+def test_deploy_never_calls_reseed() -> None:
+    deploy = Path(__file__).resolve().parents[2] / "ci" / "deploy.sh"
+    assert "reseed" not in deploy.read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("event", [{"task": "drop"}, {}, {"task": 3}, "x", None])
 def test_ops_rejects_unknown_task(deps: Deps, event: Any) -> None:
     assert ops.handler(event, None) == {"error": "unknown_task"}
