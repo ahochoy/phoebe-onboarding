@@ -119,24 +119,79 @@ describe("DocumentsTab", () => {
   it("list shows title, type, group, purpose, last updated, status", async () => {
     mockList();
     renderTab();
-    const table = await screen.findByRole("table", { name: "Documents" });
-    expect(
-      within(table)
-        .getAllByRole("columnheader")
-        .map((h) => h.textContent),
-    ).toEqual(["Title", "Type", "Group", "Purpose", "Last updated", "Status", "Actions"]);
-    const rows = within(table).getAllByRole("row");
-    expect(rows).toHaveLength(4);
-    const handbook = within(rows[1]!);
-    expect(handbook.getByText("Handbook")).toBeInTheDocument();
+    await screen.findByText("Handbook");
+    const row = (title: string) => screen.getByText(title).closest("li")!;
+    const handbook = within(row("Handbook"));
     expect(handbook.getByText("PDF")).toBeInTheDocument();
-    expect(handbook.getByText("Acme Corp")).toBeInTheDocument();
     expect(handbook.getByText("Company rules")).toBeInTheDocument();
     expect(handbook.getByText("Nov 3, 2026")).toBeInTheDocument();
     expect(handbook.getByText("Indexed ✓")).toBeInTheDocument();
-    expect(within(rows[2]!).getByText("Processing…")).toBeInTheDocument();
-    expect(within(rows[2]!).getByText("Markdown")).toBeInTheDocument();
-    expect(within(rows[3]!).getByText("Failed: Could not read the file")).toBeInTheDocument();
+    expect(within(row("Runbook")).getByText("Processing…")).toBeInTheDocument();
+    expect(within(row("Runbook")).getByText("Markdown")).toBeInTheDocument();
+    expect(within(row("Pricing")).getByText("Failed: Could not read the file")).toBeInTheDocument();
+  });
+
+  describe("tree", () => {
+    beforeEach(() => sessionStorage.clear());
+
+    it("section headers are expanded buttons labelled with name and count", async () => {
+      mockList();
+      renderTab();
+      await screen.findByText("Handbook");
+      for (const name of [
+        "Acme Corp (3 documents)",
+        "Engineering (1 document)",
+        "Platform (1 document)",
+        "Sales (1 document)",
+      ]) {
+        expect(screen.getByRole("button", { name })).toHaveAttribute("aria-expanded", "true");
+      }
+    });
+
+    it("collapsing Platform hides its documents, and the choice survives a remount", async () => {
+      mockList();
+      const user = userEvent.setup();
+      const first = render(
+        <QueryClientProvider client={makeClient()}>
+          <DocumentsTab />
+        </QueryClientProvider>,
+      );
+      await user.click(await screen.findByRole("button", { name: "Platform (1 document)" }));
+      expect(screen.getByRole("button", { name: "Platform (1 document)" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      expect(screen.queryByText("Runbook")).not.toBeInTheDocument();
+      expect(screen.getByText("Handbook")).toBeInTheDocument();
+      first.unmount();
+
+      renderTab();
+      await screen.findByText("Handbook");
+      expect(screen.getByRole("button", { name: "Platform (1 document)" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      expect(screen.queryByText("Runbook")).not.toBeInTheDocument();
+    });
+
+    it("ignores a stored id for a group that no longer exists", async () => {
+      sessionStorage.setItem("phoebe.admin.docs.collapsed", JSON.stringify(["gone"]));
+      mockList();
+      renderTab();
+      await screen.findByText("Handbook");
+      expect(screen.getByText("Runbook")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Platform (1 document)" })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+    });
+
+    it("shows a document whose group is not in the tree under Other", async () => {
+      mockList([makeDoc("z", "team", { title: "Orphan", group_id: "nope", group_name: "?" })]);
+      renderTab();
+      expect(await screen.findByText("Orphan")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Other (1 document)" })).toBeInTheDocument();
+    });
   });
 
   describe("polling", () => {
@@ -172,7 +227,7 @@ describe("DocumentsTab", () => {
       expect(calls.all).toBe(3);
     });
 
-    it("a failed poll keeps the table and shows a small inline note until the next poll succeeds", async () => {
+    it("a failed poll keeps the list and shows a small inline note until the next poll succeeds", async () => {
       let fail = false;
       server.use(
         http.get("/api/documents", () =>
@@ -189,7 +244,7 @@ describe("DocumentsTab", () => {
       const note = await screen.findByText(/This may be out of date\./);
       expect(note).toHaveAttribute("role", "status");
       expect(note).toHaveTextContent(messageFor(new ApiError(500, "internal_error")));
-      expect(screen.getByRole("table", { name: "Documents" })).toBeInTheDocument();
+      expect(screen.getByText("Handbook")).toBeInTheDocument();
       expect(screen.getByText("Handbook")).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
@@ -198,7 +253,7 @@ describe("DocumentsTab", () => {
       await waitFor(() =>
         expect(screen.queryByText(/This may be out of date\./)).not.toBeInTheDocument(),
       );
-      expect(screen.getByRole("table", { name: "Documents" })).toBeInTheDocument();
+      expect(screen.getByText("Handbook")).toBeInTheDocument();
     });
   });
 

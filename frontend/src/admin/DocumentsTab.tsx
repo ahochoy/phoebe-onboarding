@@ -10,6 +10,8 @@ import { PAUSED_COPY } from "../lib/messages";
 import { useStatus } from "../state/status";
 import { AddDocumentDialog, type AddMode } from "./AddDocumentDialog";
 import { EditDocumentDialog } from "./EditDocumentDialog";
+import { DocumentTree } from "./DocumentTree";
+import { useGroups } from "./GroupsTab";
 import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
 import { buttonClass, iconButton } from "./formParts";
 
@@ -72,17 +74,56 @@ function DeleteDialog({ doc, onClose }: { doc: DocumentOut | null; onClose: () =
   );
 }
 
-const th = "px-3 py-2 text-left text-sm font-semibold";
-const td = "px-3 py-2 align-top text-sm";
-
 export function DocumentsTab() {
   const { data, error, isPending } = useAdminDocuments();
   const { uploadAvailable } = useStatus();
   const [addMode, setAddMode] = useState<AddMode | null>(null);
   const [editing, setEditing] = useState<DocumentOut | null>(null);
   const [deleting, setDeleting] = useState<DocumentOut | null>(null);
+  const { data: groupData, isError: groupsFailed } = useGroups();
+  // If groups cannot load, still list the documents (under "Other").
+  const groups = groupData ?? (groupsFailed ? [] : undefined);
   const noteId = useId();
   const paused = !uploadAvailable;
+
+  const renderDoc = (d: DocumentOut) => (
+    <div className="flex flex-wrap items-start gap-x-4 gap-y-1 px-2 py-2 text-sm">
+      <div className="min-w-48 flex-1">
+        <p className="font-medium">{d.title}</p>
+        {d.purpose ? <p className="text-ink/80">{d.purpose}</p> : null}
+      </div>
+      <span>{TYPE_LABELS[d.doc_type]}</span>
+      <span className="whitespace-nowrap">
+        {d.last_updated ? (
+          formatStart(d.last_updated)
+        ) : (
+          <>
+            <span aria-hidden="true">—</span>
+            <span className="sr-only">Not set</span>
+          </>
+        )}
+      </span>
+      <StatusCell doc={d} />
+      <div className="flex gap-1">
+        <button
+          type="button"
+          aria-label={`Edit ${d.title}`}
+          className={iconButton}
+          onClick={() => setEditing(d)}
+        >
+          <Pencil aria-hidden="true" className="size-4" />
+        </button>
+        <button
+          type="button"
+          aria-label={`Delete ${d.title}`}
+          className={iconButton}
+          onClick={() => setDeleting(d)}
+        >
+          <Trash2 aria-hidden="true" className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <section aria-labelledby="documents-heading" className="space-y-4">
@@ -132,67 +173,9 @@ export function DocumentsTab() {
           <PhoebeArt pose="pointing" size={96} />
           <p className="text-sm text-ink/80">No documents yet.</p>
         </div>
-      ) : (
-        // The row buttons are focusable, so keyboard users can scroll the table sideways.
-        <div className="overflow-x-auto rounded-md border border-ink/20 bg-white">
-          <table aria-label="Documents" className="w-full min-w-3xl">
-            <thead className="border-b border-ink/20">
-              <tr>
-                {["Title", "Type", "Group", "Purpose", "Last updated", "Status", "Actions"].map(
-                  (h) => (
-                    <th key={h} scope="col" className={th}>
-                      {h}
-                    </th>
-                  ),
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink/10">
-              {data.map((d) => (
-                <tr key={d.id}>
-                  <td className={`${td} font-medium`}>{d.title}</td>
-                  <td className={td}>{TYPE_LABELS[d.doc_type]}</td>
-                  <td className={td}>{d.group_name}</td>
-                  <td className={td}>{d.purpose}</td>
-                  <td className={`${td} whitespace-nowrap`}>
-                    {d.last_updated ? (
-                      formatStart(d.last_updated)
-                    ) : (
-                      <>
-                        <span aria-hidden="true">—</span>
-                        <span className="sr-only">Not set</span>
-                      </>
-                    )}
-                  </td>
-                  <td className={td}>
-                    <StatusCell doc={d} />
-                  </td>
-                  <td className={td}>
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        aria-label={`Edit ${d.title}`}
-                        className={iconButton}
-                        onClick={() => setEditing(d)}
-                      >
-                        <Pencil aria-hidden="true" className="size-4" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Delete ${d.title}`}
-                        className={iconButton}
-                        onClick={() => setDeleting(d)}
-                      >
-                        <Trash2 aria-hidden="true" className="size-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      ) : groups ? (
+        <DocumentTree groups={groups} docs={data} renderDoc={renderDoc} />
+      ) : null}
 
       <AddDocumentDialog mode={addMode} onClose={() => setAddMode(null)} />
       <EditDocumentDialog doc={editing} onClose={() => setEditing(null)} />
