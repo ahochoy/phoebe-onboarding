@@ -1,39 +1,29 @@
-import {
-  ask,
-  citationButtons,
-  composer,
-  expect,
-  loggedIn,
-  setControl,
-  showPanel,
-  test,
-} from "./fixtures";
+import { composer, expect, loggedIn, setControl, showPanel, test } from "./fixtures";
 
 const PILL = "Rate limit exceeded. Please wait for sessions to refresh.";
 const OFFLINE = "The Phoebe demo is temporarily offline. Please check back later.";
 
-// The kill switch is global to the stack: these run one at a time and always reopen.
-test.describe.configure({ mode: "serial" });
-
-test.beforeAll(async () => {
+// The kill switch is global to the stack, so this runs alone, after every other test,
+// in one browser (playwright.config.ts). The UI for each state is covered by
+// StatusPill/ChatPanel/Landing component tests and the API by test_api_limits.py; this
+// checks that the real `make pause|kill|open` reaches the browser.
+test.afterEach(async () => {
   await setControl("open");
 });
 
-test.afterAll(async () => {
-  await setControl("open");
-});
-
-test("make pause shows the pill, disables chat, and leaves tasks working", async ({ page }) => {
+test("make pause, kill and open reach the UI", { tag: "@once" }, async ({ page }) => {
   await loggedIn(page);
+
+  // Pause: the pill shows, chat is disabled, tasks still save.
   await setControl("pause");
   await page.reload();
-
   await expect(page.getByRole("button", { name: PILL, exact: true })).toBeVisible();
   await showPanel(page, "Chat");
   await expect(composer(page)).toBeDisabled();
 
   await showPanel(page, "Tasks");
   const progress = page.getByRole("region", { name: "Tasks" }).getByText(/^\d+ of \d+ done$/);
+  await expect(progress).toBeVisible();
   const [done, total] = ((await progress.textContent()) ?? "").split(/\D+/).map(Number);
   const boxId = await page.getByRole("checkbox", { checked: false }).first().getAttribute("id");
   const box = page.locator(`[id="${boxId}"]`);
@@ -46,28 +36,24 @@ test("make pause shows the pill, disables chat, and leaves tasks working", async
   await expect(box).toBeChecked();
   await expect(progress).toHaveText(`${done! + 1} of ${total} done`);
   await saved;
-  // Still checked after a reload, so the server kept it.
   await page.reload();
   await showPanel(page, "Tasks");
   await expect(box).toBeChecked();
-});
 
-test("make kill shows the offline copy on the landing page", async ({ page }) => {
+  // Kill: the landing page shows the offline copy and no password field.
   await setControl("kill");
   await page.goto("/");
   await expect(page.getByText(OFFLINE)).toBeVisible();
   await expect(page.getByLabel("Demo password")).toHaveCount(0);
-});
 
-test("make open restores normal behaviour", async ({ page }) => {
+  // Open: everything is back. Drop the session first, as a new visitor would arrive.
   await setControl("open");
+  await page.context().clearCookies();
   await page.goto("/");
+  await expect(page.getByLabel("Demo password")).toBeVisible();
   await expect(page.getByText(OFFLINE)).toHaveCount(0);
   await loggedIn(page);
-
   await expect(page.getByRole("button", { name: PILL })).toHaveCount(0);
   await showPanel(page, "Chat");
   await expect(composer(page)).toBeEnabled();
-  const answer = await ask(page, "How many PTO days do I get?");
-  await expect(citationButtons(answer).first()).toBeVisible();
 });

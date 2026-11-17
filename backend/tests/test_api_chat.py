@@ -432,6 +432,20 @@ def test_chat_stops_citing_doc_moved_outside_groups(
     assert doc not in cited and doc not in closest
 
 
+def test_chat_stops_citing_deleted_doc(
+    db: PsycopgDatabase, seeded_client: TestClient
+) -> None:
+    q = "How many PTO days do I get?"
+    doc = _doc_id(db, "Employee Handbook")
+    cited, _ = _done_doc_ids(chat(seeded_client, {"question": q}).text)
+    assert doc in cited  # it answers the question before the delete
+    r = seeded_client.delete(f"/api/documents/{doc}", headers=CSRF)
+    assert r.status_code == 204
+    # A fresh question, with no history, neither cites nor offers it.
+    cited, closest = _done_doc_ids(chat(seeded_client, {"question": q}).text)
+    assert doc not in cited and doc not in closest
+
+
 @pytest.mark.parametrize("value", [0, 4001])
 def test_question_max_chars_is_bounded(value: int) -> None:
     from pydantic import ValidationError

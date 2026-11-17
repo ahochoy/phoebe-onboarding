@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, loggedIn, showPanel, test } from "./fixtures";
+import { expect, loggedIn, openAdminTab, pickGroup, showPanel, test } from "./fixtures";
 
 const PROGRESS = /^(\d+) of (\d+) done$/;
 
@@ -9,42 +9,51 @@ function readCount(text: string | null): { done: number; total: number } {
   return { done: Number(m[1]), total: Number(m[2]) };
 }
 
-function alexRow(page: Page) {
+function alexProgress(page: Page) {
   return page
     .getByRole("table", { name: "People and onboarding progress" })
     .getByRole("row")
-    .filter({ has: page.getByRole("button", { name: "Alex Rivera" }) });
+    .filter({ has: page.getByRole("button", { name: "Alex Rivera" }) })
+    .getByText(PROGRESS);
 }
 
-test("check a task, the count updates, and Admin People shows Alex's count +1", async ({
-  page,
-}) => {
-  await loggedIn(page);
-  const view = page.getByRole("radiogroup", { name: "View" });
+// The one cross-view journey: an admin's new task reaches the employee checklist, and
+// checking it moves the employee's count and the admin's People table together.
+test(
+  "admin adds a Platform task, the employee checks it, and both counts go up",
+  {
+    tag: "@journey",
+  },
+  async ({ page }) => {
+    await loggedIn(page);
+    const title = "Read the Platform runbook";
 
-  await view.getByRole("radio", { name: "Admin" }).click();
-  await page.getByRole("tab", { name: "People & Progress" }).click();
-  await expect(page).toHaveURL(/\/admin\/people$/);
-  const before = readCount(await alexRow(page).getByText(PROGRESS).textContent());
+    await openAdminTab(page, "Tasks");
+    await page.getByRole("button", { name: "Add task" }).click();
+    const dialog = page.getByRole("dialog", { name: "Add task" });
+    await dialog.getByLabel("Title").fill(title);
+    await pickGroup(page, dialog, "Platform");
+    await dialog.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
 
-  await view.getByRole("radio", { name: "Employee" }).click();
-  await expect(page).toHaveURL(/\/employee$/);
-  await showPanel(page, "Tasks");
-  const progress = page.getByRole("region", { name: "Tasks" }).getByText(PROGRESS);
-  const mine = readCount(await progress.textContent());
-  expect(mine).toEqual(before);
+    await page.getByRole("radio", { name: "Employee" }).click();
+    await expect(page).toHaveURL(/\/employee$/);
+    await showPanel(page, "Tasks");
+    const box = page.getByRole("checkbox", { name: title });
+    // Once the new task is on the checklist, the count includes it.
+    await expect(box).not.toBeChecked();
+    const progress = page.getByRole("region", { name: "Tasks" }).getByText(PROGRESS);
+    await expect(progress).toHaveText(PROGRESS);
+    const before = readCount(await progress.textContent());
 
-  // Pin the box by id: once checked it would drop out of a `checked: false` query.
-  const boxId = await page.getByRole("checkbox", { checked: false }).first().getAttribute("id");
-  const box = page.locator(`[id="${boxId}"]`);
-  await box.click();
-  await expect(box).toBeChecked();
-  await expect(progress).toHaveText(`${mine.done + 1} of ${mine.total} done`);
+    await box.click();
+    await expect(box).toBeChecked();
+    await expect(progress).toHaveText(`${before.done + 1} of ${before.total} done`);
 
-  await view.getByRole("radio", { name: "Admin" }).click();
-  await page.getByRole("tab", { name: "People & Progress" }).click();
-  await expect(page).toHaveURL(/\/admin\/people$/);
-  await expect(alexRow(page).getByText(PROGRESS)).toHaveText(
-    `${before.done + 1} of ${before.total} done`,
-  );
-});
+    // The admin table may show a cached count first; the retrying assertion waits for
+    // its refetch to agree with the employee view.
+    await openAdminTab(page, "People & Progress");
+    await expect(alexProgress(page)).toHaveText(`${before.done + 1} of ${before.total} done`);
+  },
+);
