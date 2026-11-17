@@ -62,7 +62,7 @@ export function SessionGate() {
   return (
     <div className="flex h-dvh flex-col">
       <Header />
-      <main className="mx-auto min-h-0 w-full max-w-6xl flex-1 overflow-y-auto p-4">
+      <main className="mx-auto min-h-0 w-full max-w-screen-2xl flex-1 overflow-y-auto p-4">
         {/* Session-scoped, so the conversation and any answer in progress survive
             switching between the Employee and Admin views. */}
         <ChatRuntimeProvider>
