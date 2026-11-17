@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { ChatPanel } from "../chat/ChatPanel";
 import { DocumentsPanel } from "../documents/DocumentsPanel";
 import { ViewerProvider } from "../documents/ViewerProvider";
-import { PersonaCard } from "../employee/PersonaCard";
+import { DayStrip, PersonaCard } from "../employee/PersonaCard";
 import { TasksPanel } from "../employee/TasksPanel";
 import { LG_UP, useMediaQuery } from "../lib/useMediaQuery";
 
@@ -60,6 +60,7 @@ export function Employee() {
         {panel(
           "tasks",
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+            <DayStrip />
             <PersonaCard />
             <TasksPanel />
           </div>,
