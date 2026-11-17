@@ -21,3 +21,7 @@ frontend/test-results
 frontend/playwright-report
 # Release plan artifact written by ci/release-plan.sh.
 release-out/
+# Saved Terraform plans from owner applies (e.g. infra/bootstrap/alerts.plan).
+# They can hold sensitive values, such as the alert email.
+*.plan
+*.tfplan
