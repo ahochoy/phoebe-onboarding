@@ -2,11 +2,13 @@ import { Tabs } from "radix-ui";
 import { Navigate, useNavigate, useParams } from "react-router";
 import { DocumentsTab } from "../admin/DocumentsTab";
 import { GroupsTab } from "../admin/GroupsTab";
+import { HomeTab } from "../admin/HomeTab";
 import { PeopleTab } from "../admin/PeopleTab";
 import { TasksTab } from "../admin/TasksTab";
 import { MD_UP, useMediaQuery } from "../lib/useMediaQuery";
 
 export const ADMIN_TABS = [
+  { id: "home", label: "Home" },
   { id: "people", label: "People & Progress" },
   { id: "documents", label: "Documents" },
   { id: "tasks", label: "Tasks" },
@@ -32,7 +34,7 @@ export function Admin() {
   const navigate = useNavigate();
   const wide = useMediaQuery(MD_UP);
 
-  if (!isAdminTab(tab)) return <Navigate to="/admin/people" replace />;
+  if (!isAdminTab(tab)) return <Navigate to="/admin/home" replace />;
 
   return (
     <Tabs.Root
@@ -51,6 +53,9 @@ export function Admin() {
           </Tabs.Trigger>
         ))}
       </Tabs.List>
+      <Tabs.Content value="home" className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
+        <HomeTab />
+      </Tabs.Content>
       <Tabs.Content value="people" className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
         <PeopleTab />
       </Tabs.Content>

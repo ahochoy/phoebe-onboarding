@@ -146,12 +146,16 @@ function Contents({
   );
 }
 
-export function GroupsTab() {
-  const queryClient = useQueryClient();
-  const groups = useQuery({
+export function useGroups() {
+  return useQuery({
     queryKey: ["groups"],
     queryFn: () => apiGet<GroupNode[]>("/api/groups"),
   });
+}
+
+export function GroupsTab() {
+  const queryClient = useQueryClient();
+  const groups = useGroups();
   const docs = useAdminDocuments();
   const tasks = useTasks("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);

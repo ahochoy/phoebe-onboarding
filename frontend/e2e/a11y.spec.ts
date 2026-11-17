@@ -66,7 +66,7 @@ test.describe("axe", () => {
     await expectNoViolations(page);
   });
 
-  for (const tab of ["People & Progress", "Documents", "Tasks", "Groups"]) {
+  for (const tab of ["Home", "People & Progress", "Documents", "Tasks", "Groups"]) {
     test(`admin ${tab}`, async ({ page }) => {
       await loggedIn(page);
       await page.getByRole("radio", { name: "Admin" }).click();

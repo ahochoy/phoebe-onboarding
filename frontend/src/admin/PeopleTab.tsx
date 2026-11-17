@@ -8,7 +8,7 @@ import { QueryError } from "../components/QueryError";
 import { PersonChecklist } from "./PersonChecklist";
 
 // Both keys start with "people", so invalidating ["people"] refreshes the table and any open checklist.
-function usePeople() {
+export function usePeople() {
   return useQuery({
     queryKey: ["people"],
     queryFn: () => apiGet<PersonProgress[]>("/api/people"),

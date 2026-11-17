@@ -44,7 +44,7 @@ describe("Header", () => {
     const admin = screen.getByRole("radio", { name: "Admin" });
     expect(admin).toHaveFocus();
     await user.keyboard("{Enter}");
-    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/people"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/home"));
     expect(screen.getByRole("radio", { name: "Admin" })).toBeChecked();
     await user.click(screen.getByRole("radio", { name: "Employee" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/employee"));

@@ -20,8 +20,8 @@ describe("routes under a preview base path", () => {
     expect(router.state.location.pathname).toBe("/pr-12/employee");
 
     await user.click(screen.getByRole("radio", { name: "Admin" }));
-    expect(await screen.findByRole("heading", { name: "People & Progress" })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/pr-12/admin/people");
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/pr-12/admin/home");
 
     expect(apiPaths).toContain("/api/me");
     expect(apiPaths.every((p) => p.startsWith("/api/"))).toBe(true);

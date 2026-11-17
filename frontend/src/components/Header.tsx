@@ -69,7 +69,7 @@ export function Header() {
             aria-label="View"
             onValueChange={(next) => {
               if (next === "employee") void navigate("/employee");
-              else if (next === "admin") void navigate("/admin/people");
+              else if (next === "admin") void navigate("/admin/home");
             }}
             className="inline-flex gap-1 rounded-lg border border-ink/20 p-0.5"
           >
