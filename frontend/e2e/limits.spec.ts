@@ -37,10 +37,16 @@ test("make pause shows the pill, disables chat, and leaves tasks working", async
   const [done, total] = ((await progress.textContent()) ?? "").split(/\D+/).map(Number);
   const boxId = await page.getByRole("checkbox", { checked: false }).first().getAttribute("id");
   const box = page.locator(`[id="${boxId}"]`);
+  // The box checks optimistically, before the PUT is sent; a reload before the response
+  // can cancel the save. Wait for the server to take it first.
+  const saved = page.waitForResponse(
+    (r) => r.request().method() === "PUT" && r.url().endsWith("/completion") && r.ok(),
+  );
   await box.click();
   await expect(box).toBeChecked();
   await expect(progress).toHaveText(`${done! + 1} of ${total} done`);
-  // Still checked after a reload, so the server took it.
+  await saved;
+  // Still checked after a reload, so the server kept it.
   await page.reload();
   await showPanel(page, "Tasks");
   await expect(box).toBeChecked();

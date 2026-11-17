@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test";
 import {
   ask,
   citationButtons,
+  composer,
   demoPassword,
   expect,
   isNarrow,
@@ -30,8 +31,9 @@ async function expectNoViolations(page: Page): Promise<void> {
  * Presses Tab until one of `target`'s elements has focus. Safari's Tab skips buttons and
  * links unless "Press Tab to highlight each item" is on; Option+Tab is its every-item Tab.
  */
-async function tabTo(page: Page, target: Locator, max = 80): Promise<void> {
-  const key = page.context().browser()?.browserType().name() === "webkit" ? "Alt+Tab" : "Tab";
+async function tabTo(page: Page, target: Locator, max = 80, back = false): Promise<void> {
+  const webkit = page.context().browser()?.browserType().name() === "webkit";
+  const key = `${webkit ? "Alt+" : ""}${back ? "Shift+" : ""}Tab`;
   for (let i = 0; i < max; i++) {
     await page.keyboard.press(key);
     const hit = await target.evaluateAll((els) =>
@@ -109,8 +111,14 @@ test("keyboard only: log in, check a task, ask, open a citation, Escape returns 
   await page.keyboard.press("Enter");
   const answer = await settledAnswer(page);
 
-  const cite = citationButtons(answer).first();
-  await tabTo(page, cite);
+  // The suggestion button unmounted when the question was sent, so focus fell to <body>,
+  // where each engine resumes Tab from a different place. Start from the composer
+  // instead; the answer's sources sit just before it.
+  await composer(page).focus();
+  await tabTo(page, citationButtons(answer), 40, true);
+  // Tag the focused one: an answer can cite the same source twice, so its name may repeat.
+  await page.evaluate(() => document.activeElement?.setAttribute("data-e2e-cite", ""));
+  const cite = answer.locator("[data-e2e-cite]");
   await page.keyboard.press("Enter");
   const viewer = page.getByRole("dialog");
   await expect(viewer.locator("mark").first()).toBeVisible();
