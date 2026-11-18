@@ -19,12 +19,14 @@ describe("Landing", () => {
     const { container } = renderApp("/");
     expect(await screen.findByLabelText(/password/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /enter|start|sign in/i })).toBeInTheDocument();
+    // One short title in the brand navy; Phoebe's introduction is the body copy.
+    const title = screen.getByRole("heading", { level: 1, name: "Welcome to Larkspur Labs" });
+    expect(title).toHaveClass("text-accent");
     expect(
-      screen.getByRole("heading", {
-        name: "Welcome to Larkspur Labs. I'm Phoebe, your onboarding guide.",
-      }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/ask a question and get answers/i)).toBeInTheDocument();
+      screen.getByText(
+        "I'm Phoebe, your AI onboarding guide. Ask a question and get answers drawn from your team's own documents.",
+      ).tagName,
+    ).toBe("P");
     expect(container.querySelector('img[aria-hidden="true"][alt=""]')).not.toBeNull();
   });
 
