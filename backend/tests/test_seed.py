@@ -1,3 +1,4 @@
+import csv
 import re
 from collections.abc import Sequence
 from pathlib import Path
@@ -153,3 +154,11 @@ def test_seed_docs_name_the_new_people() -> None:
         assert not re.search(r"\bMei\b|Jordan Lee", text), name
     team = texts["platform-team.md"]
     assert "Melinda Grant" in team and "Jordan Moore" in team
+
+
+def test_seed_csvs_have_one_field_per_header() -> None:
+    # An unquoted comma in a cell splits it, and the parser labels the spill "Column N".
+    for p in (SEED_DIR / "content").glob("*.csv"):
+        header, *rows = csv.reader(p.read_text().splitlines())
+        for n, row in enumerate(rows, 2):
+            assert len(row) == len(header), f"{p.name}:{n} has {len(row)} fields"
