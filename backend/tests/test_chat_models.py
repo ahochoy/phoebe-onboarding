@@ -325,3 +325,89 @@ def test_make_models_wires_aws_backends() -> None:
 def test_make_models_half_configured_guardrail_raises(kw: dict) -> None:
     with pytest.raises(RuntimeError):
         make_models(settings(**kw))
+
+
+# ---- converse: Haiku through Bedrock directly ------------------------------
+
+
+def converse(events: list[dict]):
+    from phoebe.chat.models import ConverseAnswerModel
+
+    client = Mock()
+    client.converse_stream.return_value = {"stream": iter(events)}
+    model = ConverseAnswerModel(
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "us-east-2",
+        max_tokens=700,
+        client=client,
+    )
+    return model, client
+
+
+def test_converse_request_is_server_owned() -> None:
+    from phoebe.chat.prompt import ANSWER_PROMPT_PATH
+
+    model, client = converse([delta("a"), STOP])
+    list(
+        model.stream(
+            [{"role": "user", "text": "q"}, {"role": "assistant", "text": "r"}]
+        )
+    )
+    kwargs = client.converse_stream.call_args.kwargs
+    assert kwargs == {
+        "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "system": [{"text": ANSWER_PROMPT_PATH.read_text()}],
+        "messages": [
+            {"role": "user", "content": [{"text": "q"}]},
+            {"role": "assistant", "content": [{"text": "r"}]},
+        ],
+        "inferenceConfig": {"temperature": 0.1, "maxTokens": 700},
+    }
+    assert "toolConfig" not in kwargs
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"contentBlockStart": {"start": {"toolUse": {"name": "x", "toolUseId": "1"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": "{}"}}}},
+    ],
+)
+def test_converse_tool_use_raises(event: dict) -> None:
+    model, _ = converse([event, delta("leak"), STOP])
+    with pytest.raises(ModelUnavailable):
+        list(model.stream(MSGS))
+
+
+def test_converse_reads_prompt_at_construction(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from phoebe.chat import models
+
+    monkeypatch.setattr(models, "ANSWER_PROMPT_PATH", tmp_path / "missing.txt")
+    with pytest.raises(FileNotFoundError):
+        models.ConverseAnswerModel("m", "us-east-2", max_tokens=700, client=Mock())
+
+
+def test_make_models_converse() -> None:
+    from phoebe.chat.models import ConverseAnswerModel
+
+    a, _, _ = make_models(
+        settings(answer_backend="converse", guardrail_id="gid", guardrail_version="1")
+    )
+    assert isinstance(a, ConverseAnswerModel)
+    assert a._model_id == "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # pyright: ignore[reportPrivateUsage]
+    assert a._max_tokens == 700  # pyright: ignore[reportPrivateUsage]
+
+
+def test_converse_requires_guardrail_settings() -> None:
+    with pytest.raises(RuntimeError, match="GUARDRAIL"):
+        make_models(settings(answer_backend="converse"))
+
+
+def test_eval_uses_the_production_converse_model() -> None:
+    from phoebe.chat import models
+    from phoebe.evals import converse as eval_converse
+
+    assert eval_converse.ConverseAnswerModel is models.ConverseAnswerModel
+    assert eval_converse.ModelUnsupported is models.ModelUnsupported

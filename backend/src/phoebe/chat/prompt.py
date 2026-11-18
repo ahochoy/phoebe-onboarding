@@ -2,13 +2,11 @@
 
 import html
 from collections.abc import Sequence
-from pathlib import Path
 
-from phoebe.chat.models import Message
+from phoebe.chat.models import ANSWER_PROMPT_PATH, Message
 from phoebe.retrieve import Passage
 
-# backend/prompts/answer.txt; this file is backend/src/phoebe/chat/prompt.py.
-ANSWER_PROMPT_PATH = Path(__file__).resolve().parents[3] / "prompts" / "answer.txt"
+__all__ = ["ANSWER_PROMPT_PATH", "build_messages"]
 
 
 def _esc(value: str) -> str:
