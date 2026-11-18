@@ -86,7 +86,7 @@ live-check:
 	uv run python backend/scripts/live_chat_check.py
 
 # Owner-run chat evals (costs money; asks first unless YES=1). Same env as
-# live-check, plus MODEL, CASES, REPEAT. See README.md "Evals".
+# live-check, plus MODEL, CASES, REPEAT. See docs/development.md "Evals".
 eval:
 	MODEL="$(MODEL)" CASES="$(CASES)" REPEAT="$(REPEAT)" YES="$(YES)" uv run python -m phoebe.evals.run
 
