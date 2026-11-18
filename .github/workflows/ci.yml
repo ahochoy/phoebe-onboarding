@@ -102,6 +102,7 @@ jobs:
         run: |
           for src in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
             test -e "$src" || continue
+            if grep -qE '\.ec2\.archive\.ubuntu\.com' "$src"; then echo "rewriting the EC2 mirror in $src"; fi
             sudo sed -i -E 's#https?://[a-z0-9.-]+\.ec2\.archive\.ubuntu\.com#http://azure.archive.ubuntu.com#g' "$src"
             echo "== $src"; grep -E "^URIs:|://" "$src"
           done
