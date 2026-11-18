@@ -4,12 +4,7 @@ An onboarding portal for a fictional company, Larkspur Labs. A new hire sees the
 
 ![Phoebe answering "What holidays do we have in November and December?" with cited sources, then opening the cited passage](docs/images/demo.gif)
 
-| | |
-|---|---|
-| ![Landing page with the Phoebe mascot and the demo password field](docs/images/landing.png) | ![Employee view: onboarding tasks, the chat, and the document list](docs/images/employee.png) |
-| ![A cited answer, with the source document open at the highlighted passage](docs/images/chat-citations.png) | ![The chat on a phone, with bottom tabs](docs/images/mobile.png) |
-
-**Live demo:** https://phoebe-onboarding.hochoy.dev (password provided with this link)
+**Live demo:** https://phoebe-onboarding.hochoy.dev (password provided upon request)
 
 FastAPI · Postgres with pgvector · React and TypeScript · Amazon Bedrock (Claude Haiku 4.5) · AWS Lambda and Aurora Serverless · Terraform
 
@@ -63,22 +58,9 @@ flowchart LR
   user --> cf
   cf -->|"/*"| site
   cf -->|"/api/*"| api
-  api -->|Data API, no VPC| aurora
-  api --> ddb
-  api --> uploads
-  api --> sqs --> worker
-  worker --> titan
-  worker --> aurora
-  api --> nova
-  api --> titan
-  api --> guard
-  api --> haiku
-  sweeper --> aurora
-  budget -->|70%: pause chat and uploads| budgetfn
-  rdsev -->|closed| budgetfn
-  rdsev --> alerts
-  budgetfn --> ddb
-  pipe -.->|deploys| API
+  API --> Data
+  API --> AI
+  Ops -.->|spend limits, alerts, deploys| API
 ```
 
 A question goes through these steps:

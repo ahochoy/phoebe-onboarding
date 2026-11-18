@@ -136,13 +136,13 @@ make eval MODEL=haiku,glm-5.3 CASES=list,fact REPEAT=3
 
 ## README screenshots
 
-`make screenshots` rebuilds the README images in `docs/images/` from a deployed environment, staging by default. It is owner-run, never part of `make e2e` or CI, and it makes a few real Bedrock calls (about a cent).
+`make screenshots` rebuilds the README demo GIF, `docs/images/demo.gif`, from a deployed environment, staging by default. It is owner-run, never part of `make e2e` or CI, and it makes one real Bedrock answer (under a cent).
 
 ```sh
 PHOEBE_CAPTURE_PASSWORD=... make screenshots                 # staging
 PHOEBE_CAPTURE_URL=https://... PHOEBE_CAPTURE_PASSWORD=... make screenshots
 ```
 
-- The password comes only from `PHOEBE_CAPTURE_PASSWORD`; the target stops before opening a browser when it is unset. The demo must be open with chat available: every capture first checks `GET /api/status` and fails before taking a picture if the demo is paused, closed or capped, so a degraded demo never overwrites an image. Each run logs in five times, half the login throttle's 10 per 15 minutes.
-- It writes `landing.png`, `employee.png`, `chat-citations.png` and `mobile.png`, records a WebM into `frontend/capture-output/` (git-ignored), and turns it into `demo.gif` with `frontend/capture/to-gif.sh` (ffmpeg; at most 15 s, 800 px wide, under 5 MB). Each browser context wipes its sandbox when done.
+- The password comes only from `PHOEBE_CAPTURE_PASSWORD`; the target stops before opening a browser when it is unset. The demo must be open with chat available: the capture first checks `GET /api/status` and fails before recording if the demo is paused, closed or capped, so a degraded demo never replaces the GIF. Each run logs in once.
+- It records a WebM into `frontend/capture-output/` (git-ignored), and turns it into `demo.gif` with `frontend/capture/to-gif.sh` (ffmpeg; at most 15 s, 800 px wide, under 5 MB). The browser context wipes its sandbox when done.
 - `bash frontend/capture/to-gif.test.sh` checks the GIF script offline.
