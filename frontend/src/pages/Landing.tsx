@@ -70,12 +70,10 @@ export function Landing() {
       <SpendBanner />
       <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-4 p-4 text-center">
         <PhoebeArt pose="waving" size={192} />
-        <h1 className="text-3xl font-semibold">
-          Welcome to Larkspur Labs. I&apos;m Phoebe, your onboarding guide.
-        </h1>
+        <h1 className="text-3xl font-semibold text-accent">Welcome to Larkspur Labs</h1>
         <p className="text-base">
-          Your AI onboarding guide: ask a question and get answers drawn from your team&apos;s own
-          documents.
+          I&apos;m Phoebe, your AI onboarding guide. Ask a question and get answers drawn from your
+          team&apos;s own documents.
         </p>
 
         {expired && !closed && (

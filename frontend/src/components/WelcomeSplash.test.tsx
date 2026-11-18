@@ -27,6 +27,8 @@ describe("WelcomeSplash", () => {
     await user.type(await screen.findByLabelText(/password/i), "secret{Enter}");
     const dialog = await screen.findByRole("dialog", { name: WELCOME });
     expect(dialog).toBeInTheDocument();
+    // The mascot is static: no bounce.
+    expect(dialog.querySelector("img")?.className).not.toMatch(/animate-/);
     await user.click(screen.getByRole("button", { name: /got it|let's go|continue/i }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(window.sessionStorage.getItem("phoebe.welcome")).toBe("done");

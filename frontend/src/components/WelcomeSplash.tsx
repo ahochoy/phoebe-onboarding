@@ -36,11 +36,7 @@ export function WelcomeSplash({ me }: { me: Me }) {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-ink/50" />
         <Dialog.Content className="fixed top-1/2 left-1/2 z-50 flex w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 rounded-lg bg-white p-8 text-center shadow-xl">
-          <PhoebeArt
-            pose="onboarding-checklist"
-            size={160}
-            className="motion-safe:animate-bounce"
-          />
+          <PhoebeArt pose="onboarding-checklist" size={160} />
           <Dialog.Title className="text-xl font-semibold">
             {`Welcome to the ${me.team_name} team, ${first}!`}
           </Dialog.Title>
