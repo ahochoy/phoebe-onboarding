@@ -2,6 +2,14 @@
 
 Terraform root for Phoebe's AI pieces in `us-east-2`: one Bedrock Guardrail and
 two AgentCore Harnesses (Haiku 4.5 and Nova Micro) sharing one execution role.
+
+Since 2026-11-18 the API answers with Haiku through Bedrock directly
+(`infra/app` variable `answer_backend = converse`). The guardrail is still in
+use. The harnesses are kept for one release as the rollback path
+(`answer_backend = harness`), then removed. With `converse` the system prompt
+comes from `backend/prompts/answer.txt` in the API image, so a prompt change
+reaches staging and production through a normal deploy. An apply here only
+updates the rollback harnesses.
 Plan 4 moves this root into its module layout with `moved {}` blocks, so keep
 the resource names stable.
 

@@ -57,7 +57,8 @@ goes quiet; an idle environment then wakes about once every 25 h.
 | `ai_state_bucket` | `phoebe-tfstate-<account_id>`; the `infra/ai` state is read from key `ai.tfstate`. |
 | `budget_topic_arn` | `arn:aws:sns:us-east-2:<account_id>:phoebe-budget-<env>` (bootstrap; another env's topic is rejected). |
 | `password_hash_secret_arn` | This env's `phoebe-<env>-password-hash` secret, created by the owner (Task 9). Must be the full ARN, including the 6-character random suffix; another env's secret is rejected. |
-| `answer_harness` | `haiku` (default) or `nova`. Use `nova` until the account's Anthropic use-case form is approved (see `infra/ai/README.md`). |
+| `answer_backend` | `converse` (default): the API answers with Haiku 4.5 through Bedrock ConverseStream, with streaming access to the Haiku `us.` profile and no AgentCore access. `harness`: the infra/ai AgentCore harness, which restores the previous env and IAM exactly. Use it to roll back for one release. |
+| `answer_harness` | With `answer_backend = harness`: `haiku` (default) or `nova`. |
 | `api_reserved_concurrency` | Default `5`; `null` = unreserved. Ruling R23: reserved concurrency counts against the account's Lambda concurrency quota (a new account can be as low as 10, and AWS always keeps 10 unreserved). Task 9 checks the quota; the owner requests an increase or sets `null`. `0` is rejected. |
 | `worker_reserved_concurrency` | Default `2`; `null` = unreserved (the SQS mapping's `maximum_concurrency = 2` still caps it). `0` is rejected. |
 | `log_level` | Default `INFO`. |

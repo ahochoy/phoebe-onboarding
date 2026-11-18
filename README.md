@@ -77,7 +77,8 @@ Settings are `PHOEBE_*` environment variables. Every default works offline: noth
 | `PHOEBE_ANSWER_MAX_TOKENS` | `700` | `max_tokens` for the answer model. |
 | `PHOEBE_ANSWER_MAX_CHARS` | `6000` | An answer longer than this is stopped and refused (`verification_failed`, code 1204). |
 | `PHOEBE_REFUSAL_MIN_SIMILARITY` | (per embedder) | Top similarity below which chat refuses with `no_support`; unset uses 0.05 for `hash` and 0.25 for `titan`. |
-| `PHOEBE_ANSWER_BACKEND` | `extractive` | Answer model: `extractive` (offline, quotes the best passage) or `harness` (Bedrock AgentCore harness). |
+| `PHOEBE_ANSWER_BACKEND` | `extractive` | Answer model: `extractive` (offline, quotes the best passage), `converse` (Haiku 4.5 through Bedrock ConverseStream; what staging and production run), or `harness` (the Bedrock AgentCore harness; the rollback path). `converse` requires the guardrail settings. |
+| `PHOEBE_ANSWER_MODEL_ID` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Inference profile the `converse` backend calls. It sends `backend/prompts/answer.txt` as the system prompt, temperature 0.1 and `PHOEBE_ANSWER_MAX_TOKENS`, with no tools. AWS only. |
 | `PHOEBE_HARNESS_ARN` | (unset) | Harness ARN, required for the `harness` backend. AWS only. |
 | `PHOEBE_REWRITER_BACKEND` | `heuristic` | Query rewriter: `heuristic` (offline) or `bedrock`. |
 | `PHOEBE_REWRITE_MODEL_ID` | `us.amazon.nova-micro-v1:0` | Bedrock model for the `bedrock` rewriter. AWS only. |
