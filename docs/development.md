@@ -143,6 +143,6 @@ PHOEBE_CAPTURE_PASSWORD=... make screenshots                 # staging
 PHOEBE_CAPTURE_URL=https://... PHOEBE_CAPTURE_PASSWORD=... make screenshots
 ```
 
-- The password comes only from `PHOEBE_CAPTURE_PASSWORD`; the target stops before opening a browser when it is unset. The demo must be `open`: a paused or closed demo never settles an answer, so the capture fails instead of saving an error.
+- The password comes only from `PHOEBE_CAPTURE_PASSWORD`; the target stops before opening a browser when it is unset. The demo must be open with chat available: every capture first checks `GET /api/status` and fails before taking a picture if the demo is paused, closed or capped, so a degraded demo never overwrites an image. Each run logs in five times, half the login throttle's 10 per 15 minutes.
 - It writes `landing.png`, `employee.png`, `chat-citations.png` and `mobile.png`, records a WebM into `frontend/capture-output/` (git-ignored), and turns it into `demo.gif` with `frontend/capture/to-gif.sh` (ffmpeg; at most 15 s, 800 px wide, under 5 MB). Each browser context wipes its sandbox when done.
 - `bash frontend/capture/to-gif.test.sh` checks the GIF script offline.

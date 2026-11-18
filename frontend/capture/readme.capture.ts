@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
 import {
   ask,
+  demoPassword,
   citationButtons,
   expect,
   loggedIn,
@@ -16,6 +17,18 @@ const HOLIDAYS = "What holidays do we have in November and December?";
 const images = (name: string) =>
   fileURLToPath(new URL(`../../docs/images/${name}`, import.meta.url));
 const video = fileURLToPath(new URL("../capture-output/demo.webm", import.meta.url));
+
+// A paused, capped or closed demo still renders the landing and employee pages, with a
+// banner. Check the status first so no capture of a degraded demo overwrites an image.
+test.beforeEach(async ({ request }) => {
+  const res = await request.get("/api/status");
+  expect(res.ok(), "GET /api/status").toBe(true);
+  const status = (await res.json()) as { state: string; chat_available: boolean };
+  expect(
+    status,
+    "the demo must be open with chat available (reopen it, or wait for the chat cap to reset)",
+  ).toMatchObject({ state: "open", chat_available: true });
+});
 
 /** Asks the holiday question and opens the first citation at its highlighted passage. */
 async function holidayAnswerWithSource(page: Page): Promise<void> {
@@ -61,7 +74,7 @@ test("demo video @desktop", async ({ browser, baseURL }) => {
   try {
     await page.goto("/");
     await page.waitForTimeout(800);
-    await submitPassword(page, process.env.PHOEBE_DEV_PASSWORD ?? "");
+    await submitPassword(page, demoPassword());
     const welcome = page.getByRole("dialog", { name: /Welcome to the/ });
     await welcome.getByRole("button", { name: "Got it" }).click();
     await resetDemo(page);
