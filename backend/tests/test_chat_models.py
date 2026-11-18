@@ -411,3 +411,55 @@ def test_eval_uses_the_production_converse_model() -> None:
 
     assert eval_converse.ConverseAnswerModel is models.ConverseAnswerModel
     assert eval_converse.ModelUnsupported is models.ModelUnsupported
+
+
+def converse_with_stream(events: list[dict], **kw):
+    from phoebe.chat.models import ConverseAnswerModel
+
+    stream = Stream(events)
+    client = Mock()
+    client.converse_stream.return_value = {"stream": stream}
+    model = ConverseAnswerModel("m", "us-east-2", max_tokens=700, client=client, **kw)
+    return model, stream
+
+
+def test_converse_closes_the_stream_when_done() -> None:
+    model, stream = converse_with_stream([delta("a"), STOP])
+    list(model.stream(MSGS))
+    assert stream.closed
+
+
+def test_converse_closes_the_stream_on_tool_use() -> None:
+    tool = {
+        "contentBlockStart": {"start": {"toolUse": {"name": "x", "toolUseId": "1"}}}
+    }
+    model, stream = converse_with_stream([tool, delta("x"), STOP])
+    with pytest.raises(ModelUnavailable):
+        list(model.stream(MSGS))
+    assert stream.closed
+
+
+def test_converse_closes_the_stream_when_the_caller_stops_early() -> None:
+    # The service closes the generator when an answer runs past its cap or the
+    # visitor disconnects: the Bedrock stream must stop generating (and billing).
+    model, stream = converse_with_stream([delta("a"), delta("b"), STOP])
+    gen = model.stream(MSGS)
+    next(gen)
+    gen.close()
+    assert stream.closed
+
+
+def test_converse_enforces_a_total_deadline() -> None:
+    # The harness had a 60 s server-side deadline; a stalled stream must end as
+    # model_unavailable, not as a Lambda timeout mid-SSE.
+    ticks = iter([0.0, 10.0, 61.0, 62.0, 63.0])
+    model, stream = converse_with_stream(
+        [delta("a"), delta("b"), delta("c"), STOP],
+        timeout_seconds=60,
+        clock=lambda: next(ticks),
+    )
+    out: list[str] = []
+    with pytest.raises(ModelUnavailable):
+        out.extend(model.stream(MSGS))  # appends each chunk before the raise
+    assert out == ["a"]
+    assert stream.closed

@@ -58,8 +58,14 @@ def require_live_settings(settings: Settings) -> None:
         name
         for name, ok in (
             ("PHOEBE_EMBEDDER=titan", settings.embedder == "titan"),
-            ("PHOEBE_ANSWER_BACKEND=harness", settings.answer_backend == "harness"),
-            ("PHOEBE_HARNESS_ARN", bool(settings.harness_arn)),
+            (
+                "PHOEBE_ANSWER_BACKEND=converse or harness",
+                settings.answer_backend in ("converse", "harness"),
+            ),
+            (
+                "PHOEBE_HARNESS_ARN",
+                settings.answer_backend != "harness" or bool(settings.harness_arn),
+            ),
             ("PHOEBE_REWRITER_BACKEND=bedrock", settings.rewriter_backend == "bedrock"),
             ("PHOEBE_GUARDRAIL_ID", bool(settings.guardrail_id)),
             ("PHOEBE_GUARDRAIL_VERSION", bool(settings.guardrail_version)),
