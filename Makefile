@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check eval fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e tf-check deploy-check db-start db-stop
+.PHONY: up test-db stack smoke down test lint seed pause kill open status live-check eval fe-install fe-gen fe-dev fe-test fe-lint fe-build stack-e2e e2e tf-check deploy-check db-start db-stop screenshots
 
 PHOEBE_DEV_PASSWORD ?= larkspur-demo
 PHOEBE_PORT ?= 8080
@@ -134,6 +134,13 @@ stack-e2e:
 # Cross-browser end to end against the running stack (`make stack-e2e` first).
 e2e:
 	cd frontend && npm run build && npx playwright test
+
+# Owner-run: README screenshots and demo GIF from staging (costs about a cent of Bedrock).
+# PHOEBE_CAPTURE_URL picks another environment. See docs/development.md.
+screenshots:
+	@test -n "$$PHOEBE_CAPTURE_PASSWORD" || { echo "Set PHOEBE_CAPTURE_PASSWORD (the staging demo password)." >&2; exit 2; }
+	cd frontend && PHOEBE_DEV_PASSWORD="$$PHOEBE_CAPTURE_PASSWORD" npx playwright test -c playwright.capture.config.ts
+	frontend/capture/to-gif.sh frontend/capture-output/demo.webm docs/images/demo.gif
 
 # Offline checks for the CodeBuild scripts (ci/): syntax, shellcheck when installed, and
 # the pytest suite that drives them with stubbed aws/terraform/docker/npm/curl.
