@@ -45,6 +45,10 @@ test("landing @desktop", async ({ page }) => {
 
 test("employee @desktop", async ({ page }) => {
   await loggedIn(page);
+  // Tasks and documents load after the shell; wait so the still shows them, not spinners.
+  await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
+  await expect(page.getByText("Employee Handbook").first()).toBeVisible();
+  await expect(page.getByText(/^Loading (tasks|documents)…$/)).toHaveCount(0);
   await page.screenshot({ path: images("employee.png") });
 });
 
