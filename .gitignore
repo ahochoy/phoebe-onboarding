@@ -27,3 +27,5 @@ backend/evals/results/
 # They can hold sensitive values, such as the alert email.
 *.plan
 *.tfplan
+
+frontend/capture-output
