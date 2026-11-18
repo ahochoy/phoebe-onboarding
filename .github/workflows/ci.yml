@@ -95,12 +95,16 @@ jobs:
       - run: make stack-e2e
       # Some runners point apt at us-east-2.ec2.archive.ubuntu.com, which has served the
       # ~125 MB of browser system packages at ~100 kB/s (17-26 minutes). The Azure mirror,
-      # the default on the other runners, takes seconds.
+      # the default on the other runners, takes seconds. The runner image lists its
+      # mirrors in apt-mirrors.txt (ubuntu.sources points at it with `mirror+file:`), so
+      # rewrite both and print them.
       - name: Use the Azure Ubuntu mirror
         run: |
-          src=/etc/apt/sources.list.d/ubuntu.sources
-          sudo sed -i -E 's#https?://[a-z0-9.-]+\.ec2\.archive\.ubuntu\.com#http://azure.archive.ubuntu.com#g' "$src"
-          grep "^URIs:" "$src"
+          for src in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
+            test -e "$src" || continue
+            sudo sed -i -E 's#https?://[a-z0-9.-]+\.ec2\.archive\.ubuntu\.com#http://azure.archive.ubuntu.com#g' "$src"
+            echo "== $src"; grep -E "^URIs:|://" "$src"
+          done
       - name: Install Playwright browsers
         working-directory: frontend
         timeout-minutes: 10
