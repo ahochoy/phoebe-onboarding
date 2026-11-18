@@ -20,6 +20,10 @@ class Candidate:
     usd_per_mtok_in: float
     usd_per_mtok_out: float
     price_source: str
+    # None sends no temperature (Kimi K3.1 rejects the field); 0.1 is the harness's.
+    temperature: float | None = 0.1
+    # False: left out of MODEL=all (the account cannot call it), still runnable by name.
+    in_all: bool = True
 
     @property
     def price_known(self) -> bool:
@@ -57,6 +61,8 @@ CANDIDATES: dict[str, Candidate] = {
             usd_per_mtok_in=0.0,
             usd_per_mtok_out=0.0,
             price_source="unknown",
+            # "This model doesn't support the temperature field" (2026-11-18).
+            temperature=None,
         ),
         Candidate(
             "glm-5.3",
@@ -66,6 +72,9 @@ CANDIDATES: dict[str, Candidate] = {
             usd_per_mtok_in=1.848,
             usd_per_mtok_out=5.808,
             price_source=PRICES_CHECKED,
+            # "zai.glm-5.3 is not available for this account" (2026-11-18), though
+            # GetFoundationModelAvailability says AVAILABLE. Access is via AWS Sales.
+            in_all=False,
         ),
         # The page lists only an Asia Pacific (Sydney) price.
         Candidate(
@@ -84,7 +93,7 @@ CANDIDATES: dict[str, Candidate] = {
 def resolve(selection: str) -> list[Candidate]:
     """`all`, one name, or a comma-separated list; `haiku` always first."""
     names = (
-        list(CANDIDATES)
+        [n for n, c in CANDIDATES.items() if c.in_all]
         if selection == "all"
         else [s.strip() for s in selection.split(",") if s.strip()]
     )

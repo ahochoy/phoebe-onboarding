@@ -223,3 +223,13 @@ def test_candidates_get_a_larger_token_cap() -> None:
     s = Settings(database_url="x", password_hash="x")  # pyright: ignore[reportCallIssue]
     m = _answer_model(CANDIDATES["glm-5.3"], s)
     assert m._max_tokens == CANDIDATE_MAX_TOKENS > s.answer_max_tokens  # type: ignore[attr-defined]
+
+
+def test_raw_model_output_is_recorded(
+    factory: Callable[[], TestClient], client: TestClient
+) -> None:
+    # The app replaces a refused answer with refusal copy; the raw text shows why.
+    rec = Recording(ExtractiveAnswerModel())
+    set_answer(client, rec)
+    res = run_case(factory, PTO, "haiku", 0, recording=rec)
+    assert len(res.raw) == 1 and "[P1]" in res.raw[0]

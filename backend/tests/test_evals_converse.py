@@ -111,3 +111,13 @@ def test_incomplete_answer_is_model_unavailable() -> None:
     ]
     with pytest.raises(ModelUnavailable):
         list(model(Stub(events=events)).stream(MESSAGES))  # type: ignore[arg-type]
+
+
+def test_temperature_omitted_when_none() -> None:
+    # Some models (Kimi K3.1) reject any temperature field.
+    stub = Stub()
+    m = ConverseAnswerModel(
+        "us.example.model", "us-east-2", max_tokens=700, temperature=None, client=stub
+    )
+    list(m.stream(MESSAGES))  # type: ignore[arg-type]
+    assert stub.kwargs["inferenceConfig"] == {"maxTokens": 700}

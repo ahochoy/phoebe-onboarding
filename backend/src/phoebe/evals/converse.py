@@ -39,11 +39,19 @@ class ModelUnsupported(ModelUnavailable):
 
 class ConverseAnswerModel:
     def __init__(
-        self, model_id: str, region: str, *, max_tokens: int, client: Any = None
+        self,
+        model_id: str,
+        region: str,
+        *,
+        max_tokens: int,
+        temperature: float | None = TEMPERATURE,
+        client: Any = None,
     ) -> None:
         self._model_id = model_id
         self._region = region
         self._max_tokens = max_tokens
+        # None: send no temperature field (some models reject any value).
+        self._temperature = temperature
         self._client = client
         self._system = ANSWER_PROMPT_PATH.read_text()
         self.usage: dict[str, int] = {"inputTokens": 0, "outputTokens": 0}
@@ -60,8 +68,12 @@ class ConverseAnswerModel:
                     for m in messages
                 ],
                 inferenceConfig={
-                    "temperature": TEMPERATURE,
                     "maxTokens": self._max_tokens,
+                    **(
+                        {}
+                        if self._temperature is None
+                        else {"temperature": self._temperature}
+                    ),
                 },
             )
             events = response["stream"]

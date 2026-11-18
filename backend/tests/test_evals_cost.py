@@ -39,7 +39,8 @@ def test_names_match_the_spec() -> None:
 
 def test_resolve_all_puts_haiku_first() -> None:
     names = [c.name for c in resolve("all")]
-    assert names[0] == "haiku" and set(names) == set(CANDIDATES)
+    assert names[0] == "haiku"
+    assert set(names) == {n for n, c in CANDIDATES.items() if c.in_all}
 
 
 def test_resolve_comma_list() -> None:
@@ -102,3 +103,13 @@ def test_describe_says_at_least_and_gives_a_worst_case() -> None:
     assert "at least $" in text
     assert "worst case" in text and "highest known price" in text
     assert est.usd_worst > est.usd_high
+
+
+def test_all_skips_models_unavailable_to_the_account() -> None:
+    assert "glm-5.3" not in [c.name for c in resolve("all")]
+    assert [c.name for c in resolve("glm-5.3")] == ["glm-5.3"]  # still runnable by name
+
+
+def test_kimi_sends_no_temperature() -> None:
+    assert CANDIDATES["kimi-k3.1"].temperature is None
+    assert CANDIDATES["haiku-direct"].temperature == 0.1

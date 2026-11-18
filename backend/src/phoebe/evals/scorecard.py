@@ -31,6 +31,8 @@ class CaseResult:
     out_tok: int
     text: str
     done: dict[str, Any] | None
+    # Each answer-model call's raw output (the results file only).
+    raw: list[str] = field(default_factory=list[str])
 
 
 @dataclass
