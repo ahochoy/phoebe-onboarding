@@ -14,6 +14,34 @@ The spec covers five subsystems. Each one gets its own plan. Every plan ends wit
 
 Plans 2–5 are written when their predecessor ships, so they build on real interfaces instead of guesses.
 
+## Plan 5 working list (agreed 2026-11-17, in order)
+
+Items are brainstormed and planned one at a time; each ships as its own PR.
+
+1. **Spend-limit mode.** Done (#19, #20; `v0.1.2`). Degrade at 70% of the budget, close and email on a stopped database, `make db-start`.
+2. **Evals.** Done (#21; follow-up #23). `make eval`; first run 2026-11-18: Haiku harness 9/9 facts; the verdict was to keep Haiku 4.5.
+3. **README for recruiters:** the live link, an architecture diagram and a monthly cost table.
+4. **Answer-model switch (was: Haiku 5.5).** Haiku 5.5 is not available to the account (agreement `NOT_AVAILABLE`). Candidates are chosen by `make eval`; GLM-5.3 is also unavailable ("not available for this account").
+5. **Direct Bedrock answers instead of the AgentCore harness.** Added 2026-11-18. In the first eval, Haiku 4.5 through a direct ConverseStream call (`haiku-direct`) passed the same 9/9 at p50 1.6 s and p90 2.1 s, against 4.0 s and 6.5 s through the harness. AgentCore was $0.47 of the month's $1.58 gross. To weigh in the design:
+   - the system prompt moves from `infra/ai` into the app image (it is `backend/prompts/answer.txt` already);
+   - the IAM permissions for the API role;
+   - the guardrail stays as it is;
+   - `infra/ai` keeps or drops the harnesses;
+   - a staging trial confirmed by `make eval`.
+6. **Smaller first page load:** the frontend bundle is 334 KB gzipped; split it with code-splitting.
+7. **Safety and copy polish:**
+   - a production guard on `reseed`;
+   - an upload size hint;
+   - numeric codes for general API errors in `messages.ts`;
+   - use the `--color-highlight` token.
+8. **Flakes and live checks:**
+   - the Vitest Landing flake (fixed in #20, so watch it);
+   - the IPv6 login throttle, checked by hand;
+   - R26 (idle stays idle) after about 25 hours without traffic.
+9. **Plan 4 deferred minors**, then delete the Plan 4 workspace.
+
+Cost levers already applied (#22): Aurora at most 1 ACU, a 60 s harness idle timeout, and `make db-stop`.
+
 ## Carry-forward notes from Plan 1 final review
 
 **Plan 2 (AI chat & spend safety)**

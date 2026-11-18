@@ -121,7 +121,8 @@ make eval MODEL=haiku,glm-5.3 CASES=list,fact REPEAT=3
 - **Models:**
   - `haiku` is the production harness.
   - `haiku-direct` sends Haiku 4.5 through the same direct Bedrock ConverseStream call as the candidates. It is a control: it shows how far that call shifts results from the harness.
-  - The candidates are `kimi-k3.1`, `glm-5.3` and `gpt-oss-120b`.
+  - The candidates are `kimi-k3.1` (sent no temperature, which it rejects) and `gpt-oss-120b`. `glm-5.3` is defined but left out of `MODEL=all`: the account cannot call it ("not available for this account"). It still runs by name.
+  - Each answer-model call's raw output is saved in the results file (`raw`), so a refused answer shows why, for example a paragraph with no `[Pn]` label.
   - Prices live in `backend/src/phoebe/evals/candidates.py`, with their source and date. A price the Bedrock pricing page does not list is shown as "price unknown", never guessed.
 - **Isolation:** every case logs in fresh, so it gets its own session and history. Follow-up questions play their earlier turns for real.
 - **Output:** a table per model (passed, failed, flaky, forbidden hits, refusal accuracy, latency, cost per answer, and pass counts by category), then one line per failing check. The full answers go to `backend/evals/results/<time>-<model>.jsonl`, which is git-ignored.

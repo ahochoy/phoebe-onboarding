@@ -53,18 +53,26 @@ CANDIDATE_MAX_TOKENS = 4_096
 class Recording:
     """Wraps the answer model: notes a ModelUnsupported (the app turns every
     model error into a 3115 refusal, so the runner could not see it otherwise)
-    and the token usage a ConverseStream model reports."""
+    and the token usage a ConverseStream model reports. It also keeps each
+    call's raw output: the app replaces a refused answer with refusal copy, and
+    the raw text is what shows why (for example a missing [Pn] label)."""
 
     def __init__(self, inner: AnswerModel) -> None:
         self.inner = inner
         self.unsupported = False
+        self.outputs: list[str] = []
 
     def stream(self, messages: Sequence[Message]) -> Iterator[str]:
+        parts: list[str] = []
         try:
-            yield from self.inner.stream(messages)
+            for chunk in self.inner.stream(messages):
+                parts.append(chunk)
+                yield chunk
         except ModelUnsupported:
             self.unsupported = True
             raise
+        finally:
+            self.outputs.append("".join(parts))
 
     def usage(self) -> tuple[int, int]:
         u = getattr(self.inner, "usage", None) or {}
@@ -119,11 +127,13 @@ def run_case(
     case: Case,
     model: str,
     repeat: int,
-    usage: Callable[[], tuple[int, int]] | None = None,
+    recording: Recording | None = None,
 ) -> CaseResult:
     """Plays every turn in one fresh session and grades each turn that has
     expectations. Failures are prefixed with their turn number."""
     client = client_factory()
+    usage = recording.usage if recording else None
+    first_output = len(recording.outputs) if recording else 0
     before = usage() if usage else (0, 0)
     failures: list[Failure] = []
     done: dict[str, Any] | None = None
@@ -149,6 +159,7 @@ def run_case(
         out_tok=after[1] - before[1],
         text=str((done or {}).get("text", "")),
         done=done,
+        raw=recording.outputs[first_output:] if recording else [],
     )
 
 
@@ -164,7 +175,7 @@ def run_model(
     results: list[CaseResult] = []
     for n in range(repeat):
         for c in cases:
-            result = run_case(client_factory, c, model, n, recording.usage)
+            result = run_case(client_factory, c, model, n, recording)
             if recording.unsupported:
                 print(
                     f"{model}: unsupported (the model rejected the request); skipping"
@@ -201,7 +212,10 @@ def _answer_model(c: Candidate, settings: Settings) -> AnswerModel:
     # app's cap (700) would cut them off. The answer itself is still limited by
     # PHOEBE_ANSWER_MAX_CHARS in the app.
     return ConverseAnswerModel(
-        c.model_id, settings.aws_region, max_tokens=CANDIDATE_MAX_TOKENS
+        c.model_id,
+        settings.aws_region,
+        max_tokens=CANDIDATE_MAX_TOKENS,
+        temperature=c.temperature,
     )
 
 
