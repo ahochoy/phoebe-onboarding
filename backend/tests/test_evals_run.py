@@ -233,3 +233,22 @@ def test_raw_model_output_is_recorded(
     set_answer(client, rec)
     res = run_case(factory, PTO, "haiku", 0, recording=rec)
     assert len(res.raw) == 1 and "[P1]" in res.raw[0]
+
+
+def test_live_settings_accept_the_converse_backend() -> None:
+    from phoebe.config import Settings
+    from phoebe.evals.live import require_live_settings
+
+    base: dict[str, Any] = {
+        "database_url": "x",
+        "password_hash": "x",
+        "embedder": "titan",
+        "rewriter_backend": "bedrock",
+        "guardrail_id": "g",
+        "guardrail_version": "1",
+    }
+    require_live_settings(Settings(answer_backend="converse", **base))  # pyright: ignore[reportCallIssue]
+    with pytest.raises(SystemExit, match="PHOEBE_HARNESS_ARN"):
+        require_live_settings(Settings(answer_backend="harness", **base))  # pyright: ignore[reportCallIssue]
+    with pytest.raises(SystemExit, match="PHOEBE_ANSWER_BACKEND"):
+        require_live_settings(Settings(answer_backend="extractive", **base))  # pyright: ignore[reportCallIssue]

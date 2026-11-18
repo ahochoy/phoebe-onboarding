@@ -14,7 +14,9 @@ PRICES_CHECKED = "aws.amazon.com/bedrock/pricing 2026-11-17"
 @dataclass(frozen=True)
 class Candidate:
     name: str
-    model_id: str | None  # None: the production harness (PHOEBE_HARNESS_ARN)
+    model_id: (
+        str | None
+    )  # None: the configured production answer model (PHOEBE_ANSWER_BACKEND)
     harness: bool
     control: bool  # reported, never a switching candidate
     usd_per_mtok_in: float

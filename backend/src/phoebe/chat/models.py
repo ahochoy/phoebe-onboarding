@@ -7,7 +7,9 @@ carry no provider text; nothing here logs question or answer text.
 import html
 import logging
 import re
-from collections.abc import Generator, Iterator, Sequence
+import time
+from collections.abc import Callable, Generator, Iterator, Sequence
+from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 from uuid import uuid4
 
@@ -16,6 +18,11 @@ from botocore.exceptions import BotoCoreError, ClientError
 from phoebe.config import Settings
 
 Message = TypedDict("Message", {"role": Literal["user", "assistant"], "text": str})
+
+# The answer system prompt: backend/prompts/answer.txt (this file is
+# backend/src/phoebe/chat/models.py). The converse backend sends it with every
+# request; infra/ai bakes the same file into the harnesses.
+ANSWER_PROMPT_PATH = Path(__file__).resolve().parents[3] / "prompts" / "answer.txt"
 
 # Machine sentinel emitted by the model; detected by the verifier and stream.
 NO_ANSWER = "NO_ANSWER"
@@ -53,7 +60,7 @@ class AnswerModel(Protocol):
     def stream(self, messages: Sequence[Message]) -> Iterator[str]: ...
 
 
-def _client(service: str, region: str) -> Any:
+def _client(service: str, region: str, *, read_timeout: int = 90) -> Any:
     import boto3
     from botocore.config import Config
 
@@ -62,7 +69,7 @@ def _client(service: str, region: str) -> Any:
         region_name=region,
         config=Config(
             connect_timeout=5,
-            read_timeout=90,
+            read_timeout=read_timeout,
             retries={"total_max_attempts": 1, "mode": "standard"},
         ),
     )
@@ -140,6 +147,131 @@ class HarnessAnswerModel:
             raise _unavailable("model stream failed", _error_kind(exc)) from None
         finally:
             events.close()
+        if not completed:
+            raise _unavailable("stream ended early", "no_message_stop")
+
+
+# Converse (Bedrock directly): error events the stream can carry instead of
+# raising, and the sampling setting the harness used (infra/ai/main.tf).
+_CONVERSE_STREAM_ERRORS = (
+    "internalServerException",
+    "modelStreamErrorException",
+    "validationException",
+    "throttlingException",
+    "serviceUnavailableException",
+)
+TEMPERATURE = 0.1
+# The harness's timeoutSeconds, now enforced here, and a per-read socket limit
+# well under the API Lambda's 90 s so a stalled stream cannot outlive it.
+CONVERSE_TIMEOUT_S = 60
+CONVERSE_READ_TIMEOUT_S = 30
+
+
+class ModelUnsupported(ModelUnavailable):
+    """The model rejects the request shape (for example a field it does not
+    accept). The eval reports such a model as unsupported."""
+
+
+class ConverseAnswerModel:
+    """Haiku 4.5 (or an eval candidate) through Bedrock ConverseStream.
+
+    Sends what the harness sent: the system prompt, the app's messages, the
+    temperature and max_tokens. No tools: the request has no tool config, and a
+    tool-use block in the stream is refused. The prompt is read once here, so a
+    missing prompt file fails at startup, not on the first chat.
+    """
+
+    def __init__(
+        self,
+        model_id: str,
+        region: str,
+        *,
+        max_tokens: int,
+        temperature: float | None = TEMPERATURE,
+        timeout_seconds: float = CONVERSE_TIMEOUT_S,
+        client: Any = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._model_id = model_id
+        self._region = region
+        self._max_tokens = max_tokens
+        # None: send no temperature field (some models reject any value).
+        self._temperature = temperature
+        # A whole-answer deadline, like the harness's server-side 60 s: a slow
+        # stream ends as model_unavailable, not as a Lambda timeout mid-SSE.
+        self._timeout = timeout_seconds
+        self._clock = clock
+        self._client = client
+        self._system = ANSWER_PROMPT_PATH.read_text()
+        self.usage: dict[str, int] = {"inputTokens": 0, "outputTokens": 0}
+
+    def stream(self, messages: Sequence[Message]) -> Generator[str]:
+        deadline = self._clock() + self._timeout
+        try:
+            if self._client is None:
+                self._client = _client(
+                    "bedrock-runtime",
+                    self._region,
+                    read_timeout=CONVERSE_READ_TIMEOUT_S,
+                )
+            inference: dict[str, Any] = {"maxTokens": self._max_tokens}
+            if self._temperature is not None:
+                inference = {"temperature": self._temperature, **inference}
+            response = self._client.converse_stream(
+                modelId=self._model_id,
+                system=[{"text": self._system}],
+                messages=[
+                    {"role": m["role"], "content": [{"text": m["text"]}]}
+                    for m in messages
+                ],
+                inferenceConfig=inference,
+            )
+            events = response["stream"]
+        except ClientError as exc:
+            if _error_kind(exc) == "ValidationException":
+                raise ModelUnsupported("request shape rejected") from None
+            raise _unavailable("model request failed", _error_kind(exc)) from None
+        except (BotoCoreError, KeyError, TypeError) as exc:
+            raise _unavailable("model request failed", _error_kind(exc)) from None
+        completed = False
+        try:
+            for event in events:
+                if self._clock() > deadline:
+                    raise _unavailable("model stream too slow", "deadline") from None
+                errors = [key for key in _CONVERSE_STREAM_ERRORS if key in event]
+                if errors:
+                    raise _unavailable("model stream error", errors[0]) from None
+                start = event.get("contentBlockStart")
+                if start and start.get("start", {}).get("toolUse"):
+                    raise ModelUnavailable("tool use not allowed") from None
+                delta = event.get("contentBlockDelta", {}).get("delta", {})
+                if "toolUse" in delta:
+                    raise ModelUnavailable("tool use not allowed") from None
+                # Reasoning models stream their thinking separately; only text
+                # reaches the answer.
+                text = delta.get("text", "")
+                if text:
+                    yield text
+                stop = event.get("messageStop")
+                if stop:
+                    reason = stop.get("stopReason")
+                    if reason != "end_turn":
+                        raise _unavailable(
+                            "incomplete answer", str(reason)[:40]
+                        ) from None
+                    completed = True
+                usage = event.get("metadata", {}).get("usage")
+                if usage:
+                    for key in ("inputTokens", "outputTokens"):
+                        self.usage[key] += int(usage.get(key, 0))
+        except (BotoCoreError, ClientError) as exc:
+            raise _unavailable("model stream failed", _error_kind(exc)) from None
+        finally:
+            # Like the harness: an early close (answer cap, visitor gone) or a
+            # refusal stops the model generating, and billing, at once.
+            close = getattr(events, "close", None)
+            if close is not None:
+                close()
         if not completed:
             raise _unavailable("stream ended early", "no_message_stop")
 
@@ -258,6 +390,17 @@ def make_models(settings: Settings) -> tuple[AnswerModel, Rewriter, Guardrail]:
             raise RuntimeError("PHOEBE_HARNESS_ARN is required for the harness backend")
         answer = HarnessAnswerModel(
             settings.harness_arn,
+            settings.aws_region,
+            max_tokens=settings.answer_max_tokens,
+        )
+    elif settings.answer_backend == "converse":
+        if not (settings.guardrail_id and settings.guardrail_version):
+            raise RuntimeError(
+                "PHOEBE_GUARDRAIL_ID and PHOEBE_GUARDRAIL_VERSION are required for "
+                "the converse backend"
+            )
+        answer = ConverseAnswerModel(
+            settings.answer_model_id,
             settings.aws_region,
             max_tokens=settings.answer_max_tokens,
         )

@@ -21,13 +21,8 @@ Items are brainstormed and planned one at a time; each ships as its own PR.
 1. **Spend-limit mode.** Done (#19, #20; `v0.1.2`). Degrade at 70% of the budget, close and email on a stopped database, `make db-start`.
 2. **Evals.** Done (#21; follow-up #23). `make eval`; first run 2026-11-18: Haiku harness 9/9 facts; the verdict was to keep Haiku 4.5.
 3. **README for recruiters:** the live link, an architecture diagram and a monthly cost table.
-4. **Answer-model switch (was: Haiku 5.5).** Haiku 5.5 is not available to the account (agreement `NOT_AVAILABLE`). Candidates are chosen by `make eval`; GLM-5.3 is also unavailable ("not available for this account").
-5. **Direct Bedrock answers instead of the AgentCore harness.** Added 2026-11-18. In the first eval, Haiku 4.5 through a direct ConverseStream call (`haiku-direct`) passed the same 9/9 at p50 1.6 s and p90 2.1 s, against 4.0 s and 6.5 s through the harness. AgentCore was $0.47 of the month's $1.58 gross. To weigh in the design:
-   - the system prompt moves from `infra/ai` into the app image (it is `backend/prompts/answer.txt` already);
-   - the IAM permissions for the API role;
-   - the guardrail stays as it is;
-   - `infra/ai` keeps or drops the harnesses;
-   - a staging trial confirmed by `make eval`.
+4. **Answer-model switch: closed 2026-11-18, keep Haiku 4.5.** Haiku 5.5 and GLM-5.3 are not available to the account. On the fact cases, Kimi K3.1 matched Haiku (9/9), and gpt-oss-120b cited with full-width brackets (`【P1】`), which the verifier rejects. The owner chose Haiku 4.5 and stopped the evals.
+5. **Direct Bedrock answers instead of the AgentCore harness.** In progress. Design `docs/superpowers/specs/2026-11-18-direct-bedrock-design.md`, plan `docs/superpowers/plans/2026-11-18-direct-bedrock.md`. In the first eval, Haiku 4.5 through a direct ConverseStream call (`haiku-direct`) passed the same 9/9 at p50 1.6 s and p90 2.1 s, against 4.0 s and 6.5 s through the harness, and AgentCore was $0.47 of the month's $1.58 gross. The harness reaches documents only through Gateway tools, which were rejected for Phoebe's visibility model. The harnesses stay for one release as the rollback path, then a follow-up removes them.
 6. **Smaller first page load:** the frontend bundle is 334 KB gzipped; split it with code-splitting.
 7. **Safety and copy polish:**
    - a production guard on `reseed`;

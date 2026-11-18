@@ -340,12 +340,12 @@ run "lambdas" {
         PHOEBE_LIMITS_BACKEND           = "dynamodb"
         PHOEBE_CONTROL_BACKEND          = "dynamodb"
         PHOEBE_EMBEDDER                 = "titan"
-        PHOEBE_ANSWER_BACKEND           = "harness"
+        PHOEBE_ANSWER_BACKEND           = "converse"
+        PHOEBE_ANSWER_MODEL_ID          = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
         PHOEBE_REWRITER_BACKEND         = "bedrock"
         PHOEBE_CLIENT_IP_HEADER         = "cloudfront-viewer-address"
         PHOEBE_GUARDRAIL_ID             = "gr0abc123def"
         PHOEBE_GUARDRAIL_VERSION        = "1"
-        PHOEBE_HARNESS_ARN              = "arn:aws:bedrock-agentcore:us-east-2:123456789012:harness/PhoebeHaikuHarness-AbCdEf1234"
         PHOEBE_AWS_REGION               = "us-east-2"
         PHOEBE_DB_NAME                  = "phoebe"
         PHOEBE_SESSIONS_TABLE           = "phoebe-staging-sessions"
@@ -458,11 +458,35 @@ run "iam" {
         "arn:aws:bedrock:us-east-2::foundation-model/amazon.titan-embed-text-v2:0",
         "arn:aws:bedrock:us-east-2:123456789012:inference-profile/us.amazon.nova-micro-v1:0",
         "arn:aws:bedrock:us-east-2:123456789012:guardrail/gr0abc123def",
-        "arn:aws:bedrock-agentcore:us-east-2:123456789012:harness/PhoebeHaikuHarness-AbCdEf1234",
+        "arn:aws:bedrock:us-east-2:123456789012:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
       ] :
       contains(flatten([for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement : flatten([st.Resource])]), r)
     ])
-    error_message = "The API role needs Titan (query embeddings), Nova Micro (rewriter), the guardrail and the harness."
+    error_message = "The API role needs Titan (query embeddings), Nova Micro (rewriter), the guardrail and Haiku (answers)."
+  }
+
+  # converse (default): Haiku through Bedrock directly, no AgentCore.
+  assert {
+    condition = anytrue([
+      for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
+      st.Sid == "AnswerHaiku" &&
+      toset(flatten([st.Action])) == toset(["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]) &&
+      toset(flatten([st.Resource])) == toset([
+        "arn:aws:bedrock:us-east-2:123456789012:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      ])
+      ]) && !anytrue(flatten([
+        for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
+        [for a in flatten([st.Action]) : startswith(a, "bedrock-agentcore")]
+    ]))
+    error_message = "With answer_backend = converse the API may stream Haiku on its profile and the profile's Regions, and has no AgentCore access."
+  }
+
+  assert {
+    condition     = !contains(keys(aws_lambda_function.this["api"].environment[0].variables), "PHOEBE_HARNESS_ARN")
+    error_message = "With answer_backend = converse the API has no harness ARN."
   }
 
   assert {
@@ -1050,4 +1074,44 @@ run "edge" {
     condition     = output.site_url == "https://${aws_cloudfront_distribution.main.domain_name}"
     error_message = "site_url is https://<distribution>.cloudfront.net."
   }
+}
+
+
+# ---- Rollback: answer_backend = harness restores the AgentCore path ---------------
+
+run "answer_backend_harness_rollback" {
+  command = apply
+
+  variables {
+    answer_backend = "harness"
+  }
+
+  assert {
+    condition = (
+      aws_lambda_function.this["api"].environment[0].variables["PHOEBE_ANSWER_BACKEND"] == "harness" &&
+      aws_lambda_function.this["api"].environment[0].variables["PHOEBE_HARNESS_ARN"] == "arn:aws:bedrock-agentcore:us-east-2:123456789012:harness/PhoebeHaikuHarness-AbCdEf1234"
+    )
+    error_message = "The harness rollback sets the harness backend and its ARN."
+  }
+
+  assert {
+    condition = anytrue([
+      for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
+      st.Sid == "AnswerHarness" &&
+      toset(flatten([st.Resource])) == toset(["arn:aws:bedrock-agentcore:us-east-2:123456789012:harness/PhoebeHaikuHarness-AbCdEf1234"])
+      ]) && !anytrue([
+      for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement : st.Sid == "AnswerHaiku"
+    ])
+    error_message = "The harness rollback grants the harness, not direct Haiku."
+  }
+}
+
+run "answer_backend_rejects_unknown" {
+  command = plan
+
+  variables {
+    answer_backend = "direct"
+  }
+
+  expect_failures = [var.answer_backend]
 }

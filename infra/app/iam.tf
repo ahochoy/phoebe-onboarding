@@ -14,12 +14,32 @@ locals {
 
   titan_arns = ["arn:${local.partition}:bedrock:${local.region}::foundation-model/${local.titan_model_id}"]
 
-  # Query rewriting calls Converse on the Nova Micro inference profile. Haiku is
-  # reached only through the harness, whose own role invokes the model.
+  # Query rewriting calls Converse on the Nova Micro inference profile.
   rewriter_arns = concat(
     ["arn:${local.partition}:bedrock:${local.region}:${local.account_id}:inference-profile/${local.nova_profile_id}"],
     [for r in local.profile_regions : "arn:${local.partition}:bedrock:${r}::foundation-model/${local.nova_model_id}"],
   )
+
+  # Answers: with converse the API streams Haiku on its inference profile (and
+  # the profile's Regions); with harness it invokes the infra/ai harness, whose
+  # own role invokes the model. Exactly one of the two statements is granted.
+  haiku_arns = concat(
+    ["arn:${local.partition}:bedrock:${local.region}:${local.account_id}:inference-profile/${local.haiku_profile_id}"],
+    [for r in local.profile_regions : "arn:${local.partition}:bedrock:${r}::foundation-model/${local.haiku_model_id}"],
+  )
+  answer_statement = var.answer_backend == "converse" ? {
+    Sid      = "AnswerHaiku"
+    Effect   = "Allow"
+    Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    Resource = local.haiku_arns
+    } : {
+    Sid    = "AnswerHarness"
+    Effect = "Allow"
+    # InvokeHarness runs on the harness's AgentCore runtime, so the caller
+    # needs InvokeAgentRuntime on the harness ARN as well (AWS docs).
+    Action   = ["bedrock-agentcore:InvokeHarness", "bedrock-agentcore:InvokeAgentRuntime"]
+    Resource = [local.harness_arn]
+  }
 
   log_statement = {
     for k in keys(local.functions) : k => {
@@ -112,14 +132,7 @@ locals {
         Action   = ["bedrock:ApplyGuardrail"]
         Resource = [local.guardrail_arn]
       },
-      {
-        Sid    = "AnswerHarness"
-        Effect = "Allow"
-        # InvokeHarness runs on the harness's AgentCore runtime, so the caller
-        # needs InvokeAgentRuntime on the harness ARN as well (AWS docs).
-        Action   = ["bedrock-agentcore:InvokeHarness", "bedrock-agentcore:InvokeAgentRuntime"]
-        Resource = [local.harness_arn]
-      },
+      local.answer_statement,
     ])
 
     worker = concat(local.data_api_statements, [

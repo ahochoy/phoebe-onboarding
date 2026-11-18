@@ -10,7 +10,17 @@ locals {
 
   # Every Data API-backed handler builds the same deps as the API (runtime.deps),
   # so they share one backend configuration.
-  app_env = {
+  # converse: Haiku through Bedrock directly. harness: the infra/ai AgentCore
+  # harness (rollback). Only the chosen backend's settings are set.
+  answer_env = var.answer_backend == "converse" ? {
+    PHOEBE_ANSWER_BACKEND  = "converse"
+    PHOEBE_ANSWER_MODEL_ID = local.haiku_profile_id
+    } : {
+    PHOEBE_ANSWER_BACKEND = "harness"
+    PHOEBE_HARNESS_ARN    = local.harness_arn
+  }
+
+  app_env = merge(local.answer_env, {
     PHOEBE_AWS_REGION        = local.region
     PHOEBE_LOG_LEVEL         = var.log_level
     PHOEBE_DB_BACKEND        = "data_api"
@@ -27,12 +37,10 @@ locals {
     PHOEBE_CONTROL_BACKEND   = "dynamodb"
     PHOEBE_STATE_TABLE       = aws_dynamodb_table.state.name
     PHOEBE_EMBEDDER          = "titan"
-    PHOEBE_ANSWER_BACKEND    = "harness"
-    PHOEBE_HARNESS_ARN       = local.harness_arn
     PHOEBE_REWRITER_BACKEND  = "bedrock"
     PHOEBE_GUARDRAIL_ID      = local.ai.guardrail_id
     PHOEBE_GUARDRAIL_VERSION = local.ai.guardrail_version
-  }
+  })
 
   # Ruling R1: secrets reach the API only as ARNs, resolved once at startup.
   api_env = merge(local.app_env, {

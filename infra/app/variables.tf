@@ -71,8 +71,19 @@ variable "password_hash_secret_arn" {
   }
 }
 
+variable "answer_backend" {
+  description = "How the API answers chat: converse (Haiku through Bedrock directly, the default) or harness (the infra/ai AgentCore harness; the rollback path)."
+  type        = string
+  default     = "converse"
+
+  validation {
+    condition     = contains(["converse", "harness"], var.answer_backend)
+    error_message = "answer_backend must be converse or harness."
+  }
+}
+
 variable "answer_harness" {
-  description = "Which infra/ai harness answers chat: haiku (default) or nova (while Haiku access is pending)."
+  description = "With answer_backend = harness, which infra/ai harness answers chat: haiku (default) or nova."
   type        = string
   default     = "haiku"
 

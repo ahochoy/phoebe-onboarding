@@ -25,6 +25,8 @@ COPY --from=build /app/.venv /app/.venv
 COPY --chmod=a+rX backend/src /app/backend/src
 COPY --chmod=a+rX backend/migrations /app/backend/migrations
 COPY --chmod=a+rX backend/seed /app/backend/seed
+# The answer system prompt, read by the converse backend at startup.
+COPY --chmod=a+rX backend/prompts /app/backend/prompts
 RUN mkdir -p /app/data/blobs && chown -R 10001:10001 /app/data
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app/backend/src \
