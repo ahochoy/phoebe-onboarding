@@ -15,7 +15,7 @@ def runtime_copies() -> list[tuple[str, str]]:
     stage = text.split("AS runtime-base", 1)[1].split("\nFROM ", 1)[0]
     return [
         (m.group(1), m.group(2))
-        for m in re.finditer(r"^COPY (?:--\S+ )*(\S+) (\S+)$", stage, re.M)
+        for m in re.finditer(r"^COPY (?:--\S+ )*(\S+) (\S+)$", stage, re.MULTILINE)
     ]
 
 
