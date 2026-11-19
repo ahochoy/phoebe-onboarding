@@ -292,7 +292,9 @@ def test_deploy_builds_frontend_at_root(h: Harness) -> None:
     assert all(c["cwd"] == str(REPO / "frontend") for c in npm)
 
 
-@pytest.mark.parametrize("version", ["main", "v1 (abc)", "main (abcdef0); echo hi", "$(id) (abcdef0)"])
+@pytest.mark.parametrize(
+    "version", ["main", "v1 (abc)", "main (abcdef0); echo hi", "$(id) (abcdef0)"]
+)
 def test_deploy_rejects_bad_version_label(h: Harness, version: str) -> None:
     deploy_ok(h)
     r = h.run("deploy.sh", "staging", API, JOBS, env={"PHOEBE_VERSION": version})
@@ -303,7 +305,9 @@ def test_deploy_rejects_bad_version_label(h: Harness, version: str) -> None:
 
 def test_deploy_passes_version_label_to_the_build(h: Harness) -> None:
     deploy_ok(h)
-    r = h.run("deploy.sh", "staging", API, JOBS, env={"PHOEBE_VERSION": "main (abcdef0)"})
+    r = h.run(
+        "deploy.sh", "staging", API, JOBS, env={"PHOEBE_VERSION": "main (abcdef0)"}
+    )
     assert r.returncode == 0, r.stdout + r.stderr
     build = next(c for c in h.calls("npm") if c["argv"][:2] == ["run", "build"])
     assert build["env"]["PHOEBE_VERSION"] == "main (abcdef0)"
