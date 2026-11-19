@@ -144,6 +144,7 @@ override_resource {
 variables {
   github_owner_id         = "4242"
   github_connection_ready = true
+  alert_email             = "owner@example.com"
 }
 
 # ---- Webhooks (a fork PR never starts a build) -----------------------------------
@@ -1124,11 +1125,10 @@ run "state_ecr_budget" {
         for n in b.notification :
         n.threshold == 70 && n.threshold_type == "PERCENTAGE" && n.notification_type == "ACTUAL" &&
         n.comparison_operator == "GREATER_THAN" &&
-        toset(n.subscriber_sns_topic_arns) == toset(["arn:aws:sns:us-east-2:123456789012:phoebe-budget-${env}"]) &&
-        try(length(n.subscriber_email_addresses), 0) == 0
+        toset(n.subscriber_sns_topic_arns) == toset(["arn:aws:sns:us-east-2:123456789012:phoebe-budget-${env}"])
       ])
     ])
-    error_message = "Each budget alerts at 70% actual to its own env topic only (Budgets allows one SNS subscriber per notification); no email without alert_email."
+    error_message = "Each budget alerts at 70% actual to its own env topic (Budgets allows one SNS subscriber per notification)."
   }
 
   assert {
@@ -1318,12 +1318,8 @@ run "fork_gate" {
 
 # ---- Spend-limit alerts --------------------------------------------------------------
 
-run "alert_email_wired_when_set" {
+run "alert_email_wired" {
   command = apply
-
-  variables {
-    alert_email = "owner@example.com"
-  }
 
   assert {
     condition = (
@@ -1331,26 +1327,26 @@ run "alert_email_wired_when_set" {
       toset(["owner@example.com"]) &&
       try(length(one(aws_budgets_budget.account["staging"].notification).subscriber_email_addresses), 0) == 0
     )
-    error_message = "With alert_email set, only the production budget emails it (both budgets trip together)."
+    error_message = "Only the production budget emails alert_email (both budgets trip together)."
   }
 
   assert {
     condition = (
-      length(aws_sns_topic_subscription.alert_email) == 1 &&
-      aws_sns_topic_subscription.alert_email[0].protocol == "email" &&
-      aws_sns_topic_subscription.alert_email[0].topic_arn == "arn:aws:sns:us-east-2:123456789012:phoebe-alerts"
+      aws_sns_topic_subscription.alert_email.protocol == "email" &&
+      aws_sns_topic_subscription.alert_email.topic_arn == "arn:aws:sns:us-east-2:123456789012:phoebe-alerts"
     )
-    error_message = "With alert_email set, phoebe-alerts has one email subscription."
+    error_message = "phoebe-alerts has one email subscription."
   }
 }
 
-run "alert_email_optional" {
-  command = apply
+run "alert_email_rejects_non_address" {
+  command = plan
 
-  assert {
-    condition     = length(aws_sns_topic_subscription.alert_email) == 0
-    error_message = "Without alert_email there is no email subscription."
+  variables {
+    alert_email = "not-an-email"
   }
+
+  expect_failures = [var.alert_email]
 }
 
 run "db_stopped_rules" {
