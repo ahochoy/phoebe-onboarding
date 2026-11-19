@@ -48,13 +48,13 @@ variable "monthly_budget_usd" {
 }
 
 variable "alert_email" {
-  description = "Owner email for spend alerts (the production budget at 70%, and a stopped database). Pass TF_VAR_alert_email at apply time; never commit it. Null sends no email."
+  description = "Owner email for spend alerts (the production budget at 70%, and a stopped database). Required, so a plan without it fails instead of dropping the alerts. Pass TF_VAR_alert_email at apply time; never commit it."
   type        = string
-  default     = null
+  nullable    = false
   sensitive   = true
 
   validation {
-    condition     = var.alert_email == null || can(regex("^[^@\\s]+@[^@\\s]+$", var.alert_email))
-    error_message = "alert_email must be an email address, or null."
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+$", var.alert_email))
+    error_message = "alert_email must be an email address."
   }
 }

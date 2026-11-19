@@ -20,7 +20,7 @@ denies IAM writes on the `phoebe-ci-*` roles.
 | `pipeline.tf` | CodePipeline V2 `phoebe-release`, `QUEUED` mode. A pushed `v*` tag runs Source, then Plan (read-only), then a manual Approve, then Apply of the saved plan. |
 | `roles.tf` | Six `phoebe-ci-*` roles, each with `phoebe-boundary-ci` and one inline policy, plus the managed `phoebe-ci-reads-<env>` refresh reads. Trust is scoped by `aws:SourceAccount` and, for CodeBuild roles, by the role's own project ARN. |
 | `boundary.tf` | `phoebe-boundary-staging`, `phoebe-boundary-production` and `phoebe-boundary-ci`. |
-| `budget.tf` | SNS `phoebe-budget-<env>` and two identical account-wide monthly cost budgets, `phoebe-monthly-<env>`. Each alerts its own topic at 70% of actual spend (a notification takes one SNS subscriber). The production budget also emails the owner when `alert_email` is set. |
+| `budget.tf` | SNS `phoebe-budget-<env>` and two identical account-wide monthly cost budgets, `phoebe-monthly-<env>`. Each alerts its own topic at 70% of actual spend (a notification takes one SNS subscriber). The production budget also emails the owner at `alert_email`. |
 | `alerts.tf` | SNS `phoebe-alerts` and an EventBridge rule per env on RDS-EVENT-0150 (cluster stopped). It invokes that env's budget Lambda, which closes the demo, and emails the owner how to restart (`make db-start ENV=<env>`). |
 
 ### CodeBuild projects
@@ -128,7 +128,7 @@ All rest on CI running only the owner's commits and tags.
 | `github_connection_ready` | Default `false`. Webhooks are created only when `true`, after the connection is authorized. |
 | `staging_distribution_id` | Default `""` (PR invalidations skipped). The staging CloudFront id. |
 | `monthly_budget_usd` | Default `30`. |
-| `alert_email` | Default `null` (no email). Pass as `TF_VAR_alert_email`; never commit it. |
+| `alert_email` | Required: a plan without it fails rather than dropping the alert emails. Pass as `TF_VAR_alert_email`; never commit it. |
 
 Outputs `state_bucket`, `boundary_policy_arns` and `budget_topic_arns` feed
 `infra/app/envs/<env>.tfvars`; the rest name the ECR repo, connection,

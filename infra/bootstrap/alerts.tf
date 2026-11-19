@@ -37,11 +37,16 @@ resource "aws_sns_topic_policy" "alerts" {
 
 # The owner confirms the subscription from the email AWS sends.
 resource "aws_sns_topic_subscription" "alert_email" {
-  count = var.alert_email == null ? 0 : 1
-
   topic_arn = aws_sns_topic.alerts.arn
   protocol  = "email"
   endpoint  = var.alert_email
+}
+
+# The subscription had count = 0 or 1 when alert_email was optional. Keep the
+# confirmed subscription rather than recreate it (a new one needs re-confirming).
+moved {
+  from = aws_sns_topic_subscription.alert_email[0]
+  to   = aws_sns_topic_subscription.alert_email
 }
 
 resource "aws_cloudwatch_event_rule" "db_stopped" {
