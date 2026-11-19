@@ -39,4 +39,4 @@ build_push jobs "$SHA-jobs"
 JOBS_DIGEST="$ECR_DIGEST"
 log "api $API_DIGEST jobs $JOBS_DIGEST"
 
-bash "$REPO_ROOT/ci/deploy.sh" staging "$API_DIGEST" "$JOBS_DIGEST"
+PHOEBE_VERSION="main (${SHA:0:7})" bash "$REPO_ROOT/ci/deploy.sh" staging "$API_DIGEST" "$JOBS_DIGEST"

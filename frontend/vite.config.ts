@@ -30,6 +30,9 @@ export default defineConfig({
   // Previews are served under a sub-path (e.g. PHOEBE_BASE=/pr-12/); /api stays at the origin root.
   base,
   plugins: [react(), tailwindcss(), ogImage(base)],
+  // The About popover's version line. ci/deploy.sh sets PHOEBE_VERSION
+  // ("v0.1.6 (eed737f)" in production, "main (<sha>)" on staging).
+  define: { __APP_VERSION__: JSON.stringify(process.env.PHOEBE_VERSION || "dev") },
   server: { port: 5173, proxy: { "/api": apiTarget } },
   preview: { proxy: { "/api": apiTarget } },
   test: {

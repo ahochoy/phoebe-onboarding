@@ -43,7 +43,7 @@ with open(os.path.join(d, "calls.jsonl"), "a") as f:
         "cmd": name,
         "argv": argv,
         "cwd": os.getcwd(),
-        "env": {k: os.environ.get(k) for k in ("PHOEBE_BASE", "PHOEBE_PLAN_FILE")},
+        "env": {k: os.environ.get(k) for k in ("PHOEBE_BASE", "PHOEBE_PLAN_FILE", "PHOEBE_VERSION")},
     }) + "\n")
 
 rules_path = os.path.join(d, name + ".rules.json")
@@ -292,6 +292,27 @@ def test_deploy_builds_frontend_at_root(h: Harness) -> None:
     assert all(c["cwd"] == str(REPO / "frontend") for c in npm)
 
 
+@pytest.mark.parametrize(
+    "version", ["main", "v1 (abc)", "main (abcdef0); echo hi", "$(id) (abcdef0)"]
+)
+def test_deploy_rejects_bad_version_label(h: Harness, version: str) -> None:
+    deploy_ok(h)
+    r = h.run("deploy.sh", "staging", API, JOBS, env={"PHOEBE_VERSION": version})
+    assert r.returncode != 0
+    assert "PHOEBE_VERSION" in r.stderr
+    assert h.calls("terraform") == [], "the label is checked before anything runs"
+
+
+def test_deploy_passes_version_label_to_the_build(h: Harness) -> None:
+    deploy_ok(h)
+    r = h.run(
+        "deploy.sh", "staging", API, JOBS, env={"PHOEBE_VERSION": "main (abcdef0)"}
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    build = next(c for c in h.calls("npm") if c["argv"][:2] == ["run", "build"])
+    assert build["env"]["PHOEBE_VERSION"] == "main (abcdef0)"
+
+
 def test_deploy_site_sync_excludes_and_cache_headers(h: Harness) -> None:
     deploy_ok(h)
     r = h.run("deploy.sh", "staging", API, JOBS)
@@ -514,6 +535,8 @@ def test_staging_builds_both_targets_and_deploys(h: Harness) -> None:
     assert has_pair(apply, "-var", f"api_image_digest={API}")
     assert has_pair(apply, "-var", f"jobs_image_digest={JOBS}")
     assert "-var-file=envs/staging.tfvars" in apply
+    build = next(c for c in h.calls("npm") if c["argv"][:2] == ["run", "build"])
+    assert build["env"]["PHOEBE_VERSION"] == f"main ({COMMIT[:7]})"
 
 
 def test_staging_reuses_existing_images(h: Harness) -> None:
@@ -807,6 +830,8 @@ def test_release_apply_applies_saved_plan_and_tags(h: Harness, tmp_path: Path) -
     for a in puts:
         assert has_pair(a, "--image-manifest", MANIFEST)
         assert has_pair(a, "--image-manifest-media-type", MEDIA)
+    build = next(c for c in h.calls("npm") if c["argv"][:2] == ["run", "build"])
+    assert build["env"]["PHOEBE_VERSION"] == f"v1.2.3 ({COMMIT[:7]})"
     # Tags go on only after the deploy (and its smoke test) succeeded.
     assert h.index("curl", f"{SITE}/api/health") < h.index("aws", "ecr", "put-image")
 
