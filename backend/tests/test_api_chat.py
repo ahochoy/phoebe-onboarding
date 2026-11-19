@@ -296,7 +296,7 @@ def _configured_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def test_configured_app_refuses_embedder_mismatch(
     db, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Lazy (R21): the app builds; the first DB-using request returns 503.
+    # Lazy: the app builds; the first DB-using request returns 503.
     _configured_env(monkeypatch, tmp_path)
     monkeypatch.setenv("PHOEBE_COOKIE_SECURE", "false")  # TestClient is plain http
     db.execute("insert into app_meta (key, value) values ('embedder', 'titan-v2-1024')")

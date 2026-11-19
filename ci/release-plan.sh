@@ -34,7 +34,7 @@ JOBS_DIGEST="$ECR_DIGEST"
 log "commit $COMMIT api $API_DIGEST jobs $JOBS_DIGEST"
 
 # resolve_tag: the highest v* tag (sort -V) on $COMMIT, read from the
-# CODEBUILD_CLONE_REF git clone (ruling R17). Fails closed if there is none.
+# CODEBUILD_CLONE_REF git clone. Fails closed if there is none.
 resolve_tag() {
   local head tags
   # CodeBuild's clone can be owned by another uid than the build user; without

@@ -1,4 +1,4 @@
-# Timings are pinned in backend/src/phoebe/lambdas/timings.py (ruling R8);
+# Timings are pinned in backend/src/phoebe/lambdas/timings.py;
 # keep these numbers identical to it.
 locals {
   worker_timeout_s           = 120 # WORKER_TIMEOUT_S

@@ -104,7 +104,7 @@ def test_empty_password_hash_cannot_build_the_app(monkeypatch, tmp_path, aws_env
         create_configured_app()
 
 
-# ---- lazy embedder check (R21) ------------------------------------------------
+# ---- lazy embedder check ------------------------------------------------
 
 
 class SwitchableRds:

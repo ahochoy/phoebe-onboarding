@@ -8,7 +8,7 @@ terraform {
     }
   }
 
-  # The first apply (Task 9) runs with local state through an uncommitted
+  # The first apply runs with local state through an uncommitted
   # local_override.tf; `terraform init -migrate-state -backend-config=bucket=...`
   # then moves the state into the bucket this root creates (see README.md).
   backend "s3" {

@@ -146,7 +146,7 @@ variables {
   github_connection_ready = true
 }
 
-# ---- Webhooks (Review Focus 5: a fork PR never starts a build) --------------
+# ---- Webhooks (a fork PR never starts a build) -----------------------------------
 
 run "webhooks" {
   command = apply
@@ -293,7 +293,7 @@ run "builds" {
         "release-apply" = "ci/buildspec-release-apply.yml"
       } : aws_codebuild_project.this[k].source[0].buildspec == f
     ])
-    error_message = "Staging and release projects point at their repo buildspec paths (Task 8)."
+    error_message = "Staging and release projects point at their repo buildspec paths."
   }
 
   # R15: PR builds never take their steps from the PR checkout.
@@ -719,7 +719,7 @@ run "deploy_roles" {
         ])
       ])
     ])
-    error_message = "Deploy roles get the five read-only EC2 describes RDS default-VPC placement needs (R24)."
+    error_message = "Deploy roles get the five read-only EC2 describes RDS default-VPC placement needs."
   }
 
   assert {
@@ -811,7 +811,7 @@ run "boundary" {
 
   assert {
     condition     = toset([for p in values(aws_iam_policy.boundary) : p.name]) == toset(["phoebe-boundary-staging", "phoebe-boundary-production", "phoebe-boundary-ci"])
-    error_message = "Per-env boundaries for infra/app roles plus one CI boundary (R14)."
+    error_message = "Per-env boundaries for infra/app roles plus one CI boundary."
   }
 
   assert {
@@ -1145,7 +1145,7 @@ run "state_ecr_budget" {
   }
 }
 
-# ---- Fix round 1: budget isolation (R16), RDS secret, fork gate, paths ----------
+# ---- Fix round 1: budget isolation, RDS secret, fork gate, paths ----------
 
 run "budget_isolation" {
   command = apply
@@ -1316,7 +1316,7 @@ run "fork_gate" {
 }
 
 
-# ---- Spend-limit alerts (Plan 5 item 1) ----------------------------------------------
+# ---- Spend-limit alerts --------------------------------------------------------------
 
 run "alert_email_wired_when_set" {
   command = apply

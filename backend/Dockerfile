@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build context is the repository root (the lock file lives there). Two final
-# targets share one build and one runtime base (ruling R9):
+# targets share one build and one runtime base:
 #   docker build -f backend/Dockerfile --target api .   # API Lambda + local stack (default)
 #   docker build -f backend/Dockerfile --target jobs .  # worker, DLQ, sweeper, ops, budget
 

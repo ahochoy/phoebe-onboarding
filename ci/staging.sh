@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ci/staging.sh: phoebe-staging (push to main). Builds the two images from
-# backend/Dockerfile (ruling R9), pushes them to ECR phoebe-api as <sha> (api)
+# backend/Dockerfile, pushes them to ECR phoebe-api as <sha> (api)
 # and <sha>-jobs (jobs), reads their digests back from ECR, then runs
 # ci/deploy.sh staging <api_digest> <jobs_digest>.
 #

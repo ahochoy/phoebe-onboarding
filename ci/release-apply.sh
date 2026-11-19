@@ -5,7 +5,7 @@
 #   1. Reads release.env from the `plan` artifact ($CODEBUILD_SRC_DIR_plan) and
 #      checks it: the commit matches $RELEASE_COMMIT, digests and tag are well
 #      formed.
-#   2. Checks the release tags (ruling R13). release-<tag> and
+#   2. Checks the release tags. release-<tag> and
 #      release-<tag>-jobs may already exist (phoebe-ci-deploy-staging can push
 #      any tag); that is fine only if they point at the digests being promoted.
 #      Anything else stops the release before any change.

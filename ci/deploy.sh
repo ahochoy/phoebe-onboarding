@@ -5,7 +5,7 @@
 # (phoebe-staging, phoebe-release-apply). Steps:
 #   1. terraform init + apply in infra/app. Staging applies with the two
 #      digests; production applies the approved saved plan in $PHOEBE_PLAN_FILE
-#      (no re-plan). infra/ai is never applied here (ruling R12).
+#      (no re-plan). infra/ai is never applied here (owner-applied).
 #   2. ops `migrate`, then ops `seed_if_empty`.
 #   3. npm ci + build (base /), then sync to the site bucket with the R11
 #      caching contract (infra/app/README.md), leaving previews/ and
@@ -100,7 +100,7 @@ VITE_SITE_ORIGIN="$SITE_URL" PHOEBE_BASE=/ npm run build
 
 DIST="$REPO_ROOT/frontend/dist"
 DEST="s3://$SITE_BUCKET"
-# Caching contract (R11): hashed assets/ are immutable for a year; index.html
+# Caching contract: hashed assets/ are immutable for a year; index.html
 # and the other root files are revalidated on every request. Assets go first
 # so a new index.html never points at a missing file.
 log "sync assets/ (immutable)"

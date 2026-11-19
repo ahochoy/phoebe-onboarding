@@ -20,9 +20,9 @@ Items are brainstormed and planned one at a time; each ships as its own PR.
 
 1. **Spend-limit mode.** Done (#19, #20; `v0.1.2`). Degrade at 70% of the budget, close and email on a stopped database, `make db-start`.
 2. **Evals.** Done (#21; follow-up #23). `make eval`; first run 2026-11-18: Haiku harness 9/9 facts; the verdict was to keep Haiku 4.5.
-3. **README for recruiters:** the live link, an architecture diagram and a monthly cost table.
-4. **Answer-model switch: closed 2026-11-18, keep Haiku 4.5.** Haiku 5.5 and GLM-5.3 are not available to the account. On the fact cases, Kimi K3.1 matched Haiku (9/9), and gpt-oss-120b cited with full-width brackets (`【P1】`), which the verifier rejects. The owner chose Haiku 4.5 and stopped the evals.
-5. **Direct Bedrock answers instead of the AgentCore harness.** In progress. Design `docs/superpowers/specs/2026-11-18-direct-bedrock-design.md`, plan `docs/superpowers/plans/2026-11-18-direct-bedrock.md`. In the first eval, Haiku 4.5 through a direct ConverseStream call (`haiku-direct`) passed the same 9/9 at p50 1.6 s and p90 2.1 s, against 4.0 s and 6.5 s through the harness, and AgentCore was $0.47 of the month's $1.58 gross. The harness reaches documents only through Gateway tools, which were rejected for Phoebe's visibility model. The harnesses stay for one release as the rollback path, then a follow-up removes them.
+3. **README for recruiters.** Done (live link, architecture diagram, cost table, demo GIF). Docs cleanup 2026-11-18: infra READMEs rewritten against the code, planning ids (Task N, R-rulings) removed from comments.
+4. **Answer-model switch: closed 2026-11-18, keep Haiku 4.5.** Haiku 5.5 and GLM-5.3 are not available to the account. On the fact cases, Kimi K3.1 matched Haiku (9/9), and gpt-oss-1205. **Direct Bedrock answers instead of the AgentCore harness.** Done (`v0.1.5`): production answers through ConverseStream at about a third of the harness latency. Remaining: remove the harnesses and the `harness` backend.
+ for Phoebe's visibility model. The harnesses stay for one release as the rollback path, then a follow-up removes them.
 6. **Smaller first page load:** the frontend bundle is 334 KB gzipped; split it with code-splitting.
 7. **Safety and copy polish:**
    - a production guard on `reseed`;

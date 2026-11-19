@@ -523,7 +523,7 @@ run "iam" {
     error_message = "No Lambda policy grants on Resource \"*\"."
   }
 
-  # Task 2/3 carry plus ruling R10: an unconditioned bucket-level ListBucket so a
+  # An unconditioned bucket-level ListBucket so a
   # missing key is NoSuchKey. The 404-vs-403 check carries no s3:prefix, so a
   # prefix condition would never match.
   assert {
@@ -586,7 +586,7 @@ run "iam" {
       contains(flatten([st.Action]), "dynamodb:PutItem") &&
       contains(flatten([st.Resource]), aws_dynamodb_table.state.arn)
     ])
-    error_message = "The API writes activity#last to the state table (R26)."
+    error_message = "The API writes activity#last to the state table."
   }
 
   assert {
@@ -606,7 +606,7 @@ run "storage" {
       aws_s3_bucket.uploads.bucket == "phoebe-staging-uploads-123456789012" &&
       aws_s3_bucket.site.bucket == "phoebe-staging-site-123456789012"
     )
-    error_message = "Bucket names follow ruling R2."
+    error_message = "Bucket names follow phoebe-<env>-<kind>-<account_id>."
   }
 
   assert {
@@ -769,7 +769,7 @@ run "outputs" {
       output.api_role_arn == aws_iam_role.lambda["api"].arn &&
       output.distribution_id == aws_cloudfront_distribution.main.id
     )
-    error_message = "Outputs for Task 6."
+    error_message = "The CloudFront outputs exist."
   }
 }
 

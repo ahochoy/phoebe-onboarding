@@ -26,7 +26,7 @@ variable "github_connection_ready" {
 }
 
 variable "staging_distribution_id" {
-  description = "Staging CloudFront distribution id, once infra/app has created it (Task 9). The inline PR and cleanup buildspecs invalidate /pr-<n>/* with it; empty skips the invalidation."
+  description = "Staging CloudFront distribution id, once infra/app has created it. The inline PR and cleanup buildspecs invalidate /pr-<n>/* with it; empty skips the invalidation."
   type        = string
   default     = ""
 

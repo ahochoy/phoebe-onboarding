@@ -71,7 +71,7 @@ locals {
     }
   }
 
-  # infra/ai is owner-applied locally (ruling R12); CI only reads its outputs
+  # infra/ai is owner-applied locally; CI only reads its outputs
   # through terraform_remote_state.
   ai_state_read_statement = {
     Sid      = "AiStateRead"
@@ -87,7 +87,7 @@ locals {
     Resource = [local.state_bucket_arn]
   }
 
-  # Terraform refresh reads for one env (ruling R14), as the managed policy
+  # Terraform refresh reads for one env, as the managed policy
   # phoebe-ci-reads-<env> (inline space per role is capped at 10,240 chars). CloudFront and Lambda
   # configs carry the origin secret header and env vars, so those are scoped
   # to the env by tag or name. The account-wide rest is metadata only.

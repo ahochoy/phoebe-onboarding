@@ -135,7 +135,7 @@ stack-e2e:
 e2e:
 	cd frontend && npm run build && npx playwright test
 
-# Owner-run: README screenshots and demo GIF from staging (costs about a cent of Bedrock).
+# Owner-run: the README demo GIF from staging (costs about a cent of Bedrock).
 # PHOEBE_CAPTURE_URL picks another environment. See docs/development.md.
 screenshots:
 	@test -n "$$PHOEBE_CAPTURE_PASSWORD" || { echo "Set PHOEBE_CAPTURE_PASSWORD (the staging demo password)." >&2; exit 2; }

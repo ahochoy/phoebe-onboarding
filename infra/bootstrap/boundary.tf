@@ -1,4 +1,4 @@
-# Permissions boundaries (ruling R14). Effective permissions are the
+# Permissions boundaries. Effective permissions are the
 # intersection of a role's own policy and its boundary.
 #
 #   phoebe-boundary-staging     every infra/app role in staging
@@ -79,9 +79,7 @@ locals {
       {
         # The Aurora master secret's name is rds!cluster-<uuid>, so it is
         # scoped by the cluster tag RDS puts on it. Fail closed: an untagged
-        # or differently tagged secret is not allowed. The tag key is not in
-        # the AWS docs I could find; Task 9 confirms it with describe-secret,
-        # and if it differs the app's first DB call fails loudly.
+        # or differently tagged secret is not allowed.
         Sid      = "EnvDbSecret"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
@@ -122,7 +120,7 @@ locals {
       Resource = "*"
     },
     {
-      # Only the five read-only EC2 calls RDS default-VPC placement needs (R24).
+      # Only the five read-only EC2 calls RDS default-VPC placement needs.
       Sid      = "AllowRdsVpcReads"
       Effect   = "Allow"
       Action   = local.rds_vpc_read_actions

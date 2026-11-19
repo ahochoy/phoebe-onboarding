@@ -1,4 +1,4 @@
-"""Idle tracking (R26): the API records activity, the sweeper skips when idle."""
+"""Idle tracking: the API records activity, the sweeper skips when idle."""
 
 import itertools
 import logging
@@ -218,7 +218,7 @@ def _simulate(
 
 
 def test_continuous_activity_sweeps_every_hour() -> None:
-    # Activity every 30 min for 48 h must not postpone the sweep (R26).
+    # Activity every 30 min for 48 h must not postpone the sweep.
     activity = [T + timedelta(minutes=30 * i) for i in range(97)]
     start = T + H
     runs = _simulate(

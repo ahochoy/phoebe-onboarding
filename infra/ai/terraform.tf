@@ -8,8 +8,7 @@ terraform {
     }
   }
 
-  # Shared state in the bootstrap bucket. The local terraform.tfstate moves
-  # here with `terraform init -migrate-state` in Task 9 (see infra/bootstrap).
+  # Shared state in the bootstrap bucket (pass -backend-config=bucket=...).
   backend "s3" {
     key          = "ai.tfstate"
     region       = "us-east-2"
