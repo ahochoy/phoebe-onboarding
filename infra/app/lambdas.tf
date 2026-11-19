@@ -144,8 +144,8 @@ resource "aws_lambda_function" "this" {
 }
 
 # ---- Function URL, locked to CloudFront by the origin secret ---------------
-# Auth NONE: the API's origin guard (Task 2) rejects any request without the
-# X-Phoebe-Origin header CloudFront adds (Task 6), except /api/health. The
+# Auth NONE: the API's origin guard rejects any request without the
+# X-Phoebe-Origin header CloudFront adds, except /api/health. The
 # provider adds the public InvokeFunctionUrl/InvokeFunction permissions.
 
 resource "aws_lambda_function_url" "api" {

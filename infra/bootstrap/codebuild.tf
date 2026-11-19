@@ -10,8 +10,8 @@ locals {
   repo_url = "https://github.com/${var.github_repo}.git"
   image    = "aws/codebuild/amazonlinux-aarch64-standard:3.0"
 
-  # pr and pr-cleanup take their steps from here, never from the checkout
-  # (ruling R15). Every other project uses ci/buildspec-<key>.yml (Task 8).
+  # pr and pr-cleanup take their steps from here, never from the checkout.
+  # Every other project uses ci/buildspec-<key>.yml.
   inline_buildspecs = {
     "pr" = templatefile("${path.module}/buildspecs/pr.yml", {
       site_bucket       = "phoebe-staging-site-${local.account_id}"
@@ -28,7 +28,7 @@ locals {
   terraform_version = "1.16.4"
 
   # Only the owner's own events ever start a build. A fork PR's actor is the
-  # fork's author, so it matches no group (Review Focus 5).
+  # fork's author, so it matches no group.
   actor_filter = { type = "ACTOR_ACCOUNT_ID", pattern = "^${var.github_owner_id}$" }
 
   projects = {

@@ -1,4 +1,4 @@
-# One account cost budget, two topics (ruling R16). Each env's budget Lambda
+# One account cost budget, two topics. Each env's budget Lambda
 # subscribes only to its own topic from infra/app, so a staging deploy can
 # never unsubscribe or redirect production's kill switch. A Budgets
 # notification takes only one SNS subscriber, so there are two identical

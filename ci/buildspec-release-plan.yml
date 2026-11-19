@@ -5,7 +5,7 @@ version: 0.2
 # plan. The plan log is what the owner reviews before approving. The `plan`
 # artifact (production.tfplan, release.env) is what release-apply applies.
 # RELEASE_COMMIT comes from the pipeline (#{SourceVariables.CommitId}); the
-# source is a CODEBUILD_CLONE_REF git clone, so the tag is read with git (R17).
+# source is a CODEBUILD_CLONE_REF git clone, so the tag is read with git.
 
 env:
   shell: bash

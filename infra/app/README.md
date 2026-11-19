@@ -1,81 +1,83 @@
 # infra/app
 
-Per-environment Terraform root for Phoebe (`staging`, `production`), all in
-`us-east-2`. One state per env (`app/<env>.tfstate` in the bootstrap state
-bucket). CodeBuild applies it (Task 8); nothing here has been applied yet.
+The Terraform root for one Phoebe environment, `staging` or `production`, in
+`us-east-2`. Each env has its own state (`app/<env>.tfstate` in the bootstrap
+state bucket) and its own inputs in `envs/<env>.tfvars`. For the architecture
+and the release flow, see the [top-level README](../../README.md).
 
 ## What it creates
 
-All names start with `phoebe-<env>`.
+Every name starts with `phoebe-<env>`.
 
 | File | Resources |
 |---|---|
-| `data.tf` | Aurora PostgreSQL Serverless v2 cluster `phoebe-<env>` (0–2 ACU, auto-pause 300 s, Data API on, encrypted, managed master-user secret, no public access; deletion protection and a final snapshot in production only). DynamoDB `phoebe-<env>-sessions` and `phoebe-<env>-state` (on demand, `pk` hash key, TTL on `expires_at`). `infra/ai` remote state. |
-| `storage.tf` | S3 `phoebe-<env>-uploads-<account_id>` (all public-access blocks, SSE-S3, objects expire after 2 days) and `phoebe-<env>-site-<account_id>` (all public-access blocks, SSE-S3; bucket policy in `edge.tf`). |
-| `queue.tf` | SQS `phoebe-<env>-jobs` (visibility 720 s) with DLQ `phoebe-<env>-jobs-dlq` (maxReceiveCount 3, 14-day retention). Event source mappings for the worker and the DLQ handler, both `ReportBatchItemFailures`. |
-| `lambdas.tf` | Six arm64 image Lambdas, all from ECR repo `phoebe-api` pinned by digest. `api` runs the `api` image (image CMD: uvicorn behind the Lambda Web Adapter; response-streaming function URL with auth NONE; reserved concurrency `api_reserved_concurrency`, default 5). `worker` (120 s, reserved `worker_reserved_concurrency`, default 2), `dlq`, `sweeper`, `ops` and `budget` run the `jobs` image (ENTRYPOINT `python -m awslambdaric`, command `phoebe.lambdas.<name>.handler`). Log groups with retention. The origin secret `phoebe-<env>-origin-secret`. |
-| `iam.tf` | One role per Lambda plus the scheduler role, each with the bootstrap permissions boundary and only the actions its code uses. The sweeper's state-table grant is `GetItem`/`PutItem` on the keys `activity#last` and `sweep#last_started` only (`dynamodb:LeadingKeys`). |
-| `schedule.tf` | EventBridge Scheduler `phoebe-<env>-sweeper`, `rate(1 hour)`. The sweeper sweeps hourly while there was activity within about 25 hours of the last completed sweep, and otherwise skips all database work apart from a daily hard cap (ruling R26, below), so an idle hourly run does not wake a paused Aurora. |
-| `edge.tf` | CloudFront distribution (default `*.cloudfront.net` certificate, `PriceClass_100`, no aliases/ACM/logging). Default behaviour: private site bucket via OAC, managed `CachingOptimized`, CloudFront Function `phoebe-<env>-spa-router` (viewer-request). `/api/*`: API function URL origin sending `X-Phoebe-Origin` (the origin secret), managed `CachingDisabled` and `AllViewerExceptHostHeader`, all methods, `compress = false` (SSE). Response headers policy (CSP, HSTS 1 year, nosniff, strict-origin-when-cross-origin) on both. Site bucket policy: `s3:GetObject` to `cloudfront.amazonaws.com` scoped to this distribution's ARN. |
-| `budget.tf` | Subscribes this env's budget Lambda to its own bootstrap topic `phoebe-budget-<env>` (ruling R16: a staging deploy can't touch production's subscription). |
+| `data.tf` | Aurora PostgreSQL Serverless v2, reached only through the Data API: 0 to 1 ACU, auto-pause after 300 s, encrypted, managed master secret. Production adds deletion protection, a final snapshot and 7-day backups. DynamoDB tables `-sessions` and `-state` (on demand, TTL on `expires_at`). Reads the `infra/ai` outputs. |
+| `storage.tf` | Private S3 buckets `-uploads-<account_id>` (objects expire after 2 days) and `-site-<account_id>` (the SPA and staging's PR previews). |
+| `queue.tf` | SQS `-jobs` and its dead-letter queue `-jobs-dlq` (3 receives, 14-day retention). |
+| `lambdas.tf` | Six arm64 container Lambdas from the ECR repo `phoebe-api`, pinned by digest (below). The API has a streaming function URL. Also the origin secret `-origin-secret`. |
+| `iam.tf` | One role per Lambda plus the scheduler role. Each has the bootstrap permissions boundary and only the actions its code uses. |
+| `schedule.tf` | EventBridge Scheduler `-sweeper`, hourly. |
+| `edge.tf` | CloudFront: the private site bucket through OAC (with the `spa-router` CloudFront Function), and `/api/*` to the function URL with no caching. Security headers (CSP, HSTS) on both. |
+| `budget.tf` | Subscribes the budget Lambda to this env's bootstrap topic `phoebe-budget-<env>`, and lets the `-db-stopped` rule invoke it. |
 
-Timings match `backend/src/phoebe/lambdas/timings.py` (ruling R8): worker
-timeout 120 s, visibility 720 s (6x), maxReceiveCount 3, hourly sweep. Change
-them in both places together.
+### Lambdas
 
-Secrets reach the Lambdas only as ARNs (`PHOEBE_DB_SECRET_ARN`,
-`PHOEBE_ORIGIN_SECRET_ARN`, `PHOEBE_PASSWORD_HASH_SECRET_ARN`); the app reads
-them once at startup. The origin secret's value is generated here
-(`random_password.origin`) and is in state, because Task 6's CloudFront origin
-header needs it.
+| Function | Image | Job |
+|---|---|---|
+| `api` | `api` | FastAPI behind the Lambda Web Adapter. CloudFront adds an `X-Phoebe-Origin` header; a direct call to the function URL gets 403 (except `/api/health`). |
+| `worker` | `jobs` | Indexes uploaded documents from SQS. 120 s timeout, at most 2 at once. |
+| `dlq` | `jobs` | Marks a job that failed three times as failed. |
+| `sweeper` | `jobs` | Deletes expired visitor sandboxes and marks stuck indexing jobs as failed. |
+| `ops` | `jobs` | Operator tasks: `migrate`, `seed_if_empty`, `status`, `reseed`. |
+| `budget` | `jobs` | Pauses or closes the demo on a budget alert or a stopped database. |
 
-Idle cost (spec §5.4, rulings R21/R26). Nothing at Lambda init touches the
-database: the API checks the embedder lazily on its first DB-using request
-(`503 database_unavailable` while Aurora resumes, `503 embedder_mismatch` if the
-stored vectors came from another embedder), `/api/health` and `/api/status` are
-DB-free, and the jobs Lambdas don't check at all (ops `seed_if_empty` does). The
-API writes `activity#last` (epoch seconds, at most once a minute per container)
-to the state table on login and on every authenticated sandbox request (where
-`last_seen` is bumped). The sweeper stores `sweep#last_started`, the start time
-of its last *completed* DB sweep (written only after success). An hourly run
-(ruling R26) sweeps when (a) at least an hour has passed since `last_started` and
-`activity#last >= last_started - 25 h` (ABSOLUTE_TIMEOUT + SWEEP_INTERVAL), or
-(b) more than 24 h has passed since `last_started` (hard cap), or (c) a value is
-missing, unreadable, or `last_started` is in the future (fail toward
-correctness). Otherwise it makes no DB call. So sweeps run hourly while anyone
-is active, and one visit costs about 26 hourly Aurora wakes before the sweeper
-goes quiet; an idle environment then wakes about once every 25 h.
+Two images come from one `backend/Dockerfile`. The `api` target contains the
+Lambda Web Adapter extension. The `jobs` target leaves it out, because Lambda
+starts every extension and the adapter would hang a non-HTTP function.
 
-## Inputs
+The queue timings (worker 120 s, visibility 720 s, 3 receives, hourly sweep)
+match `backend/src/phoebe/lambdas/timings.py`. Change both together.
 
-| Variable | Notes |
-|---|---|
-| `env` | `staging` or `production`. |
-| `api_image_digest` | `sha256:<64 hex>` of the `api` image (`backend/Dockerfile --target api`, tag `<sha>`). Passed per deploy; tags are rejected. |
-| `jobs_image_digest` | `sha256:<64 hex>` of the `jobs` image (`--target jobs`, tag `<sha>-jobs`). Passed per deploy; tags are rejected. |
-| `boundary_policy_arn` | `arn:aws:iam::<account_id>:policy/phoebe-boundary-<env>` (bootstrap; this env's boundary, which only allows `phoebe-<env>-*` resources). Another env's boundary is rejected. |
-| `ai_state_bucket` | `phoebe-tfstate-<account_id>`; the `infra/ai` state is read from key `ai.tfstate`. |
-| `budget_topic_arn` | `arn:aws:sns:us-east-2:<account_id>:phoebe-budget-<env>` (bootstrap; another env's topic is rejected). |
-| `password_hash_secret_arn` | This env's `phoebe-<env>-password-hash` secret, created by the owner (Task 9). Must be the full ARN, including the 6-character random suffix; another env's secret is rejected. |
-| `answer_backend` | `converse` (default): the API answers with Haiku 4.5 through Bedrock ConverseStream, with streaming access to the Haiku `us.` profile and no AgentCore access. `harness`: the infra/ai AgentCore harness, which restores the previous env and IAM exactly. Use it to roll back for one release. |
-| `answer_harness` | With `answer_backend = harness`: `haiku` (default) or `nova`. |
-| `api_reserved_concurrency` | Default `5`; `null` = unreserved. Ruling R23: reserved concurrency counts against the account's Lambda concurrency quota (a new account can be as low as 10, and AWS always keeps 10 unreserved). Task 9 checks the quota; the owner requests an increase or sets `null`. `0` is rejected. |
-| `worker_reserved_concurrency` | Default `2`; `null` = unreserved (the SQS mapping's `maximum_concurrency = 2` still caps it). `0` is rejected. |
-| `log_level` | Default `INFO`. |
+### Configuration
 
-## Outputs
+The Lambdas get `PHOEBE_*` settings for the Data API, S3, SQS, DynamoDB, the
+Titan embedder, the Bedrock query rewriter and the guardrail. Secrets arrive
+only as ARNs (`PHOEBE_DB_SECRET_ARN`, `PHOEBE_ORIGIN_SECRET_ARN`,
+`PHOEBE_PASSWORD_HASH_SECRET_ARN`) and are read at startup.
 
-`site_url`, `api_function_url`, `site_bucket`, `ops_function_name`, `distribution_id`,
-`cluster_arn`, `db_secret_arn`, `origin_secret_arn`, `api_role_arn`. `ci/deploy.sh`
-reads the first five after its apply. Staging's `distribution_id` is also the value
-for infra/bootstrap's `staging_distribution_id` (bootstrap owner step 7).
+`answer_backend` picks how chat answers:
 
-## Per-env usage
+- `converse` (the default): `PHOEBE_ANSWER_BACKEND=converse`. The API streams
+  Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`) through
+  Bedrock ConverseStream.
+- `harness`: the AgentCore harness in [`infra/ai`](../ai/README.md), with
+  `answer_harness` = `haiku` or `nova`. It is kept for one release as a
+  rollback and will then be removed.
 
-`envs/<env>.s3.tfbackend` holds the backend key, Region and `use_lockfile`.
-`envs/<env>.tfvars` holds the env's inputs. The account-specific lines (state
-bucket, boundary, topic, password secret) are commented placeholders until
-bootstrap exists; Task 9 fills them in. They are ARNs and names, not secrets.
+The IAM role grants only the chosen backend's permissions.
+
+### Idle cost
+
+Aurora pauses at 0 ACU when nothing uses it. No Lambda touches the database at
+startup, and `/api/health` and `/api/status` never do. The sweeper runs hourly
+while there has been recent activity. After about 25 idle hours it stops
+touching the database, apart from one sweep a day.
+
+## Deploys
+
+Deploys run only in CodeBuild. `ci/deploy.sh <env>` applies this root, runs ops
+`migrate` then `seed_if_empty`, builds and uploads the SPA, invalidates
+CloudFront and runs `ci/smoke.sh`. It never applies `infra/ai`.
+
+- **Staging**: CodeBuild `phoebe-staging`, on each push to main. It builds both
+  images, pushes them as `phoebe-api:<sha>` and `<sha>-jobs`, and deploys by
+  digest.
+- **Production**: CodePipeline `phoebe-release`, on a `v*` tag. Plan
+  (`phoebe-release-plan`) promotes the digests staging already ran, then waits
+  for manual approval. Apply (`phoebe-release-apply`) applies that saved plan
+  and tags the images `release-<tag>`.
+
+A plan by hand (read-only):
 
 ```sh
 cd infra/app
@@ -85,209 +87,47 @@ terraform plan -var-file=envs/staging.tfvars \
   -var api_image_digest=sha256:... -var jobs_image_digest=sha256:...
 ```
 
-Why two images (ruling R9): Lambda starts every extension in
-`/opt/extensions`. In the `api` image that is the Lambda Web Adapter, which
-waits for uvicorn on :8080 and then polls the Runtime API itself. In a
-non-HTTP Lambda it would hang init and compete with `awslambdaric`, so the
-`jobs` image leaves the adapter (and its `AWS_LWA_*` env) out.
+### Release notes for production
 
-Applies run only in CodeBuild (Task 8) or under the Task 9 owner gate.
+- **Failed apply.** Don't retry Apply: the saved plan is stale. Push another
+  `v*` tag on the same commit (for example `v1.2.3.1`; the plan stage takes
+  the highest by `sort -V`). Don't use "Release change" in the console, which
+  builds main's HEAD.
+- **Migrations must be backward compatible.** The new code is live before
+  `migrate` runs. Add columns or tables in one release and remove old ones in
+  a later one.
 
-## Deploys (ci/)
+## Operations
 
-| CodeBuild project | Buildspec | Script | What it does |
-|---|---|---|---|
-| `phoebe-staging` (push to main) | `ci/buildspec-staging.yml` | `ci/staging.sh` | `docker buildx build --platform linux/arm64 --target api\|jobs -f backend/Dockerfile .`, pushed as `phoebe-api:<sha>` and `<sha>-jobs` (a retried build reuses already-pushed tags), digests read back from ECR, then `ci/deploy.sh staging <api> <jobs>`. |
-| `phoebe-release-plan` (tag `v*`) | `ci/buildspec-release-plan.yml` | `ci/release-plan.sh` | Resolves `phoebe-api:<tag sha>` and `<tag sha>-jobs`; stops with "never reached staging" if either is missing. Reads the commit's `v*` tag with `git tag --points-at` in the `CODEBUILD_CLONE_REF` clone (R17; highest by `sort -V` if several, none stops the release). `terraform plan -lock=false` for production; saves `production.tfplan` and `release.env` (commit, tag, both digests) as the `plan` artifact. |
-| `phoebe-release-apply` (after approval) | `ci/buildspec-release-apply.yml` | `ci/release-apply.sh` | Checks `release-<tag>` / `release-<tag>-jobs`: an existing tag must already point at the promoted digest, or the release stops before any change. Runs `ci/deploy.sh production` on **the saved plan** (no re-plan), then adds the missing release tags (BatchGetImage + PutImage). |
+**Reseed after a seed-data change.** Deploys run only `seed_if_empty`, which
+does nothing when a seed is already loaded. To load a changed seed, invoke the
+env's ops Lambda by hand, once per environment:
 
-`ci/deploy.sh <env> <api_digest> <jobs_digest>`: `terraform init`/`apply` here
-(staging with the two `-var`s; production applies `$PHOEBE_PLAN_FILE`), ops
-`migrate` then `seed_if_empty` (stops on a function error or an `error`
-result), `npm ci` + `npm run build` with base `/`, the site sync below, the two
-seed sources to `seed-sources/`, an invalidation of `/*` (waited for), then
-`ci/smoke.sh <site_url> <api_function_url>`. It never applies `infra/ai` (R12).
+```sh
+aws lambda invoke --function-name phoebe-<env>-ops \
+  --payload '{"task":"reseed"}' --cli-binary-format raw-in-base64-out out.json
+```
 
-**Re-seeding staging.** Deploys only seed an empty database, so a changed seed
-does not reach a database that already has one. To reload it by hand, invoke the
-ops Lambda with `{"task":"reseed"}`. It deletes every visitor's sandbox data
-(rows and uploaded blobs) and then reloads the seed. It is staging-only, and
-`ci/deploy.sh` never calls it.
-Run it during a quiet period: a visitor writing during the run can make
-`load_seed` fail on a foreign key. Re-running is safe.
+`reseed` deletes every visitor sandbox (rows and uploaded files), then reloads
+the seed. Run it when nobody is using the demo; re-running is safe.
 
-`ci/smoke.sh` checks, through CloudFront: `/api/health` is 200 `{"status":"ok"}`;
-`/` is the SPA (root element); `/api/status` is 200 JSON; a direct call to the
-function URL's `/api/status` is **403** (`/api/health` is exempt from the origin
-guard, so it can't prove this); `/pr-0/` is not a 404/5xx. The
-`CloudFront-Viewer-Address` check is reported as skipped: the API has no echo
-endpoint (deliberately), so Task 9 checks it, and the throttle, by hand.
+**Stop and start the database.** The project's spend limit can stop Aurora.
+A stopped cluster is not the same as a paused one, and deploys refuse to run
+against it.
 
-### Task 9 live checks
+- `make db-stop ENV=<env>` closes the demo, then stops the cluster (useful for
+  parking staging).
+- `make db-start ENV=<env>` starts the cluster, waits for it, and reopens the
+  demo with chat paused. Add `OPEN=1` to switch chat back on.
 
-Run by hand against staging after the first owner-gated deploy (none of these
-can be checked offline):
+At 70% of the monthly budget, the budget Lambda pauses chat (browsing still
+works). If the cluster stops, it closes the demo. Both are set up in
+[`infra/bootstrap`](../bootstrap/README.md).
 
-1. **Concurrency quota (R23).** Read the account's Lambda concurrent-executions
-   quota. With 5 + 2 reserved, at least 17 is needed; otherwise request an
-   increase or set `api_reserved_concurrency` / `worker_reserved_concurrency`
-   to `null`.
-2. **Deploy-role permissions (R24).** Simulate (or watch the first apply for)
-   `lambda:CreateEventSourceMapping` and the RDS default-VPC `ec2:Describe*`
-   calls as `phoebe-ci-deploy-staging`; simulate the rest of the apply.
-3. **First migrate.** ops `migrate` succeeds on the Data API (the advisory lock
-   now returns an int, not `void`).
-4. **Large non-ASCII document.** Upload a ~100 KB Markdown file that is mostly
-   multi-byte text (e.g. CJK or emoji), wait for `indexed`, open it, and check
-   the full text renders intact (it is read in 15,000-character slices, each
-   under the Data API's 64 KB row limit).
-5. **Near-limit upload.** Upload a file just under 4 MB; it is accepted and
-   indexes (or fails with a clear reason), and a file just over is `413
-   file_too_large`.
-6. **Client IP and throttle.** `CloudFront-Viewer-Address` reaches the API
-   (IPv4 and, if available, IPv6) and the login throttle keys per viewer.
-7. **Idle stays idle (R26).** While anyone is active the sweeper runs every
-   hour, so expired sandboxes and stuck `processing` documents are cleaned up
-   even under continuous traffic. After the last visit it keeps sweeping hourly
-   for about 25 to 26 hours, then logs `sweep skipped idle` hourly with the
-   Aurora cluster paused (0 ACU). A daily hard cap still runs one sweep per
-   more than 24 hours regardless of activity.
-8. **Cold start while paused (R21).** With Aurora paused, the first page load
-   shows the "waking up" copy (`503 database_unavailable`) rather than a 502,
-   and `/api/health` stays 200 without resuming the cluster.
+## Checks
 
-### Rollout results (v0.1.1, 2026-11-17)
-
-- **R21, server half: pass.** With staging Aurora paused at 0 ACU, `/api/health`
-  returned 200 three times (3.7 s on a cold start, then 0.26 s) and the cluster
-  stayed at 0 ACU. The browser half (the "waking up" copy) is an owner check.
-- **Login throttle: pass.** Ten wrong passwords from one IPv4 address got 401,
-  the 11th and 12th got 429 `too_many_attempts`. **IPv6 keying: not verified**
-  (the local tooling blocked the request); R22's parsing is unit-tested only.
-- **R26 (idle stays idle): pending.** It needs about 25 hours with no traffic.
-- **v0.1.0 never deployed.** Its Plan stage failed with "Failed to write plan
-  file": `ci/release-plan.sh` received a relative output directory and wrote to
-  it after `cd infra/app`. Fixed in #15 (absolute path, plus a regression test).
-  Plan is read-only, so nothing reached production.
-- **Spend limit stops Aurora.** At 07:07 UTC the project's spend limit
-  (`AWSServiceRoleForBudgetsSpendLimitMember`) called `StopDBCluster` on
-  staging. A stopped cluster is not the 0 ACU auto-pause: the Data API returns
-  `InvalidResourceStateException ... is in stopped state`, and `ops migrate`
-  failed the deploy. Raising the limit does not restart the cluster. Spend-limit
-  mode (below, #19) now handles this; restart with `make db-start ENV=<env>`.
-- **v0.1.1 released** from `de7d908`: plan `56 to add, 0 to change, 0 to
-  destroy`; migrate applied 001 to 004; seed loaded 6 groups, 3 people, 21
-  tasks, 12 documents, 123 chunks; smoke OK; images tagged `release-v0.1.1`
-  and `release-v0.1.1-jobs`. Production runs Titan embeddings, the Haiku
-  harness (shared with staging), the Bedrock rewriter and guardrail v1. The
-  owner changed the production password before approving and confirmed a
-  cited Markdown answer on production.
-- **Custom domain.** `phoebe-onboarding.hochoy.dev` is a proxied Cloudflare
-  record with a 302 redirect rule (path and query string kept) to
-  `https://d3l53cq2s2ex7m.cloudfront.net/`. CloudFront has no alternate domain:
-  a request with that Host header gets CloudFront's 403. Serving the domain
-  directly would need an ACM certificate in us-east-1 plus `aliases`.
-
-### Spend-limit mode
-
-The account's spend limit ($30 a month, shared with other projects) stops
-Aurora when it is reached. Phoebe degrades before that and recovers by hand:
-
-1. **At 70% of the account budget** both budgets publish to their
-   `phoebe-budget-<env>` topics, and each env's budget Lambda sets
-   `chat_paused`. Chat, search, uploads and links stop; tasks, documents and
-   admin keep working, and a banner says why. The production budget also emails
-   the owner (`alert_email`, passed at bootstrap apply time).
-2. **If the cluster stops anyway** (RDS-EVENT-0150), `phoebe-<env>-db-stopped`
-   (infra/bootstrap) invokes the budget Lambda, which sets `closed` so the
-   landing page shows the offline copy, and emails the owner through
-   `phoebe-alerts`. Until then the API answers `503 database_stopped`, which the
-   app also shows as offline.
-3. **To restart**, once the limit allows: `make db-start ENV=<env>`. It starts
-   the cluster (unless it is already available), waits for `available`, then
-   reopens browse-only (`chat_paused`, with the banner), because Budgets does not
-   alert at 70% again in the same month. `make db-start ENV=<env> OPEN=1`
-   reopens fully; run it later, with the cluster already up, to switch chat back
-   on (for example at the start of the next month). AWS restarts a stopped cluster by itself after
-   7 days, but the demo stays closed until the command runs. Deploys refuse a
-   stopped or stopping cluster with the same instruction.
-
-**Keeping the peaks low.** The spend limit appears to project from recent
-bursts, not from what has been spent (2026-11-17: $1.58 gross for the month
-tripped it). Three settings keep bursts small:
-
-- Aurora scales to at most **1 ACU** (`data.tf`), not 2.
-- The AgentCore harnesses end an idle runtime session after **60 seconds**
-  (`infra/ai`), not 30 minutes. Every chat opens a new session, and an idle one
-  bills its memory.
-- **`make db-stop ENV=staging`** parks staging while it is not in use: it closes
-  the demo, then stops the cluster. `make db-start ENV=staging` brings it back,
-  and a deploy to a stopped staging stops early with that instruction.
-
-### Release behaviour to know (production)
-
-- **Partial deploy recovery: re-run the pipeline from Plan.** If
-  `phoebe-release-apply` fails after the apply started (a migration, the seed,
-  the SPA sync or the smoke test), do not retry Apply: the saved plan is stale
-  against the changed state, and Terraform refuses it. Start a new execution
-  for the same commit so that Plan re-plans from the current state and the
-  owner approves again. Push another `v*` tag on that commit, e.g.
-  `v1.2.3.1`; release-plan takes the highest by `sort -V`. Don't use "Release
-  change" in the console, because it runs Source at main's HEAD, which may be
-  a different commit. Release tags are only added after a successful deploy,
-  so a failed run leaves none behind.
-- **Migrations must be expand/contract compatible.** `terraform apply` updates
-  the Lambda code (new image digests) *before* ops `migrate` runs, so for a
-  short window the new code runs against the old schema (and, if migrate
-  fails, until the next release). Ship schema changes in two releases: first
-  add (new columns/tables, nullable or defaulted) with code that works with
-  both schemas, then remove the old shape once nothing reads it.
-- **The SPA is rebuilt at the tag commit; images are promoted by digest.** The
-  backend images in production are the exact bytes staging ran (resolved from
-  `phoebe-api:<sha>` and `<sha>-jobs`). The frontend is not promoted: Apply runs
-  `npm ci` + `npm run build` from the tag's checkout, so it is the same source
-  as staging's build but a fresh build (`package-lock.json` pins dependencies).
-
-`make deploy-check` runs these scripts offline against stubbed `aws`,
-`terraform`, `docker`, `npm` and `curl` (`ci/tests/`).
-
-### Site caching contract (R11)
-
-| Path in the site bucket | `Cache-Control` | Why |
-|---|---|---|
-| `assets/*` (Vite output, content-hashed names) | `public, max-age=31536000, immutable` | A changed file gets a new name, so a cached copy is never stale. |
-| `index.html`, `favicon.svg` and other root files | `no-cache` | Browsers and CloudFront revalidate on every request, so a deploy is visible at once and always points at assets that exist. |
-| `seed-sources/*` | `no-cache` | Fetched by the seed loader; small. |
-| `previews/pr-<n>/*` | written by the inline `phoebe-pr` buildspec (infra/bootstrap) | Never touched by `deploy.sh`'s sync. |
-
-Order: `assets/` is uploaded first, then the root files, then a `--delete
---size-only` pass prunes stale files (excluding `previews/*` and
-`seed-sources/*`; size-only so it never re-uploads a file without its header).
-Then `/*` is invalidated. CloudFront's `CachingOptimized` policy honours these
-headers (its max TTL is a year).
-
-## Edge notes
-
-- `functions/spa_router.js` (cloudfront-js-2.0, no dependencies): `/` and
-  extensionless paths go to `/index.html`; files with an extension and
-  `/seed-sources/...` pass through; `/pr-<n>/...` is served from
-  `previews/pr-<n>/` in the site bucket (SPA fallback inside the prefix).
-  It is attached to the S3 behaviour only. Preview builds must use Vite
-  `base=/pr-<n>/`, because the built app references `/assets/...` absolutely.
-- CSP check against `frontend/dist`: one external module script and one CSS
-  file, self-hosted woff2 fonts via `url(/assets/...)`, no inline scripts, no
-  `eval`, no external origins, so the CSP needed no widening. `style-src` keeps
-  `'unsafe-inline'` for inline `style` attributes set by Radix/assistant-ui.
-- The origin secret value is also in the distribution's origin config (and state).
-- No custom error responses: they are distribution-wide and would rewrite
-  `/api/*` 403s. Missing assets return S3's 403.
-- `AllViewerExceptHostHeader` is documented to add the CloudFront viewer
-  headers; Task 8's smoke test should confirm `CloudFront-Viewer-Address`
-  reaches the API (it drives the client IP).
-
-## Offline checks
-
-`make tf-check` runs `terraform fmt -check -recursive infra`, then for each
-root `init -backend=false`, `validate` and `test`, then `node --test` on the router
-(`functions/*.test.js`). `tests/app.tftest.hcl` uses
-`mock_provider "aws"` with overridden ARNs, so it makes no AWS calls.
+- `make tf-check`: `terraform fmt`, `validate` and `test` for every root, plus
+  `node --test` for the CloudFront router. `tests/app.tftest.hcl` uses a mocked
+  AWS provider, so it makes no AWS calls.
+- `make deploy-check`: runs the `ci/` scripts against stubbed `aws`,
+  `terraform`, `docker`, `npm` and `curl`.

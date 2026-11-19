@@ -1,4 +1,4 @@
-# One shared repo for both envs. Each commit pushes two images (ruling R9):
+# One shared repo for both envs. Each commit pushes two images:
 # <sha> (api target) and <sha>-jobs (jobs target). Production promotes the
 # digest staging pushed; it never builds, it only adds release-<git tag> tags.
 

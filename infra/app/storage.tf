@@ -1,4 +1,4 @@
-# Bucket names (ruling R2): phoebe-<env>-site-<account_id>, phoebe-<env>-uploads-<account_id>.
+# Bucket names: phoebe-<env>-site-<account_id>, phoebe-<env>-uploads-<account_id>.
 
 # ---- Uploads: sandbox blobs under uploads/<session_id>/ ---------------------
 
@@ -55,8 +55,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
   }
 }
 
-# ---- Site: the SPA (and staging's previews/). Private; Task 6 adds the
-# bucket policy that lets only this env's CloudFront distribution (OAC) read it.
+# ---- Site: the SPA (and staging's previews/). Private; its
+# bucket policy lets only this env's CloudFront distribution (OAC) read it.
 
 resource "aws_s3_bucket" "site" {
   bucket        = "${local.prefix}-site-${local.account_id}"

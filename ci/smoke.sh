@@ -7,13 +7,13 @@
 #   2. GET / is the SPA (HTML with the root element).
 #   3. GET /api/status via CloudFront is 200 JSON (passes the origin guard).
 #   4. GET /api/status on the function URL directly is 403: only CloudFront
-#      carries X-Phoebe-Origin (Review Focus 3, live). /api/health is exempt
+#      carries X-Phoebe-Origin. /api/health is exempt
 #      from the guard, so it cannot be used for this check.
 #   5. GET /pr-0/ is not a 404 or 5xx at the router level (no preview exists,
 #      so the private bucket answers 403).
 # The viewer-address check (CloudFront-Viewer-Address reaching the API) needs
 # an endpoint that echoes it; the API has none, so it is reported as skipped
-# and checked by hand in Task 9, along with the throttle.
+# and checked by hand, along with the throttle.
 #
 # Env: SMOKE_ATTEMPTS (default 10), SMOKE_DELAY seconds (default 6).
 set -euo pipefail
@@ -58,7 +58,7 @@ if jq -e 'has("client_ip")' "$BODY" >/dev/null 2>&1; then
     fail "viewer address: API saw no client address"
   echo "ok   viewer address reaches the API"
 else
-  echo "skip viewer address: the API exposes no echo of CloudFront-Viewer-Address (manual check in Task 9)"
+  echo "skip viewer address: the API exposes no echo of CloudFront-Viewer-Address (manual check)"
 fi
 
 expect "$SITE/" 200 spa

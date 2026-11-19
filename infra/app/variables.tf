@@ -59,7 +59,7 @@ variable "budget_topic_arn" {
 }
 
 variable "password_hash_secret_arn" {
-  description = "ARN of the owner-created Secrets Manager secret phoebe-<env>-password-hash (Task 9)."
+  description = "ARN of the owner-created Secrets Manager secret phoebe-<env>-password-hash."
   type        = string
 
   validation {
@@ -93,9 +93,9 @@ variable "answer_harness" {
   }
 }
 
-# Ruling R23: reserved concurrency counts against the account's concurrency
+# Reserved concurrency counts against the account's concurrency
 # quota (new accounts can be as low as 10, with 10 always left unreserved).
-# Task 9 checks the quota; the owner requests an increase or sets null.
+# Check the quota first; request an increase or set null.
 variable "api_reserved_concurrency" {
   description = "Reserved concurrency for the API Lambda (the spend cap on parallel requests). null = unreserved."
   type        = number

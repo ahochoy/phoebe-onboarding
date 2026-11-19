@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 SEARCH_K = 5
 SEARCH_CANDIDATES = 20
 CLOSEST_MAX = 3
-# Starting values, re-tuned on the eval set in Plan 5.
+# Per-embedder refusal floors; `make eval` checks them.
 _DEFAULT_MIN_SIMILARITY = {"hash-v1-1024": 0.05, "titan-v2-1024": 0.25}
 _FALLBACK_MIN_SIMILARITY = 0.25
 

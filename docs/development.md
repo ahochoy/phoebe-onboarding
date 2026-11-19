@@ -17,6 +17,7 @@ make down    # stop the stack
 - The API listens on `http://localhost:8080` (set `PHOEBE_PORT` if that port is taken).
 - The dev password is `larkspur-demo`; override with `PHOEBE_DEV_PASSWORD`. `make stack` writes `.env` with its hash on first run (delete `.env` to regenerate).
 - The stack and the test suite share one Postgres container but use different databases (`phoebe` and `phoebe_test`). The test fixtures drop and recreate the schema of the test database only, so `make test` does not wipe the stack's seed.
+- The seed company lives in `backend/seed/`. Locally, `make stack` loads it. A deploy seeds only an empty database, so after changing seed content, reseed each deployed environment (see [infra/app](../infra/app/README.md)).
 
 ## Frontend
 
@@ -48,7 +49,7 @@ make e2e         # build, serve with `vite preview` on :4173, run every project
 - The kill-switch test (`e2e/limits.spec.ts`) runs `make pause`, `make kill` and `make open`. It runs once, in chromium, after every other test, and always leaves the demo `open`; a global setup also reopens it before each run.
 - Every test logs in to its own sandbox and wipes it when done. The report lands in `frontend/playwright-report/`.
 - The offline stack (extractive answers, hash embeddings) answers nearly every question with a citation, so refusals are covered by the pytest and component tests, not here.
-- Playwright runs locally for now; it joins CI in Plan 5.
+- CI runs the whole suite on every pull request (the `e2e` job in `.github/workflows/ci.yml`).
 
 ## Configuration
 
@@ -134,7 +135,7 @@ make eval MODEL=haiku,glm-5.3 CASES=list,fact REPEAT=3
 
   The cheapest qualifier wins, and latency breaks a tie. Otherwise the verdict is "keep Haiku 4.5". A switch is an `infra/app` change (`PHOEBE_ANSWER_MODEL_ID`) checked on staging first.
 
-## README screenshots
+## Demo GIF
 
 `make screenshots` rebuilds the README demo GIF, `docs/images/demo.gif`, from a deployed environment, staging by default. It is owner-run, never part of `make e2e` or CI, and it makes one real Bedrock answer (under a cent).
 

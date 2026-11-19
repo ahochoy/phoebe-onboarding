@@ -2,7 +2,7 @@
 
 Skipped without touching the database unless there was activity within about
 25 h of the last completed sweep (hourly while active) or the daily hard cap
-is reached (ruling R26), so a paused Aurora stays paused while idle.
+is reached, so a paused Aurora stays paused while idle.
 
 Reuses `reset_session` / `forget_sandbox` so there is one definition of what a
 sandbox owns. Seed rows (session_id is null) are never touched. Logs counts only.

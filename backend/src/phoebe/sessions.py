@@ -1,7 +1,7 @@
 """Session stores and the ids derived from a session token.
 
 The sandbox id intentionally equals the session-store key: both are
-sha256(token) hex. That is the link a Plan 4 sweeper uses to join a `sandboxes`
+sha256(token) hex. That is the link the sweeper uses to join a `sandboxes`
 row (and its owned rows and blobs) to a stored session. Do not add domain
 separation between the two.
 """

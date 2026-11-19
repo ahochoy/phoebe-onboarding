@@ -210,7 +210,7 @@ def test_deploy_staging_terraform_args(h: Harness) -> None:
     assert r.returncode == 0, r.stdout + r.stderr
     tf = h.calls("terraform")
     assert all(c["cwd"] == str(REPO / "infra" / "app") for c in tf), (
-        "terraform only runs in infra/app (R12)"
+        "terraform only runs in infra/app"
     )
     init = next(c["argv"] for c in tf if c["argv"][0] == "init")
     assert "-backend-config=envs/staging.s3.tfbackend" in init

@@ -1,4 +1,4 @@
-# Spend-limit mode (Plan 5 item 1). When the project's spend limit (or anyone)
+# Spend-limit mode. When the project's spend limit (or anyone)
 # stops an env's Aurora cluster, RDS emits RDS-EVENT-0150 ("DB cluster
 # stopped"). A rule per env sends it to:
 # - that env's budget Lambda (created by infra/app, which grants the invoke),
