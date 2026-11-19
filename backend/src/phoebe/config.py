@@ -52,10 +52,9 @@ class Settings(BaseSettings):
     # None: per-embedder default (see chat.service.min_similarity).
     refusal_min_similarity: float | None = None
     rewrite_max_tokens: int = 64
-    answer_backend: Literal["extractive", "harness", "converse"] = "extractive"
+    answer_backend: Literal["extractive", "converse"] = "extractive"
     # The converse backend's model (an inference profile id).
     answer_model_id: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-    harness_arn: str | None = None
     rewriter_backend: Literal["heuristic", "bedrock"] = "heuristic"
     rewrite_model_id: str = "us.amazon.nova-micro-v1:0"
     guardrail_id: str | None = None

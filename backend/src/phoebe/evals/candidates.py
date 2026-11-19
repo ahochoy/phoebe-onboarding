@@ -17,12 +17,11 @@ class Candidate:
     model_id: (
         str | None
     )  # None: the configured production answer model (PHOEBE_ANSWER_BACKEND)
-    harness: bool
     control: bool  # reported, never a switching candidate
     usd_per_mtok_in: float
     usd_per_mtok_out: float
     price_source: str
-    # None sends no temperature (Kimi K3.1 rejects the field); 0.1 is the harness's.
+    # None sends no temperature (Kimi K3.1 rejects the field); 0.1 is the app's.
     temperature: float | None = 0.1
     # False: left out of MODEL=all (the account cannot call it), still runnable by name.
     in_all: bool = True
@@ -39,7 +38,6 @@ CANDIDATES: dict[str, Candidate] = {
         Candidate(
             "haiku",
             None,
-            harness=True,
             control=False,
             usd_per_mtok_in=0.0,
             usd_per_mtok_out=0.0,
@@ -48,7 +46,6 @@ CANDIDATES: dict[str, Candidate] = {
         Candidate(
             "haiku-direct",
             "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-            harness=False,
             control=True,
             usd_per_mtok_in=0.0,
             usd_per_mtok_out=0.0,
@@ -58,7 +55,6 @@ CANDIDATES: dict[str, Candidate] = {
         Candidate(
             "kimi-k3.1",
             "us.moonshotai.kimi-k3.1",
-            harness=False,
             control=False,
             usd_per_mtok_in=0.0,
             usd_per_mtok_out=0.0,
@@ -69,7 +65,6 @@ CANDIDATES: dict[str, Candidate] = {
         Candidate(
             "glm-5.3",
             "us.zai.glm-5.3",
-            harness=False,
             control=False,
             usd_per_mtok_in=1.848,
             usd_per_mtok_out=5.808,
@@ -82,7 +77,6 @@ CANDIDATES: dict[str, Candidate] = {
         Candidate(
             "gpt-oss-120b",
             "openai.gpt-oss-120b-1:0",
-            harness=False,
             control=False,
             usd_per_mtok_in=0.0,
             usd_per_mtok_out=0.0,

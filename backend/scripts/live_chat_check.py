@@ -1,4 +1,4 @@
-"""Live end-to-end chat check against real AWS (Titan, Bedrock, the guardrail and the configured answer backend: converse or harness).
+"""Live end-to-end chat check against real AWS (Titan, Bedrock, the guardrail and the converse answer backend).
 
 Owner-gated and never part of `make test` or CI: it calls AWS and costs money.
 Run it with `make live-check` after `infra/ai` is applied.

@@ -11,7 +11,6 @@ import time
 from collections.abc import Callable, Generator, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
-from uuid import uuid4
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -21,7 +20,7 @@ Message = TypedDict("Message", {"role": Literal["user", "assistant"], "text": st
 
 # The answer system prompt: backend/prompts/answer.txt (this file is
 # backend/src/phoebe/chat/models.py). The converse backend sends it with every
-# request; infra/ai bakes the same file into the harnesses.
+# request.
 ANSWER_PROMPT_PATH = Path(__file__).resolve().parents[3] / "prompts" / "answer.txt"
 
 # Machine sentinel emitted by the model; detected by the verifier and stream.
@@ -75,84 +74,8 @@ def _client(service: str, region: str, *, read_timeout: int = 90) -> Any:
     )
 
 
-_STREAM_ERRORS = (
-    "runtimeClientError",
-    "validationException",
-    "internalServerException",
-)
-
-
-class HarnessAnswerModel:
-    def __init__(
-        self,
-        harness_arn: str,
-        region: str,
-        *,
-        client: Any = None,
-        max_tokens: int,
-        timeout_seconds: int = 60,
-    ) -> None:
-        self._arn = harness_arn
-        self._region = region
-        self._client = client
-        self._max_tokens = max_tokens
-        self._timeout = timeout_seconds
-
-    def stream(self, messages: Sequence[Message]) -> Generator[str]:
-        try:
-            if self._client is None:
-                self._client = _client("bedrock-agentcore", self._region)
-            response = self._client.invoke_harness(
-                harnessArn=self._arn,
-                runtimeSessionId=str(uuid4()),
-                messages=[
-                    {"role": m["role"], "content": [{"text": m["text"]}]}
-                    for m in messages
-                ],
-                maxIterations=1,
-                maxTokens=self._max_tokens,
-                timeoutSeconds=self._timeout,
-                # A nonmatching allowlist keeps built-in tools unexposed.
-                allowedTools=["phoebe_no_tools"],
-            )
-            events = response["stream"]
-        except (BotoCoreError, ClientError, KeyError, TypeError) as exc:
-            raise _unavailable("model request failed", _error_kind(exc)) from None
-        completed = False
-        try:
-            for event in events:
-                errors = [key for key in _STREAM_ERRORS if key in event]
-                if errors:
-                    raise _unavailable("model stream error", errors[0]) from None
-                start = event.get("contentBlockStart")
-                if start and start.get("start", {}).get("toolUse"):
-                    raise ModelUnavailable("tool use not allowed") from None
-                block = event.get("contentBlockDelta")
-                if block:
-                    d = block.get("delta", {})
-                    if "toolUse" in d:
-                        raise ModelUnavailable("tool use not allowed") from None
-                    text = d.get("text", "")
-                    if text:
-                        yield text
-                stop = event.get("messageStop")
-                if stop:
-                    reason = stop.get("stopReason")
-                    if reason != "end_turn":
-                        raise _unavailable(
-                            "incomplete answer", str(reason)[:40]
-                        ) from None
-                    completed = True
-        except (BotoCoreError, ClientError) as exc:
-            raise _unavailable("model stream failed", _error_kind(exc)) from None
-        finally:
-            events.close()
-        if not completed:
-            raise _unavailable("stream ended early", "no_message_stop")
-
-
-# Converse (Bedrock directly): error events the stream can carry instead of
-# raising, and the sampling setting the harness used (infra/ai/main.tf).
+# Converse: error events the stream can carry instead of raising, and the
+# answer sampling temperature.
 _CONVERSE_STREAM_ERRORS = (
     "internalServerException",
     "modelStreamErrorException",
@@ -161,7 +84,7 @@ _CONVERSE_STREAM_ERRORS = (
     "serviceUnavailableException",
 )
 TEMPERATURE = 0.1
-# The harness's timeoutSeconds, now enforced here, and a per-read socket limit
+# A whole-answer deadline, and a per-read socket limit
 # well under the API Lambda's 90 s so a stalled stream cannot outlive it.
 CONVERSE_TIMEOUT_S = 60
 CONVERSE_READ_TIMEOUT_S = 30
@@ -175,7 +98,7 @@ class ModelUnsupported(ModelUnavailable):
 class ConverseAnswerModel:
     """Haiku 4.5 (or an eval candidate) through Bedrock ConverseStream.
 
-    Sends what the harness sent: the system prompt, the app's messages, the
+    Sends the system prompt, the app's messages, the
     temperature and max_tokens. No tools: the request has no tool config, and a
     tool-use block in the stream is refused. The prompt is read once here, so a
     missing prompt file fails at startup, not on the first chat.
@@ -197,7 +120,7 @@ class ConverseAnswerModel:
         self._max_tokens = max_tokens
         # None: send no temperature field (some models reject any value).
         self._temperature = temperature
-        # A whole-answer deadline, like the harness's server-side 60 s: a slow
+        # A whole-answer deadline: a slow
         # stream ends as model_unavailable, not as a Lambda timeout mid-SSE.
         self._timeout = timeout_seconds
         self._clock = clock
@@ -267,7 +190,7 @@ class ConverseAnswerModel:
         except (BotoCoreError, ClientError) as exc:
             raise _unavailable("model stream failed", _error_kind(exc)) from None
         finally:
-            # Like the harness: an early close (answer cap, visitor gone) or a
+            # An early close (answer cap, visitor gone) or a
             # refusal stops the model generating, and billing, at once.
             close = getattr(events, "close", None)
             if close is not None:
@@ -385,15 +308,7 @@ class BedrockGuardrail:
 
 def make_models(settings: Settings) -> tuple[AnswerModel, Rewriter, Guardrail]:
     answer: AnswerModel
-    if settings.answer_backend == "harness":
-        if not settings.harness_arn:
-            raise RuntimeError("PHOEBE_HARNESS_ARN is required for the harness backend")
-        answer = HarnessAnswerModel(
-            settings.harness_arn,
-            settings.aws_region,
-            max_tokens=settings.answer_max_tokens,
-        )
-    elif settings.answer_backend == "converse":
+    if settings.answer_backend == "converse":
         if not (settings.guardrail_id and settings.guardrail_version):
             raise RuntimeError(
                 "PHOEBE_GUARDRAIL_ID and PHOEBE_GUARDRAIL_VERSION are required for "
@@ -420,13 +335,6 @@ def make_models(settings: Settings) -> tuple[AnswerModel, Rewriter, Guardrail]:
     if bool(settings.guardrail_id) != bool(settings.guardrail_version):
         raise RuntimeError(
             "PHOEBE_GUARDRAIL_ID and PHOEBE_GUARDRAIL_VERSION must be set together"
-        )
-    if settings.answer_backend == "harness" and not (
-        settings.guardrail_id and settings.guardrail_version
-    ):
-        raise RuntimeError(
-            "PHOEBE_GUARDRAIL_ID and PHOEBE_GUARDRAIL_VERSION are required"
-            " for the harness backend"
         )
     if settings.guardrail_id and settings.guardrail_version:
         guardrail = BedrockGuardrail(

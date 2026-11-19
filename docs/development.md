@@ -78,9 +78,8 @@ Settings are `PHOEBE_*` environment variables. Every default works offline: noth
 | `PHOEBE_ANSWER_MAX_TOKENS` | `700` | `max_tokens` for the answer model. |
 | `PHOEBE_ANSWER_MAX_CHARS` | `6000` | An answer longer than this is stopped and refused (`verification_failed`, code 1204). |
 | `PHOEBE_REFUSAL_MIN_SIMILARITY` | (per embedder) | Top similarity below which chat refuses with `no_support`; unset uses 0.05 for `hash` and 0.25 for `titan`. |
-| `PHOEBE_ANSWER_BACKEND` | `extractive` | Answer model: `extractive` (offline, quotes the best passage), `converse` (Haiku 4.5 through Bedrock ConverseStream; what staging and production run), or `harness` (the Bedrock AgentCore harness; the rollback path). `converse` requires the guardrail settings. |
+| `PHOEBE_ANSWER_BACKEND` | `extractive` | Answer model: `extractive` (offline, quotes the best passage) or `converse` (Haiku 4.5 through Bedrock ConverseStream; what staging and production run). `converse` requires the guardrail settings. |
 | `PHOEBE_ANSWER_MODEL_ID` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Inference profile the `converse` backend calls. It sends `backend/prompts/answer.txt` as the system prompt, temperature 0.1 and `PHOEBE_ANSWER_MAX_TOKENS`, with no tools. AWS only. |
-| `PHOEBE_HARNESS_ARN` | (unset) | Harness ARN, required for the `harness` backend. AWS only. |
 | `PHOEBE_REWRITER_BACKEND` | `heuristic` | Query rewriter: `heuristic` (offline) or `bedrock`. |
 | `PHOEBE_REWRITE_MODEL_ID` | `us.amazon.nova-micro-v1:0` | Bedrock model for the `bedrock` rewriter. AWS only. |
 | `PHOEBE_REWRITE_MAX_TOKENS` | `64` | `max_tokens` for the rewriter. |
@@ -122,7 +121,7 @@ make eval MODEL=haiku,glm-5.3 CASES=list,fact REPEAT=3
 - **Environment:** the same as `make live-check`: `PHOEBE_LIVE_DATABASE_URL` (a database whose name ends in `_live`; it is migrated and seeded) and the live `PHOEBE_*` AI settings. It runs the app in-process and never touches staging or production.
 - **Models:**
   - `haiku` is the production config: Haiku 4.5 through direct Bedrock ConverseStream (with `PHOEBE_ANSWER_BACKEND=converse`).
-  - `haiku-direct` sends Haiku 4.5 through the same direct ConverseStream call the candidates use. It was the control when production still ran the AgentCore harness.
+  - `haiku-direct` sends Haiku 4.5 through the same direct ConverseStream call the candidates use. It is a control: reported, never a switching candidate.
   - The candidates are `kimi-k3.1` (sent no temperature, which it rejects) and `gpt-oss-120b`. `glm-5.3` is defined but left out of `MODEL=all`: the account cannot call it ("not available for this account"). It still runs by name.
   - Each answer-model call's raw output is saved in the results file (`raw`), so a refused answer shows why, for example a paragraph with no `[Pn]` label.
   - Prices live in `backend/src/phoebe/evals/candidates.py`, with their source and date. A price the Bedrock pricing page does not list is shown as "price unknown", never guessed.

@@ -28,7 +28,7 @@ def test_names_match_the_spec() -> None:
         "glm-5.3",
         "gpt-oss-120b",
     }
-    assert CANDIDATES["haiku"].harness and CANDIDATES["haiku"].model_id is None
+    assert CANDIDATES["haiku"].model_id is None
     assert CANDIDATES["haiku-direct"].control
     assert CANDIDATES["glm-5.3"].model_id == "us.zai.glm-5.3"
     assert CANDIDATES["kimi-k3.1"].model_id == "us.moonshotai.kimi-k3.1"

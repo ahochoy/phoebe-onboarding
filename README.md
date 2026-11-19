@@ -74,7 +74,7 @@ A question goes through these steps:
 ## Trade-offs
 
 - **pgvector instead of Bedrock Knowledge Bases or Pinecone.** Who-can-see-what is the core of the demo. In Postgres, the group filter and the per-visitor sandbox are part of the same SQL query as the vector and full-text search, so the documents a visitor can see and the documents search returns can't drift apart. Knowledge Bases and Pinecone would each need a second copy of the permissions in their own metadata, kept in sync. Knowledge Bases' default vector store also has a standing monthly minimum, while Aurora scales to zero.
-- **Direct Bedrock calls instead of the AgentCore harness.** Answers first went through an AgentCore harness. The harness can only reach documents through Gateway tools, and those can't apply Phoebe's visibility model, so retrieval stayed in the API and the harness only relayed the model call. Calling Bedrock ConverseStream directly passed the same eval cases at about a third of the median latency (table below). It also took AgentCore, $0.47 of the month's $1.57, off the answer path; the harness stays deployed for one release as the rollback.
+- **Direct Bedrock calls instead of the AgentCore harness.** Answers first went through an AgentCore harness. The harness can only reach documents through Gateway tools, and those can't apply Phoebe's visibility model, so retrieval stayed in the API and the harness only relayed the model call. Calling Bedrock ConverseStream directly passed the same eval cases at about a third of the median latency (table below). It also took AgentCore, $0.47 of the month's $1.57, off the bill; the harnesses have since been removed.
 - **The Aurora Data API instead of a VPC.** A Lambda inside a VPC needs a NAT gateway (about $32 a month standing) or several VPC endpoints to reach Bedrock. The Data API lets Lambda reach Aurora over HTTPS with IAM, so nothing runs in a VPC. Aurora itself is still not publicly accessible.
 - **Aurora that scales to zero.** It costs almost nothing when idle. The price is a resume of up to about 30 seconds after a pause. A warm-up call at sign-in starts the resume early.
 
@@ -119,7 +119,7 @@ These figures are measured spend before credits, 2026-11-01 to 2026-11-17, for s
 | Service | Cost |
 |---|---|
 | Aurora Serverless v2 | $0.96 |
-| Bedrock AgentCore (now removed from the answer path) | $0.47 |
+| Bedrock AgentCore (since removed) | $0.47 |
 | Secrets Manager | $0.07 |
 | Claude Haiku 4.5 tokens | $0.04 |
 | Everything else (ECR, S3, other Bedrock models) | about $0.03 |

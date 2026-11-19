@@ -1,4 +1,4 @@
-# Ruling R9: two images from one Dockerfile, both in ECR repo phoebe-api and
+# Two images from one Dockerfile, both in ECR repo phoebe-api and
 # pinned by digest. The API runs the `api` target (Lambda Web Adapter extension,
 # uvicorn CMD). Every other Lambda runs the `jobs` target, which has no adapter
 # and ENTRYPOINT `python -m awslambdaric`; the Lambda passes only the handler.
@@ -10,14 +10,10 @@ locals {
 
   # Every Data API-backed handler builds the same deps as the API (runtime.deps),
   # so they share one backend configuration.
-  # converse: Haiku through Bedrock directly. harness: the infra/ai AgentCore
-  # harness (rollback). Only the chosen backend's settings are set.
-  answer_env = var.answer_backend == "converse" ? {
+  # Answers: Haiku through Bedrock ConverseStream.
+  answer_env = {
     PHOEBE_ANSWER_BACKEND  = "converse"
     PHOEBE_ANSWER_MODEL_ID = local.haiku_profile_id
-    } : {
-    PHOEBE_ANSWER_BACKEND = "harness"
-    PHOEBE_HARNESS_ARN    = local.harness_arn
   }
 
   app_env = merge(local.answer_env, {
@@ -42,7 +38,7 @@ locals {
     PHOEBE_GUARDRAIL_VERSION = local.ai.guardrail_version
   })
 
-  # Ruling R1: secrets reach the API only as ARNs, resolved once at startup.
+  # Secrets reach the API only as ARNs, resolved once at startup.
   api_env = merge(local.app_env, {
     AWS_LWA_INVOKE_MODE             = "response_stream"
     PHOEBE_CLIENT_IP_HEADER         = "cloudfront-viewer-address"

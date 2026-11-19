@@ -880,7 +880,7 @@ def commands(spec: dict[str, Any]) -> str:
 
 
 def test_pr_buildspecs_stay_inline() -> None:
-    # Ruling R15: the PR projects take their buildspecs from infra/bootstrap.
+    # The PR projects take their buildspecs from infra/bootstrap.
     assert not (CI / "buildspec-pr.yml").exists()
     assert not (CI / "buildspec-pr-cleanup.yml").exists()
 

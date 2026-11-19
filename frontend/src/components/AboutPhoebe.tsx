@@ -4,7 +4,7 @@ import { Popover, Tooltip } from "radix-ui";
 export const ABOUT_PHOEBE =
   "Phoebe is Larkspur Labs' AI onboarding assistant. Ask a question and it searches " +
   "your team's onboarding documents with retrieval-augmented generation (RAG), then " +
-  "answers with citations you can open. It runs on AWS: Amazon Bedrock and AgentCore " +
+  "answers with citations you can open. It runs on AWS: Amazon Bedrock " +
   "for the model, embeddings and guardrails, Aurora Serverless for search, and Lambda " +
   "behind CloudFront.";
 
