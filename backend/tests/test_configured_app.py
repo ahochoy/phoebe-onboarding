@@ -81,14 +81,9 @@ def test_s3_and_sqs_require_their_settings(monkeypatch, tmp_path, aws_env):
         create_configured_app()
 
 
-def test_harness_requires_guardrail(monkeypatch, tmp_path, aws_env):
+def test_converse_requires_guardrail(monkeypatch, tmp_path, aws_env):
     monkeypatch.setattr(app_mod, "aws_client", lambda s, r: FakeClient())
-    cloud_env(
-        monkeypatch,
-        tmp_path,
-        PHOEBE_ANSWER_BACKEND="harness",
-        PHOEBE_HARNESS_ARN="arn:aws:bedrock:us-east-2:1:harness/h",
-    )
+    cloud_env(monkeypatch, tmp_path, PHOEBE_ANSWER_BACKEND="converse")
     with pytest.raises(RuntimeError, match="GUARDRAIL"):
         create_configured_app()
     monkeypatch.setenv("PHOEBE_GUARDRAIL_ID", "gr")

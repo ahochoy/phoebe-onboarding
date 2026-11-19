@@ -70,7 +70,7 @@ def sweep(db: Database, blobs: BlobStore, now: datetime) -> SweepReport:
 def should_sweep(
     now: datetime, last_activity: int | None, last_started: int | None
 ) -> bool:
-    """Ruling R26: run the DB sweep hourly while there was recent activity.
+    """Run the DB sweep hourly while there was recent activity.
 
     Sweep when any of:
     (a) a sweep interval has passed since the last completed sweep started and

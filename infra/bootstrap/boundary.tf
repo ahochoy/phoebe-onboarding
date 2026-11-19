@@ -21,7 +21,7 @@ locals {
   # RDS creates this on the first Aurora cluster in the account.
   rds_slr_arn = "arn:aws:iam::${local.account_id}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
 
-  # Ruling R24: RDS places the cluster in the default VPC using these reads.
+  # RDS places the cluster in the default VPC using these reads.
   rds_vpc_read_actions = [
     "ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups",
     "ec2:DescribeAccountAttributes", "ec2:DescribeAvailabilityZones",
@@ -89,10 +89,10 @@ locals {
         }
       },
       {
-        # Shared, env-agnostic AI resources (models, the guardrail, harnesses).
+        # Shared, env-agnostic AI resources (models and the guardrail).
         Sid      = "SharedAi"
         Effect   = "Allow"
-        Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse", "bedrock:ConverseStream", "bedrock:ApplyGuardrail", "bedrock-agentcore:InvokeHarness", "bedrock-agentcore:InvokeAgentRuntime"]
+        Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse", "bedrock:ConverseStream", "bedrock:ApplyGuardrail"]
         Resource = "*"
       },
       local.region_deny,

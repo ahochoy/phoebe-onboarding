@@ -1,5 +1,4 @@
 from unittest.mock import Mock
-from uuid import UUID
 
 import pytest
 from botocore.exceptions import ClientError
@@ -9,8 +8,8 @@ from phoebe.chat.models import (
     REWRITE_SYSTEM,
     BedrockGuardrail,
     BedrockRewriter,
+    ConverseAnswerModel,
     ExtractiveAnswerModel,
-    HarnessAnswerModel,
     HeuristicRewriter,
     Message,
     ModelUnavailable,
@@ -40,43 +39,10 @@ STOP = {"messageStop": {"stopReason": "end_turn"}}
 MSGS: list[Message] = [{"role": "user", "text": "hello"}]
 
 
-def harness(events: list[dict]) -> tuple[HarnessAnswerModel, Stream, Mock]:
-    stream = Stream(events)
-    client = Mock()
-    client.invoke_harness.return_value = {"stream": stream}
-    return (
-        HarnessAnswerModel("arn:x", "us-east-2", client=client, max_tokens=700),
-        stream,
-        client,
-    )
+def converse_client(client: Mock):
+    from phoebe.chat.models import ConverseAnswerModel
 
-
-def test_harness_request_is_server_owned() -> None:
-    model, stream, client = harness([delta("a"), STOP])
-    list(
-        model.stream(
-            [{"role": "user", "text": "q"}, {"role": "assistant", "text": "r"}]
-        )
-    )
-    kwargs = client.invoke_harness.call_args.kwargs
-    UUID(kwargs.pop("runtimeSessionId"))
-    assert kwargs == {
-        "harnessArn": "arn:x",
-        "messages": [
-            {"role": "user", "content": [{"text": "q"}]},
-            {"role": "assistant", "content": [{"text": "r"}]},
-        ],
-        "maxIterations": 1,
-        "maxTokens": 700,
-        "timeoutSeconds": 60,
-        "allowedTools": ["phoebe_no_tools"],
-    }
-    assert stream.closed
-
-
-def test_harness_yields_deltas_in_order() -> None:
-    model, _, _ = harness([delta("one "), delta("two"), STOP])
-    assert list(model.stream(MSGS)) == ["one ", "two"]
+    return ConverseAnswerModel("m", "us-east-2", max_tokens=10, client=client)
 
 
 @pytest.mark.parametrize(
@@ -84,71 +50,35 @@ def test_harness_yields_deltas_in_order() -> None:
     [
         [{"contentBlockStart": {"start": {"toolUse": {"name": "shell"}}}}],
         [{"contentBlockDelta": {"delta": {"toolUse": {"input": "{}"}}}}],
-        [{"runtimeClientError": {}}],
+        [{"modelStreamErrorException": {}}],
         [{"validationException": {}}],
         [{"internalServerException": {}}],
         [delta("x"), {"messageStop": {"stopReason": "max_tokens"}}],
         [delta("x")],
     ],
 )
-def test_harness_bad_streams_raise(events: list[dict]) -> None:
-    model, stream, _ = harness(events)
+def test_converse_bad_streams_raise(events: list[dict]) -> None:
+    model, stream = converse_with_stream(events)
     with pytest.raises(ModelUnavailable):
         list(model.stream(MSGS))
     assert stream.closed
 
 
-def test_harness_tool_use_raises() -> None:
-    model, _, _ = harness(
-        [{"contentBlockStart": {"start": {"toolUse": {"name": "t"}}}}]
-    )
-    with pytest.raises(ModelUnavailable):
-        list(model.stream(MSGS))
-
-
-def test_harness_error_event_raises() -> None:
-    model, _, _ = harness([{"runtimeClientError": {}}])
-    with pytest.raises(ModelUnavailable):
-        list(model.stream(MSGS))
-
-
-def test_harness_max_tokens_stop_raises() -> None:
-    model, _, _ = harness([{"messageStop": {"stopReason": "max_tokens"}}])
-    with pytest.raises(ModelUnavailable):
-        list(model.stream(MSGS))
-
-
-def test_harness_missing_message_stop_raises() -> None:
-    model, _, _ = harness([delta("x")])
-    with pytest.raises(ModelUnavailable):
-        list(model.stream(MSGS))
-
-
-def test_harness_aws_error_is_clean() -> None:
-    client = Mock()
-    client.invoke_harness.side_effect = ClientError(
+def test_converse_aws_error_is_clean_and_logs_code_not_message(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    error = ClientError(
         {"Error": {"Code": "AccessDeniedException", "Message": "private details"}},
-        "InvokeHarness",
+        "ConverseStream",
     )
-    model = HarnessAnswerModel("arn:x", "us-east-2", client=client, max_tokens=10)
+    client = Mock()
+    client.converse_stream.side_effect = error
+    model = converse_client(client)
     with pytest.raises(ModelUnavailable) as info:
         list(model.stream(MSGS))
     assert info.value.__cause__ is None
     assert info.value.__suppress_context__
     assert "private details" not in str(info.value)
-
-
-def test_harness_aws_error_logs_code_not_message(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    client = Mock()
-    client.invoke_harness.side_effect = ClientError(
-        {"Error": {"Code": "AccessDeniedException", "Message": "private details"}},
-        "InvokeHarness",
-    )
-    model = HarnessAnswerModel("arn:x", "us-east-2", client=client, max_tokens=10)
-    with pytest.raises(ModelUnavailable):
-        list(model.stream(MSGS))
     assert "AccessDeniedException" in caplog.text
     assert "private details" not in caplog.text
 
@@ -160,14 +90,23 @@ def test_harness_aws_error_logs_code_not_message(
         ([{"messageStop": {"stopReason": "max_tokens"}}], "max_tokens"),
     ],
 )
-def test_harness_stream_failures_log_their_kind(
+def test_converse_stream_failures_log_their_kind(
     caplog: pytest.LogCaptureFixture, events: list[dict], logged: str
 ) -> None:
-    model, _, _ = harness(events)
+    model, _ = converse_with_stream(events)
     with pytest.raises(ModelUnavailable):
         list(model.stream(MSGS))
     assert logged in caplog.text
     assert "secret" not in caplog.text
+
+
+def test_converse_malformed_response_raises() -> None:
+    client = Mock()
+    client.converse_stream.return_value = {}
+    model = converse_client(client)
+    with pytest.raises(ModelUnavailable) as info:
+        list(model.stream(MSGS))
+    assert info.value.__suppress_context__
 
 
 def test_guardrail_error_logs_code(caplog: pytest.LogCaptureFixture) -> None:
@@ -180,24 +119,6 @@ def test_guardrail_error_logs_code(caplog: pytest.LogCaptureFixture) -> None:
         BedrockGuardrail("g", "1", "us-east-2", client=client).check("t", "INPUT")
     assert "ThrottlingException" in caplog.text
     assert "user text" not in caplog.text
-
-
-def test_harness_malformed_response_raises() -> None:
-    client = Mock()
-    client.invoke_harness.return_value = {}
-    model = HarnessAnswerModel("arn:x", "us-east-2", client=client, max_tokens=10)
-    with pytest.raises(ModelUnavailable) as info:
-        list(model.stream(MSGS))
-    assert info.value.__suppress_context__
-
-
-def test_harness_closes_stream_on_generator_close() -> None:
-    model, stream, _ = harness([delta("a"), delta("b"), STOP])
-    gen = model.stream(MSGS)
-    assert next(gen) == "a"
-    assert not stream.closed
-    gen.close()
-    assert stream.closed
 
 
 def test_extractive_cites_p1() -> None:
@@ -301,22 +222,16 @@ def test_make_models_defaults_offline() -> None:
     assert isinstance(g, NoGuardrail)
 
 
-def test_make_models_requires_arn_for_harness() -> None:
-    with pytest.raises(RuntimeError):
-        make_models(settings(answer_backend="harness"))
-
-
 def test_make_models_wires_aws_backends() -> None:
     a, r, g = make_models(
         settings(
-            answer_backend="harness",
-            harness_arn="arn:x",
+            answer_backend="converse",
             rewriter_backend="bedrock",
             guardrail_id="gid",
             guardrail_version="1",
         )
     )
-    assert isinstance(a, HarnessAnswerModel)
+    assert isinstance(a, ConverseAnswerModel)
     assert isinstance(r, BedrockRewriter)
     assert isinstance(g, BedrockGuardrail)
 
@@ -450,7 +365,7 @@ def test_converse_closes_the_stream_when_the_caller_stops_early() -> None:
 
 
 def test_converse_enforces_a_total_deadline() -> None:
-    # The harness had a 60 s server-side deadline; a stalled stream must end as
+    # A stalled stream must end as
     # model_unavailable, not as a Lambda timeout mid-SSE.
     ticks = iter([0.0, 10.0, 61.0, 62.0, 63.0])
     model, stream = converse_with_stream(

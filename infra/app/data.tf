@@ -2,7 +2,7 @@ data "aws_caller_identity" "current" {}
 
 data "aws_partition" "current" {}
 
-# infra/ai is a separate shared root (guardrail + harnesses); read its outputs.
+# infra/ai is a separate shared root (the guardrail); read its outputs.
 data "terraform_remote_state" "ai" {
   backend = "s3"
 
@@ -21,7 +21,6 @@ locals {
   production = var.env == "production"
 
   ai                = data.terraform_remote_state.ai.outputs
-  harness_arn       = var.answer_harness == "nova" ? local.ai.harness_nova_arn : local.ai.harness_haiku_arn
   guardrail_arn     = "arn:${local.partition}:bedrock:${local.region}:${local.account_id}:guardrail/${local.ai.guardrail_id}"
   db_secret_arn     = aws_rds_cluster.main.master_user_secret[0].secret_arn
   db_name           = "phoebe"

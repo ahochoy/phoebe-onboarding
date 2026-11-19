@@ -296,7 +296,7 @@ run "builds" {
     error_message = "Staging and release projects point at their repo buildspec paths."
   }
 
-  # R15: PR builds never take their steps from the PR checkout.
+  # PR builds never take their steps from the PR checkout.
   assert {
     condition = alltrue([
       for k in ["pr", "pr-cleanup"] :
@@ -326,7 +326,7 @@ run "builds" {
     error_message = "The PR spec validates N, builds the preview under /pr-$N/ and plans without a lock."
   }
 
-  # R11: the preview follows the site caching contract.
+  # The preview follows the site caching contract.
   assert {
     condition = (
       strcontains(aws_codebuild_project.this["pr"].source[0].buildspec, "P=\"s3://$SITE_BUCKET/previews/pr-$N\"") &&
@@ -440,7 +440,7 @@ run "project_roles" {
     error_message = "phoebe-ci-plan can publish and remove previews."
   }
 
-  # R15: cleanup runs no repo code and needs no state or secrets.
+  # Cleanup runs no repo code and needs no state or secrets.
   assert {
     condition = alltrue(flatten([
       for s in jsondecode(aws_iam_role_policy.ci["pr-cleanup"].policy).Statement : [
@@ -458,7 +458,7 @@ run "project_roles" {
     error_message = "phoebe-ci-pr-cleanup can only list and delete previews/pr-*, invalidate staging, write its logs and clone (no state, no secrets)."
   }
 
-  # R14: release-plan runs before approval, so its role is read-only.
+  # Release-plan runs before approval, so its role is read-only.
   assert {
     condition = alltrue(flatten([
       for s in jsondecode(aws_iam_role_policy.ci["plan-production"].policy).Statement : [
@@ -476,7 +476,7 @@ run "project_roles" {
     error_message = "phoebe-ci-plan-production writes nothing but the saved plan artifact and its build logs (plus the connection, to clone)."
   }
 
-  # R17: both release roles can use the connection for the CODEBUILD_CLONE_REF
+  # Both release roles can use the connection for the CODEBUILD_CLONE_REF
   # source, with exactly the documented actions, on the phoebe-github connection only.
   assert {
     condition = alltrue([
@@ -687,7 +687,7 @@ run "deploy_roles" {
     error_message = "Each deploy role invokes only its own env's ops function."
   }
 
-  # R24: CreateEventSourceMapping authorizes on "*" (no mapping ARN exists
+  # CreateEventSourceMapping authorizes on "*" (no mapping ARN exists
   # yet), so it stands alone with the own-env lambda:FunctionArn condition; the
   # other mapping actions stay on event-source-mapping:* with the same condition.
   assert {
@@ -733,7 +733,7 @@ run "deploy_roles" {
     error_message = "No CI role has an EC2 action other than a Describe."
   }
 
-  # R13: production adds release-* tags to promoted digests; staging pushes.
+  # Production adds release-* tags to promoted digests; staging pushes.
   assert {
     condition = (
       alltrue([
@@ -767,7 +767,7 @@ run "deploy_roles" {
     error_message = "Only the staging and production deploy roles can put images."
   }
 
-  # R12: infra/ai is owner-applied; CI only reads ai.tfstate.
+  # infra/ai is owner-applied; CI only reads ai.tfstate.
   assert {
     condition = alltrue(flatten([
       for k in keys(aws_iam_role_policy.ci) : [
@@ -906,10 +906,10 @@ run "boundary" {
     condition = alltrue([
       for env in ["staging", "production"] : anytrue([
         for s in jsondecode(aws_iam_policy.boundary[env].policy).Statement :
-        s.Sid == "SharedAi" && alltrue([for a in flatten([s.Action]) : startswith(a, "bedrock")])
+        s.Sid == "SharedAi" && alltrue([for a in flatten([s.Action]) : startswith(a, "bedrock:")])
       ])
     ])
-    error_message = "The only env-agnostic allow is the shared Bedrock/AgentCore invoke set."
+    error_message = "The only env-agnostic allow is the shared Bedrock invoke set (no AgentCore)."
   }
 
   # CI boundary.
@@ -944,7 +944,7 @@ run "boundary" {
     error_message = "CI roles cannot modify the CI roles themselves (no self-escalation)."
   }
 
-  # R24: the CI boundary admits exactly the five EC2 describes, not ec2:*.
+  # The CI boundary admits exactly the five EC2 describes, not ec2:*.
   assert {
     condition = anytrue([
       for s in jsondecode(aws_iam_policy.boundary["ci"].policy).Statement :
@@ -1077,7 +1077,7 @@ run "state_ecr_budget" {
     error_message = "ECR phoebe-api: immutable tags, scan on push."
   }
 
-  # R13: release images are matched first (and so never expired by rule 2).
+  # Release images are matched first (and so never expired by rule 2).
   assert {
     condition = (
       length(jsondecode(aws_ecr_lifecycle_policy.api.policy).rules) == 2 &&

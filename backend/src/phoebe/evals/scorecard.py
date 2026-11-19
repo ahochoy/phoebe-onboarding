@@ -2,7 +2,7 @@
 
 The rule (spec, owner's choice): a candidate qualifies to replace Haiku 4.5
 only if, on the same run, it passes at least as many cases as `haiku` (the
-production harness), has zero forbidden hits (must_not_cite, must_not_contain)
+production config), has zero forbidden hits (must_not_cite, must_not_contain)
 in any case or repeat, and has no more flaky cases than Haiku. Among
 qualifiers the cheapest estimated cost per answer wins (known prices first),
 and median latency breaks a tie. `haiku-direct` is a control and never wins.
@@ -115,7 +115,7 @@ def verdict(summaries: list[ModelSummary]) -> str:
     if base is None or base.unsupported:
         return f"no verdict: the run needs the {BASELINE} baseline (MODEL=all or include {BASELINE})"
     if base.errors:
-        # A throttled or paused harness would make every candidate look better.
+        # A throttled or paused baseline would make every candidate look better.
         return (
             f"no verdict: the {BASELINE} baseline had {base.errors} error(s) "
             "(model unavailable or a failed stream); re-run"
@@ -150,7 +150,7 @@ def verdict(summaries: list[ModelSummary]) -> str:
         line += " (no qualifier has a known price; picked on latency)"
     if others:
         line += f"; also qualifies: {', '.join(others)}"
-    return line + ". Confirm through a staging harness before switching."
+    return line + ". Confirm on staging before switching."
 
 
 def _fmt(v: float | None, spec: str) -> str:

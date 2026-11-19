@@ -80,7 +80,7 @@ allows only:
   secret reads) on `phoebe-<env>-*` resources;
 - the Aurora master secret, only when its `aws:rds:primaryDBClusterArn` tag is
   this env's cluster (`aws:` tags are reserved, so this cannot be forged);
-- shared Bedrock and AgentCore invokes.
+- shared Bedrock invokes.
 
 It also denies other Regions, Organizations and account actions, and IAM
 writes outside `role/phoebe-<env>-*`. A role a staging deploy creates can

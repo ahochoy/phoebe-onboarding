@@ -148,8 +148,6 @@ override_data {
     outputs = {
       guardrail_id      = "gr0abc123def"
       guardrail_version = "1"
-      harness_haiku_arn = "arn:aws:bedrock-agentcore:us-east-2:123456789012:harness/PhoebeHaikuHarness-AbCdEf1234"
-      harness_nova_arn  = "arn:aws:bedrock-agentcore:us-east-2:123456789012:harness/PhoebeNovaHarness-ZyXwVu9876"
     }
   }
 }
@@ -247,7 +245,7 @@ run "lambdas" {
     error_message = "Every Lambda is an arm64 container image."
   }
 
-  # Ruling R9: the API runs the `api` image (with the Lambda Web Adapter); every
+  # The API runs the `api` image (with the Lambda Web Adapter); every
   # other Lambda runs the `jobs` image (awslambdaric, no adapter).
   assert {
     condition     = aws_lambda_function.this["api"].image_uri == "123456789012.dkr.ecr.us-east-2.amazonaws.com/phoebe-api@${var.api_image_digest}"
@@ -385,7 +383,7 @@ run "lambdas" {
     error_message = "The budget Lambda only needs the state table."
   }
 
-  # Ruling R1: secrets reach Lambdas only as ARNs, resolved at startup.
+  # Secrets reach Lambdas only as ARNs, resolved at startup.
   assert {
     condition = alltrue([
       for f in values(aws_lambda_function.this) :
@@ -430,7 +428,7 @@ run "iam" {
     error_message = "Roles are named phoebe-<env>-*."
   }
 
-  # Bedrock: only Titan, Nova Micro, Haiku, the infra/ai harness and guardrail.
+  # Bedrock: only Titan, Nova Micro, Haiku and the infra/ai guardrail.
   assert {
     condition = alltrue(flatten([
       for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement : [
@@ -445,11 +443,10 @@ run "iam" {
           "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
           "arn:aws:bedrock:us-east-2:123456789012:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
           "arn:aws:bedrock:us-east-2:123456789012:guardrail/gr0abc123def",
-          "arn:aws:bedrock-agentcore:us-east-2:123456789012:harness/PhoebeHaikuHarness-AbCdEf1234",
         ], r)
       ] if anytrue([for a in flatten([st.Action]) : startswith(a, "bedrock")])
     ]))
-    error_message = "The API role may call Bedrock only on the pinned model, harness and guardrail ARNs."
+    error_message = "The API role may call Bedrock only on the pinned model and guardrail ARNs."
   }
 
   assert {
@@ -465,7 +462,7 @@ run "iam" {
     error_message = "The API role needs Titan (query embeddings), Nova Micro (rewriter), the guardrail and Haiku (answers)."
   }
 
-  # converse (default): Haiku through Bedrock directly, no AgentCore.
+  # Haiku through Bedrock directly, no AgentCore.
   assert {
     condition = anytrue([
       for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
@@ -481,12 +478,12 @@ run "iam" {
         for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
         [for a in flatten([st.Action]) : startswith(a, "bedrock-agentcore")]
     ]))
-    error_message = "With answer_backend = converse the API may stream Haiku on its profile and the profile's Regions, and has no AgentCore access."
+    error_message = "The API may stream Haiku on its profile and the profile's Regions, and has no AgentCore access."
   }
 
   assert {
-    condition     = !contains(keys(aws_lambda_function.this["api"].environment[0].variables), "PHOEBE_HARNESS_ARN")
-    error_message = "With answer_backend = converse the API has no harness ARN."
+    condition     = aws_lambda_function.this["api"].environment[0].variables["PHOEBE_ANSWER_BACKEND"] == "converse"
+    error_message = "The API answers through converse."
   }
 
   assert {
@@ -548,15 +545,6 @@ run "iam" {
   }
 
   assert {
-    condition = alltrue([
-      for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
-      flatten([st.Action]) == ["bedrock-agentcore:InvokeHarness", "bedrock-agentcore:InvokeAgentRuntime"]
-      if anytrue([for a in flatten([st.Action]) : startswith(a, "bedrock-agentcore:")])
-    ])
-    error_message = "The API role gets only the two actions InvokeHarness needs: InvokeHarness and InvokeAgentRuntime."
-  }
-
-  assert {
     condition = alltrue(flatten([
       for p in values(aws_iam_role_policy.lambda) : [
         for st in jsondecode(p.policy).Statement : !contains(flatten([st.Action]), "rds-data:BatchExecuteStatement")
@@ -565,7 +553,7 @@ run "iam" {
     error_message = "db_data_api.py never batches, so no role gets rds-data:BatchExecuteStatement."
   }
 
-  # Ruling R26: the sweeper reads/writes only the two idle-tracking keys.
+  # The sweeper reads/writes only the two idle-tracking keys.
   assert {
     condition = length([
       for st in jsondecode(aws_iam_role_policy.lambda["sweeper"].policy).Statement : st
@@ -664,7 +652,7 @@ run "storage" {
 run "queue" {
   command = apply
 
-  # Ruling R8: the numbers in backend/src/phoebe/lambdas/timings.py.
+  # The numbers in backend/src/phoebe/lambdas/timings.py.
   assert {
     condition = (
       aws_sqs_queue.jobs.visibility_timeout_seconds == 720 &&
@@ -794,7 +782,7 @@ run "production" {
   }
 }
 
-# R23: null leaves a function unreserved (for an account with a low quota).
+# Null leaves a function unreserved (for an account with a low quota).
 run "unreserved_concurrency" {
   command = apply
 
@@ -866,7 +854,7 @@ run "rejects_other_envs_password_secret" {
   expect_failures = [var.password_hash_secret_arn]
 }
 
-# R14: a staging role must never carry the production boundary, or vice versa.
+# A staging role must never carry the production boundary, or vice versa.
 run "rejects_other_envs_boundary" {
   command = plan
 
@@ -879,7 +867,7 @@ run "rejects_other_envs_boundary" {
   expect_failures = [var.boundary_policy_arn]
 }
 
-# R16: production must never subscribe to staging's topic (or vice versa).
+# Production must never subscribe to staging's topic (or vice versa).
 run "rejects_other_envs_budget_topic" {
   command = plan
 
@@ -1074,44 +1062,4 @@ run "edge" {
     condition     = output.site_url == "https://${aws_cloudfront_distribution.main.domain_name}"
     error_message = "site_url is https://<distribution>.cloudfront.net."
   }
-}
-
-
-# ---- Rollback: answer_backend = harness restores the AgentCore path ---------------
-
-run "answer_backend_harness_rollback" {
-  command = apply
-
-  variables {
-    answer_backend = "harness"
-  }
-
-  assert {
-    condition = (
-      aws_lambda_function.this["api"].environment[0].variables["PHOEBE_ANSWER_BACKEND"] == "harness" &&
-      aws_lambda_function.this["api"].environment[0].variables["PHOEBE_HARNESS_ARN"] == "arn:aws:bedrock-agentcore:us-east-2:123456789012:harness/PhoebeHaikuHarness-AbCdEf1234"
-    )
-    error_message = "The harness rollback sets the harness backend and its ARN."
-  }
-
-  assert {
-    condition = anytrue([
-      for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement :
-      st.Sid == "AnswerHarness" &&
-      toset(flatten([st.Resource])) == toset(["arn:aws:bedrock-agentcore:us-east-2:123456789012:harness/PhoebeHaikuHarness-AbCdEf1234"])
-      ]) && !anytrue([
-      for st in jsondecode(aws_iam_role_policy.lambda["api"].policy).Statement : st.Sid == "AnswerHaiku"
-    ])
-    error_message = "The harness rollback grants the harness, not direct Haiku."
-  }
-}
-
-run "answer_backend_rejects_unknown" {
-  command = plan
-
-  variables {
-    answer_backend = "direct"
-  }
-
-  expect_failures = [var.answer_backend]
 }

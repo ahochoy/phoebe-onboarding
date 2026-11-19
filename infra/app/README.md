@@ -45,16 +45,10 @@ Titan embedder, the Bedrock query rewriter and the guardrail. Secrets arrive
 only as ARNs (`PHOEBE_DB_SECRET_ARN`, `PHOEBE_ORIGIN_SECRET_ARN`,
 `PHOEBE_PASSWORD_HASH_SECRET_ARN`) and are read at startup.
 
-`answer_backend` picks how chat answers:
-
-- `converse` (the default): `PHOEBE_ANSWER_BACKEND=converse`. The API streams
-  Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`) through
-  Bedrock ConverseStream.
-- `harness`: the AgentCore harness in [`infra/ai`](../ai/README.md), with
-  `answer_harness` = `haiku` or `nova`. It is kept for one release as a
-  rollback and will then be removed.
-
-The IAM role grants only the chosen backend's permissions.
+Chat answers stream from Claude Haiku 4.5
+(`us.anthropic.claude-haiku-4-5-20251001-v1:0`) through Bedrock
+ConverseStream; the API role may invoke only that inference profile and the
+Regions it routes to.
 
 ### Idle cost
 

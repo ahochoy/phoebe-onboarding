@@ -248,7 +248,5 @@ def test_live_settings_accept_the_converse_backend() -> None:
         "guardrail_version": "1",
     }
     require_live_settings(Settings(answer_backend="converse", **base))  # pyright: ignore[reportCallIssue]
-    with pytest.raises(SystemExit, match="PHOEBE_HARNESS_ARN"):
-        require_live_settings(Settings(answer_backend="harness", **base))  # pyright: ignore[reportCallIssue]
     with pytest.raises(SystemExit, match="PHOEBE_ANSWER_BACKEND"):
         require_live_settings(Settings(answer_backend="extractive", **base))  # pyright: ignore[reportCallIssue]

@@ -71,28 +71,6 @@ variable "password_hash_secret_arn" {
   }
 }
 
-variable "answer_backend" {
-  description = "How the API answers chat: converse (Haiku through Bedrock directly, the default) or harness (the infra/ai AgentCore harness; the rollback path)."
-  type        = string
-  default     = "converse"
-
-  validation {
-    condition     = contains(["converse", "harness"], var.answer_backend)
-    error_message = "answer_backend must be converse or harness."
-  }
-}
-
-variable "answer_harness" {
-  description = "With answer_backend = harness, which infra/ai harness answers chat: haiku (default) or nova."
-  type        = string
-  default     = "haiku"
-
-  validation {
-    condition     = contains(["haiku", "nova"], var.answer_harness)
-    error_message = "answer_harness must be haiku or nova."
-  }
-}
-
 # Reserved concurrency counts against the account's concurrency
 # quota (new accounts can be as low as 10, with 10 always left unreserved).
 # Check the quota first; request an increase or set null.

@@ -205,7 +205,7 @@ def eval_settings(url: str, scratch: Path) -> Settings:
 
 
 def _answer_model(c: Candidate, settings: Settings) -> AnswerModel:
-    if c.harness:
+    if c.model_id is None:  # the app's own configured answer model
         return make_models(settings)[0]
     assert c.model_id is not None
     # Reasoning models spend output tokens on thinking before the answer; the

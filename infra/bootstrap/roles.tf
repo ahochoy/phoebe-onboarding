@@ -38,7 +38,7 @@ locals {
     ]
   }
 
-  # Ruling R17: the release Source action hands CodeBuild a CODEBUILD_CLONE_REF
+  # The release Source action hands CodeBuild a CODEBUILD_CLONE_REF
   # (a git clone through the connection), so release-plan can read the tag
   # with git. Only the documented actions: codeconnections UseConnection and
   # GetConnectionToken, plus codestar-connections:UseConnection (CodePipeline
@@ -107,7 +107,7 @@ locals {
         Resource = "*"
       },
       {
-        # Ruling R16: only this env's budget topic and its subscriptions.
+        # Only this env's budget topic and its subscriptions.
         Sid      = "OwnBudgetTopicReads"
         Effect   = "Allow"
         Action   = ["sns:GetTopicAttributes", "sns:ListSubscriptionsByTopic", "sns:ListTagsForResource", "sns:GetSubscriptionAttributes"]
@@ -330,7 +330,7 @@ locals {
           Resource = ["${local.arn_prefix.lambda}:function:phoebe-${env}-*"]
         },
         {
-          # Ruling R24: CreateEventSourceMapping supports no resource ARN (the
+          # CreateEventSourceMapping supports no resource ARN (the
           # mapping has none yet), so it is granted on "*", still limited to
           # this env's functions by lambda:FunctionArn.
           Sid       = "CreateEventSourceMappings"
@@ -363,7 +363,7 @@ locals {
           }
         },
         {
-          # Ruling R24: CreateDBCluster/Instance with no subnet group places the
+          # CreateDBCluster/Instance with no subnet group places the
           # cluster in the default VPC, which RDS resolves with the caller's ec2
           # describes. Read-only; EC2 describes support no resource scoping.
           Sid      = "RdsDefaultVpcReads"
@@ -420,7 +420,7 @@ locals {
           Resource = ["${local.arn_prefix.scheduler}:schedule/default/phoebe-${env}-*"]
         },
         {
-          # Ruling R16: subscribe only this env's budget Lambda to this env's topic.
+          # Subscribe only this env's budget Lambda to this env's topic.
           Sid      = "BudgetSubscribe"
           Effect   = "Allow"
           Action   = ["sns:Subscribe"]
@@ -509,7 +509,7 @@ locals {
       },
       local.artifacts_bucket_statement,
       {
-        # Ruling R13: add release-<git tag> / release-<git tag>-jobs to the
+        # Add release-<git tag> / release-<git tag>-jobs to the
         # promoted digests (BatchGetImage reads the manifest, PutImage re-puts
         # it under the new tag; IMMUTABLE only forbids moving an existing tag).
         Sid      = "TagReleaseImages"
