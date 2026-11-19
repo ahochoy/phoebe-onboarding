@@ -63,7 +63,7 @@ JOBS_TAG="release-$R_TAG-jobs"
 API_TAG_STATE="$(check_tag "$API_TAG" "$R_API")"
 JOBS_TAG_STATE="$(check_tag "$JOBS_TAG" "$R_JOBS")"
 
-PHOEBE_PLAN_FILE="$PLAN_FILE" bash "$REPO_ROOT/ci/deploy.sh" production "$R_API" "$R_JOBS"
+PHOEBE_VERSION="$R_TAG (${R_COMMIT:0:7})" PHOEBE_PLAN_FILE="$PLAN_FILE" bash "$REPO_ROOT/ci/deploy.sh" production "$R_API" "$R_JOBS"
 
 # put_tag <tag> <digest>
 put_tag() {

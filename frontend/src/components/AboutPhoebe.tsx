@@ -1,5 +1,6 @@
 import { HelpCircle } from "lucide-react";
 import { Popover, Tooltip } from "radix-ui";
+import { APP_VERSION } from "../version";
 
 export const ABOUT_PHOEBE =
   "Phoebe is Larkspur Labs' AI onboarding assistant. Ask a question and it searches " +
@@ -7,6 +8,13 @@ export const ABOUT_PHOEBE =
   "answers with citations you can open. It runs on AWS: Amazon Bedrock " +
   "for the model, embeddings and guardrails, Aurora Serverless for search, and Lambda " +
   "behind CloudFront.";
+
+const about = (
+  <>
+    <p>{ABOUT_PHOEBE}</p>
+    <p className="mt-2 text-xs text-ink/70">Version {APP_VERSION}</p>
+  </>
+);
 
 const bubble =
   "z-50 max-w-xs rounded-md border border-ink/15 bg-white px-3 py-2 text-sm text-ink shadow-md";
@@ -34,7 +42,7 @@ export function AboutPhoebe() {
             </Tooltip.Trigger>
             <Tooltip.Portal>
               <Tooltip.Content side="top" align="end" sideOffset={8} className={bubble}>
-                {ABOUT_PHOEBE}
+                {about}
               </Tooltip.Content>
             </Tooltip.Portal>
           </Tooltip.Root>
@@ -46,7 +54,7 @@ export function AboutPhoebe() {
               className={bubble}
               aria-label="About Phoebe"
             >
-              {ABOUT_PHOEBE}
+              {about}
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>

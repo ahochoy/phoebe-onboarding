@@ -13,7 +13,9 @@
 #   4. Invalidate /* and wait, then ci/smoke.sh.
 #
 # Optional env: STATE_BUCKET (default phoebe-tfstate-<account_id>),
-# PHOEBE_PLAN_FILE (production: the saved plan to apply).
+# PHOEBE_PLAN_FILE (production: the saved plan to apply), PHOEBE_VERSION (the
+# label the About popover shows, "<tag or main> (<short sha>)"; unset builds
+# as "dev").
 set -euo pipefail
 # shellcheck source=ci/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -26,6 +28,10 @@ require_env_name "$ENV_NAME"
 require_digest api_digest "$API_DIGEST"
 require_digest jobs_digest "$JOBS_DIGEST"
 PLAN_FILE="${PHOEBE_PLAN_FILE:-}"
+VERSION_LABEL="${PHOEBE_VERSION:-}"
+if [ -n "$VERSION_LABEL" ] && ! [[ "$VERSION_LABEL" =~ ^[0-9A-Za-z._-]+\ \([0-9a-f]{7}\)$ ]]; then
+  die "PHOEBE_VERSION must look like 'v1.2.3 (abcdef0)', got '$VERSION_LABEL'"
+fi
 
 log "deploy $ENV_NAME api=$API_DIGEST jobs=$JOBS_DIGEST"
 
@@ -96,7 +102,7 @@ invoke_ops seed_if_empty
 cd "$REPO_ROOT/frontend"
 log "frontend build (base /)"
 npm ci --no-audit --no-fund
-VITE_SITE_ORIGIN="$SITE_URL" PHOEBE_BASE=/ npm run build
+PHOEBE_VERSION="$VERSION_LABEL" VITE_SITE_ORIGIN="$SITE_URL" PHOEBE_BASE=/ npm run build
 
 DIST="$REPO_ROOT/frontend/dist"
 DEST="s3://$SITE_BUCKET"
